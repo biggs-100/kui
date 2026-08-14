@@ -1,0 +1,19 @@
+# Binaries
+kui.exe
+kui
+*.exe
+*.dll
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+
+# Local configuration
+.agent/
+.kui/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
