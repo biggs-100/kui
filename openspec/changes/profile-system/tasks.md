@@ -45,13 +45,13 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Skills + Store + Agent Wrapper
 
-- [ ] 4.1 Create `internal/adapters/skills/index.go`: layered discovery, `skill.yaml` index, trigger `Match`, body `Load` (REQ-SKILL-1..3)
-- [ ] 4.2 Create `index_test.go`: collision, aggregation, index w/o bodies, load-on-invocation, missing body
-- [ ] 4.3 Create `internal/adapters/store/store.go`: `.kui/models.json`, `.kui/active`, `KUI_HOME` (REQ-PROFILE-4)
-- [ ] 4.4 Create `store_test.go`: persist/restore, no-saved-model fallback
-- [ ] 4.5 Create `agent/queues.go`: mutex `PendingMessageQueue`, `Enqueue`/`Drain` per mode
-- [ ] 4.6 Create `agent/agent.go`: active profile, queues, SystemMessages (skills index), `Run`, `LoadSkill`
-- [ ] 4.7 Guard test `agent/`: no yaml/filesystem imports
+- [x] 4.1 Create `internal/adapters/skills/index.go`: layered discovery, `skill.yaml` index, trigger `Match`, body `Load` (REQ-SKILL-1..3)
+- [x] 4.2 Create `index_test.go`: collision, aggregation, index w/o bodies, load-on-invocation, missing body
+- [x] 4.3 Create `internal/adapters/store/store.go`: `.kui/models.json`, `.kui/active`, `KUI_HOME` (REQ-PROFILE-4)
+- [x] 4.4 Create `store_test.go`: persist/restore, no-saved-model fallback
+- [x] 4.5 Create `agent/queues.go`: mutex `PendingMessageQueue`, `Enqueue`/`Drain` per mode
+- [x] 4.6 Create `agent/agent.go`: active profile, queues, SystemMessages (skills index), `Run`, `LoadSkill`
+- [x] 4.7 Guard test `agent/`: no yaml/filesystem imports
 
 ## Phase 5: SetModel + CLI
 
