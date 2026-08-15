@@ -65,6 +65,7 @@ func okServer(t *testing.T, assert func(t *testing.T, r *http.Request)) *httptes
 // decodedRequest mirrors the OpenAI-compatible chat request wire format so the
 // tests assert the actual bytes the client sends, not internal structs.
 type decodedRequest struct {
+	Model    string `json:"model"`
 	Messages []struct {
 		Role       string `json:"role"`
 		Content    string `json:"content"`
@@ -410,6 +411,41 @@ func (tr *captureTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)),
 		Request:    req,
 	}, nil
+}
+
+// TestChatSendsDefaultModel covers the approved OPENAI_MODEL decision: every
+// request body carries a model field, defaulting to gpt-4o-mini when the
+// environment variable is unset.
+func TestChatSendsDefaultModel(t *testing.T) {
+	t.Setenv("OPENAI_MODEL", "")
+	srv := okServer(t, func(t *testing.T, r *http.Request) {
+		if got := decodeRequest(t, r).Model; got != defaultModel {
+			t.Errorf("request model = %q, want default %q", got, defaultModel)
+		}
+	})
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+
+	if _, err := c.Chat(context.Background(), []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+}
+
+// TestChatSendsConfiguredModel triangulates the model selection: OPENAI_MODEL
+// overrides the default in the request body.
+func TestChatSendsConfiguredModel(t *testing.T) {
+	t.Setenv("OPENAI_MODEL", "test-model-1")
+	srv := okServer(t, func(t *testing.T, r *http.Request) {
+		if got := decodeRequest(t, r).Model; got != "test-model-1" {
+			t.Errorf("request model = %q, want %q", got, "test-model-1")
+		}
+	})
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+
+	if _, err := c.Chat(context.Background(), []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
 }
 
 // TestChatDefaultBaseURL covers REQ-PROV-3 "Default base URL": with
