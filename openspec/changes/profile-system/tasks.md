@@ -37,11 +37,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Profile Runtime + Hot Switch
 
-- [ ] 3.1 RED `loop_test.go`: switch between turns, unknown profile, last-wins, marker (REQ-PROFILE-3, REQ-LOOP-5/6)
-- [ ] 3.2 Create `internal/adapters/profile/loader.go`: yaml parse, layered discovery, pure resolver (REQ-PROFILE-1/2)
-- [ ] 3.3 Create `loader_test.go`: valid, malformed names file, missing SYSTEM.md, precedence
-- [ ] 3.4 Create `internal/agent/profile_manager.go`: `ApplySwitch` — resolve, SYSTEM.md, rebuild evaluator+registry, `SetModel`, marker
-- [ ] 3.5 Modify `loop.go`: apply `Profiles.ApplySwitch` on steering drain
+- [x] 3.1 RED `loop_test.go`: switch between turns, unknown profile, last-wins, marker (REQ-PROFILE-3, REQ-LOOP-5/6)
+- [x] 3.2 Create `internal/adapters/profile/loader.go`: yaml parse, layered discovery, pure resolver (REQ-PROFILE-1/2)
+- [x] 3.3 Create `loader_test.go`: valid, malformed names file, missing SYSTEM.md, precedence
+- [x] 3.4 Create `internal/agent/profile_manager.go`: `ApplySwitch` — resolve, SYSTEM.md, rebuild evaluator+registry, `SetModel`, marker (SetModel itself deferred to 5.1 per D17; model stored via `Model()`)
+- [x] 3.5 Modify `loop.go`: apply `Profiles.ApplySwitch` on steering drain
 
 ## Phase 4: Skills + Store + Agent Wrapper
 

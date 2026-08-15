@@ -70,8 +70,14 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			// queue keep the loop alive only when steering is empty.
 			if a.Steering != nil {
 				if drained := a.Steering.Drain(); len(drained) > 0 {
-					messages = append(messages, pendingMessages(drained)...)
-					continue
+					var changed bool
+					messages, changed, err = applySteering(ctx, a.Profiles, messages, drained)
+					if err != nil {
+						return "", err
+					}
+					if changed {
+						continue
+					}
 				}
 			}
 			if a.FollowUp != nil {
@@ -111,18 +117,58 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 		// The turn completed with tool execution: drain the steering queue so
 		// its messages are injected before the next provider request
 		// (REQ-QUEUE-1). A failing tool returns above, so a failed turn never
-		// drains and never injects queued messages (REQ-QUEUE-3).
+		// drains and never injects queued messages (REQ-QUEUE-3). Queued
+		// switch requests apply here, between turns — never mid-tool-call
+		// (REQ-LOOP-5).
 		if a.Steering != nil {
-			messages = append(messages, pendingMessages(a.Steering.Drain())...)
+			if drained := a.Steering.Drain(); len(drained) > 0 {
+				if messages, _, err = applySteering(ctx, a.Profiles, messages, drained); err != nil {
+					return "", err
+				}
+			}
 		}
 	}
 
 	return "", &IterationLimitError{Max: a.MaxIterations}
 }
 
+// applySteering folds the drained steering messages into the conversation
+// (REQ-QUEUE-1, REQ-LOOP-5/6). Content messages are injected as user messages
+// in drain order; a queued SwitchProfile request is applied via the Profiles
+// port and the returned messages (the new system prompt and the
+// profile-context marker, D16) are appended after the user content. Multiple
+// switch requests in one drain collapse to the last one so the final switch
+// is deterministic (REQ-LOOP-5). changed reports whether the conversation
+// grew; a drain with nothing injectable (no content, no switch, or a disabled
+// Profiles port) changes nothing so the loop never spins.
+func applySteering(ctx context.Context, profiles ProfileManager, messages []Message, drained []PendingMessage) ([]Message, bool, error) {
+	var switchName string
+	changed := false
+	for _, p := range drained {
+		if p.SwitchProfile != "" {
+			switchName = p.SwitchProfile // the last switch wins (REQ-LOOP-5)
+			continue
+		}
+		if p.Content != "" {
+			messages = append(messages, Message{Role: RoleUser, Content: p.Content})
+			changed = true
+		}
+	}
+	if switchName != "" && profiles != nil {
+		switched, err := profiles.ApplySwitch(ctx, switchName)
+		if err != nil {
+			return nil, false, err
+		}
+		messages = append(messages, switched...)
+		changed = true
+	}
+	return messages, changed, nil
+}
+
 // pendingMessages maps drained queue messages onto the conversation as user
-// messages (REQ-QUEUE-1). Profile-switch messages are applied via the
-// Profiles port when switching lands (D16).
+// messages (REQ-QUEUE-1). Steering drains fold switches separately through
+// applySteering (D16); this remains the plain injection path for follow-up
+// drains, which never carry switch requests.
 func pendingMessages(pending []PendingMessage) []Message {
 	messages := make([]Message, 0, len(pending))
 	for _, p := range pending {
