@@ -1,0 +1,5 @@
+name: agent-foundation
+created: 2026-08-14T17:12:51-05:00
+phase: propose
+description: "Bootstrap the kui Go agent project: Go module, hexagonal layout with architecture guard test, core agent loop (prompt -> tool -> result), OpenAI-compatible provider adapter, and minimal CLI to prove the loop."
+status: active
