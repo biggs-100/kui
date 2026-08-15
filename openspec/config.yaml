@@ -1,0 +1,47 @@
+schema: spec-driven
+
+context: |
+  Project: kui — Go agent runtime (Pi-inspired), OpenCode-style TUI built with Bubble Tea.
+  Stack: Go 1.26 (module github.com/biggs-100/kui; go.mod not initialized yet).
+  Product: profile system (per-profile model/provider, skills, commands, tools, MCP servers,
+  plugins, system prompt, policies); TAB-driven hot profile switching in one session;
+  easy profile customization for non-technical users.
+  Conventions: gofmt, go vet, golangci-lint; tests via go test; binary name `kui`;
+  local config under `.kui/`; RDD (receipt-driven development) enabled globally.
+
+testing:
+  strict_tdd: true
+  runner: go test ./...
+  layers:
+    unit: go test ./...
+    integration: go test ./... (httptest; TUI: charmbracelet/teatest)
+    e2e: none detected
+  coverage: go test -cover ./...
+  quality:
+    linter: golangci-lint run ./...
+    type_checker: go vet ./... (statically typed)
+    formatter: gofmt -l .
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns
+      - First change must bootstrap the Go module (no go.mod exists yet)
+    tdd: true
+    test_command: go test ./...
+  verify:
+    test_command: go test ./...
+    build_command: go build ./...
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas

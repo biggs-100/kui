@@ -21,6 +21,9 @@ import (
 const (
 	// defaultBaseURL is used when OPENAI_BASE_URL is unset (REQ-PROV-3).
 	defaultBaseURL = "https://api.openai.com/v1"
+	// defaultModel is used when OPENAI_MODEL is unset so every request
+	// carries an explicit model field.
+	defaultModel = "gpt-4o-mini"
 	// requestTimeout bounds every chat request (D9).
 	requestTimeout = 60 * time.Second
 )
@@ -30,13 +33,15 @@ const (
 type Client struct {
 	apiKey  string
 	baseURL string
+	model   string
 	http    *http.Client
 }
 
 // NewClient reads credentials and endpoint configuration from the
 // environment: OPENAI_API_KEY is required and its absence is reported by
 // naming the variable (D8, REQ-PROV-2); OPENAI_BASE_URL defaults to
-// https://api.openai.com/v1 (REQ-PROV-3).
+// https://api.openai.com/v1 (REQ-PROV-3); OPENAI_MODEL defaults to
+// gpt-4o-mini.
 func NewClient() (*Client, error) {
 	key := os.Getenv("OPENAI_API_KEY")
 	if key == "" {
@@ -46,9 +51,14 @@ func NewClient() (*Client, error) {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	model := os.Getenv("OPENAI_MODEL")
+	if model == "" {
+		model = defaultModel
+	}
 	return &Client{
 		apiKey:  key,
 		baseURL: baseURL,
+		model:   model,
 		http:    &http.Client{Timeout: requestTimeout},
 	}, nil
 }
@@ -59,6 +69,7 @@ func NewClient() (*Client, error) {
 // key never appears in any returned error (D8, REQ-PROV-3).
 func (c *Client) Chat(ctx context.Context, messages []core.Message, tools []core.Tool) ([]core.Message, error) {
 	body, err := json.Marshal(chatRequest{
+		Model:    c.model,
 		Messages: requestMessages(messages),
 		Tools:    requestTools(tools),
 	})
@@ -98,8 +109,10 @@ func (c *Client) Chat(ctx context.Context, messages []core.Message, tools []core
 	return parseResponse(parsed)
 }
 
-// chatRequest is the OpenAI-compatible chat completions request body.
+// chatRequest is the OpenAI-compatible chat completions request body. Model is
+// always present so compatible servers never receive a request without it.
 type chatRequest struct {
+	Model    string           `json:"model"`
 	Messages []requestMessage `json:"messages"`
 	Tools    []requestTool    `json:"tools,omitempty"`
 }
