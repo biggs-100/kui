@@ -450,6 +450,33 @@ func TestChatSendsConfiguredModel(t *testing.T) {
 	}
 }
 
+// TestSetModelChangesRequestModel covers D17: SetModel reconfigures the
+// provider for subsequent requests without changing construction behavior.
+// After SetModel the next request body carries the new model, and the change
+// persists across requests.
+func TestSetModelChangesRequestModel(t *testing.T) {
+	t.Setenv("OPENAI_MODEL", "initial-model")
+	var requests int
+	srv := okServer(t, func(t *testing.T, r *http.Request) {
+		requests++
+		if got := decodeRequest(t, r).Model; got != "override-model" {
+			t.Errorf("request %d model = %q, want %q", requests, got, "override-model")
+		}
+	})
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+	c.SetModel("override-model")
+
+	for range 2 {
+		if _, err := c.Chat(context.Background(), []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil); err != nil {
+			t.Fatalf("Chat() error = %v", err)
+		}
+	}
+	if requests != 2 {
+		t.Errorf("provider received %d requests, want 2", requests)
+	}
+}
+
 // TestChatDefaultBaseURL covers REQ-PROV-3 "Default base URL": with
 // OPENAI_BASE_URL unset the request targets
 // https://api.openai.com/v1/chat/completions.
