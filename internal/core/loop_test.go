@@ -10,17 +10,20 @@ import (
 )
 
 // fakeProvider returns pre-queued responses, one per Chat call, and records
-// the message history it receives so tests can assert tool results are fed
-// back to the provider (REQ-LOOP-4).
+// the message history and the advertised tool slice it receives so tests can
+// assert tool results are fed back (REQ-LOOP-4) and denied tools are filtered
+// out before the provider request (D15, REQ-PERM-3).
 type fakeProvider struct {
 	responses [][]Message
 	calls     int
 	received  [][]Message
+	tools     [][]Tool
 }
 
-func (f *fakeProvider) Chat(_ context.Context, messages []Message, _ []Tool) ([]Message, error) {
+func (f *fakeProvider) Chat(_ context.Context, messages []Message, tools []Tool) ([]Message, error) {
 	f.calls++
 	f.received = append(f.received, append([]Message(nil), messages...))
+	f.tools = append(f.tools, append([]Tool(nil), tools...))
 	if f.calls > len(f.responses) {
 		return nil, errors.New("fakeProvider: unexpected extra Chat call")
 	}
@@ -264,13 +267,25 @@ func (f *fakeProfileManager) ApplySwitch(_ context.Context, _ string) ([]Message
 	return nil, nil
 }
 
-// fakePermissionEvaluator is a permissive PermissionEvaluator fake proving
-// the loop accepts a non-nil Permissions port without changing behavior.
-// Filtering and the dispatch guard are wired in PR 2 (D15).
-type fakePermissionEvaluator struct{}
+// fakePermissionEvaluator gates on a deny set: Allow reports false for denied
+// names and Filter drops them from the advertised slice. An empty deny set is
+// fully permissive, so the nil-safe port test still behaves like the
+// single-level loop (D14).
+type fakePermissionEvaluator struct {
+	deny map[string]bool
+}
 
-func (f *fakePermissionEvaluator) Allow(_ string) bool        { return true }
-func (f *fakePermissionEvaluator) Filter(tools []Tool) []Tool { return tools }
+func (f *fakePermissionEvaluator) Allow(name string) bool { return !f.deny[name] }
+
+func (f *fakePermissionEvaluator) Filter(tools []Tool) []Tool {
+	filtered := make([]Tool, 0, len(tools))
+	for _, tool := range tools {
+		if !f.deny[tool.Name()] {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
+}
 
 func TestRunSteeringDrainsAllBeforeNextRequest(t *testing.T) {
 	// REQ-QUEUE-1, drain-all: three queued steering messages are all injected
@@ -543,5 +558,76 @@ func TestRunNilSafeWhenPortsUnset(t *testing.T) {
 	}
 	if provider.calls != 1 {
 		t.Errorf("provider called %d times, want 1", provider.calls)
+	}
+}
+
+func TestRunFiltersDeniedToolsBeforeChat(t *testing.T) {
+	// D15, REQ-PERM-3: the tools slice handed to Chat must exclude denied
+	// tools while keeping allowed ones, so the provider never advertises
+	// them. Denied tools must also never execute.
+	readFile := &fakeTool{name: "read_file", result: "contents"}
+	writeFile := &fakeTool{name: "write_file", result: "written"}
+	registry := NewRegistry()
+	for _, tool := range []*fakeTool{readFile, writeFile} {
+		if err := registry.Register(tool); err != nil {
+			t.Fatalf("Register(%s) failed: %v", tool.name, err)
+		}
+	}
+	provider := &fakeProvider{responses: [][]Message{
+		{{Role: RoleAssistant, Content: "done"}},
+	}}
+	permissions := &fakePermissionEvaluator{deny: map[string]bool{"write_file": true}}
+	agent := &Agent{Provider: provider, Tools: registry, MaxIterations: 5, Permissions: permissions}
+
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "done" {
+		t.Errorf("answer = %q, want %q", answer, "done")
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider called %d times, want 1", provider.calls)
+	}
+	var got []string
+	for _, tool := range provider.tools[0] {
+		got = append(got, tool.Name())
+	}
+	if want := []string{"read_file"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("tools advertised to Chat = %v, want %v (write_file must be hidden)", got, want)
+	}
+	if len(writeFile.args) != 0 {
+		t.Errorf("denied tool write_file executed %d times, want 0", len(writeFile.args))
+	}
+}
+
+func TestRunDeniedDispatchReturnsPermissionError(t *testing.T) {
+	// REQ-PERM-4, defense in depth: even if the provider requests a denied
+	// tool (it should never see one), the loop rejects the dispatch with a
+	// typed PermissionError and the tool's side effect never runs.
+	readSecrets := &fakeTool{name: "read_secrets", result: "top secret"}
+	registry := NewRegistry()
+	if err := registry.Register(readSecrets); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	provider := &fakeProvider{responses: [][]Message{
+		{toolCall("call-1", "read_secrets", `{}`)},
+	}}
+	permissions := &fakePermissionEvaluator{deny: map[string]bool{"read_secrets": true}}
+	agent := &Agent{Provider: provider, Tools: registry, MaxIterations: 5, Permissions: permissions}
+
+	_, err := agent.Run(context.Background(), "read the secrets")
+	var permErr *PermissionError
+	if !errors.As(err, &permErr) {
+		t.Fatalf("Run error = %v, want *PermissionError", err)
+	}
+	if permErr.Tool != "read_secrets" {
+		t.Errorf("PermissionError.Tool = %q, want %q", permErr.Tool, "read_secrets")
+	}
+	if len(readSecrets.args) != 0 {
+		t.Errorf("denied tool executed %d times, want 0 (no side effect)", len(readSecrets.args))
+	}
+	if provider.calls != 1 {
+		t.Errorf("provider called %d times, want 1 (no further requests after denial)", provider.calls)
 	}
 }

@@ -38,8 +38,9 @@ type Agent struct {
 
 // Run executes one single-session loop from the user prompt to a final
 // answer. It returns the provider's answer content, or a typed error when the
-// loop must terminate: UnknownToolError for unregistered tools, ToolError for
-// tool execution failures, IterationLimitError when the budget is exhausted.
+// loop must terminate: UnknownToolError for unregistered tools, PermissionError
+// for denied tools, ToolError for tool execution failures, IterationLimitError
+// when the budget is exhausted.
 //
 // The loop operates in two levels (D14): an inner level alternates provider
 // requests with tool execution and steering-queue draining; an outer level
@@ -51,7 +52,13 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 	messages := []Message{{Role: RoleUser, Content: prompt}}
 
 	for range a.MaxIterations {
-		response, err := a.Provider.Chat(ctx, messages, a.Tools.List())
+		tools := a.Tools.List()
+		if a.Permissions != nil {
+			// D15: hide denied tools from the provider request payload so the
+			// model never sees them (REQ-PERM-3).
+			tools = a.Permissions.Filter(tools)
+		}
+		response, err := a.Provider.Chat(ctx, messages, tools)
 		if err != nil {
 			return "", err
 		}
@@ -84,6 +91,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			tool, ok := a.Tools.Get(call.Name)
 			if !ok {
 				return "", &UnknownToolError{Name: call.Name}
+			}
+			if a.Permissions != nil && !a.Permissions.Allow(call.Name) {
+				// D15, defense in depth: never execute a denied tool even if
+				// a request arrives (REQ-PERM-4).
+				return "", &PermissionError{Tool: call.Name}
 			}
 			result, err := tool.Execute(ctx, json.RawMessage(call.Arguments))
 			if err != nil {
