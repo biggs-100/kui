@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -258,13 +259,20 @@ func (q *fakeQueue) Drain() []PendingMessage {
 	return drained
 }
 
-// fakeProfileManager is a no-op ProfileManager fake proving the loop accepts
-// a non-nil Profiles port without changing behavior. Switch application is
-// wired in PR 3 (D16).
-type fakeProfileManager struct{}
+// fakeProfileManager is a ProfileManager fake that records every switch
+// request it receives and returns pre-queued messages or an error, so loop
+// tests can prove switch application between turns (REQ-LOOP-5/6, D16). The
+// zero value (no messages, no error) is a no-op, keeping the nil-safe port
+// test behavior identical to the single-level loop (D14).
+type fakeProfileManager struct {
+	names    []string
+	messages []Message
+	err      error
+}
 
-func (f *fakeProfileManager) ApplySwitch(_ context.Context, _ string) ([]Message, error) {
-	return nil, nil
+func (f *fakeProfileManager) ApplySwitch(_ context.Context, name string) ([]Message, error) {
+	f.names = append(f.names, name)
+	return f.messages, f.err
 }
 
 // fakePermissionEvaluator gates on a deny set: Allow reports false for denied
@@ -629,5 +637,150 @@ func TestRunDeniedDispatchReturnsPermissionError(t *testing.T) {
 	}
 	if provider.calls != 1 {
 		t.Errorf("provider called %d times, want 1 (no further requests after denial)", provider.calls)
+	}
+}
+
+func TestRunSwitchAppliesBetweenTurns(t *testing.T) {
+	// REQ-LOOP-5: a switch queued during a tool call applies before the next
+	// provider request — never mid-tool-call. The switch messages (new system
+	// prompt + profile-context marker, REQ-LOOP-6) are appended to the
+	// history, which itself is preserved unchanged (REQ-PROFILE-3).
+	readFile := &fakeTool{name: "read_file", result: "contents"}
+	registry := NewRegistry()
+	if err := registry.Register(readFile); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	provider := &fakeProvider{responses: [][]Message{
+		{toolCall("call-1", "read_file", `{"path":"a"}`)},
+		{{Role: RoleAssistant, Content: "done under coder"}},
+	}}
+	profiles := &fakeProfileManager{
+		messages: []Message{
+			{Role: RoleSystem, Content: "you are the coder profile"},
+			{Role: RoleSystem, Content: "Profile switched to coder. Continue with the existing conversation context..."},
+		},
+	}
+	steering := &fakeQueue{mode: QueueModeAll}
+	steering.Enqueue(PendingMessage{SwitchProfile: "coder"})
+	agent := &Agent{
+		Provider: provider, Tools: registry, MaxIterations: 5,
+		Steering: steering, Profiles: profiles,
+	}
+
+	answer, err := agent.Run(context.Background(), "read a")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "done under coder" {
+		t.Errorf("answer = %q, want %q", answer, "done under coder")
+	}
+	if len(profiles.names) != 1 || profiles.names[0] != "coder" {
+		t.Errorf("ApplySwitch called with %v, want exactly [coder]", profiles.names)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("provider called %d times, want 2 (switch kept the loop alive)", provider.calls)
+	}
+
+	second := provider.received[1]
+	// History is preserved: prompt, tool call, and tool result are all still
+	// present before the switch messages.
+	if len(second) != 5 {
+		t.Fatalf("second Chat received %d messages, want 5 (3 history + system prompt + marker)", len(second))
+	}
+	if last := second[2]; last.Role != RoleTool || last.ToolCallID != "call-1" {
+		t.Errorf("history lost the tool result: %+v", last)
+	}
+	sys := second[3]
+	if sys.Role != RoleSystem || sys.Content != "you are the coder profile" {
+		t.Errorf("switch system prompt message = %+v, want the coder system prompt", sys)
+	}
+	marker := second[4]
+	if marker.Role != RoleSystem || !strings.Contains(marker.Content, "coder") {
+		t.Errorf("marker message = %+v, want a RoleSystem message naming coder", marker)
+	}
+}
+
+func TestRunUnknownProfileReturnsTypedError(t *testing.T) {
+	// REQ-PROFILE-3: a switch naming an unknown profile aborts the run with a
+	// typed UnknownProfileError and no further provider requests are made.
+	provider := &fakeProvider{responses: [][]Message{
+		{{Role: RoleAssistant, Content: "first answer"}},
+	}}
+	profiles := &fakeProfileManager{err: &UnknownProfileError{Name: "nope"}}
+	steering := &fakeQueue{mode: QueueModeAll}
+	steering.Enqueue(PendingMessage{SwitchProfile: "nope"})
+	agent := &Agent{
+		Provider: provider, Tools: NewRegistry(), MaxIterations: 5,
+		Steering: steering, Profiles: profiles,
+	}
+
+	_, err := agent.Run(context.Background(), "hello")
+	var unknown *UnknownProfileError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("Run error = %v, want *UnknownProfileError", err)
+	}
+	if unknown.Name != "nope" {
+		t.Errorf("UnknownProfileError.Name = %q, want %q", unknown.Name, "nope")
+	}
+	if provider.calls != 1 {
+		t.Errorf("provider called %d times, want 1 (loop stops at unknown profile)", provider.calls)
+	}
+}
+
+func TestRunMultipleSwitchesLastWins(t *testing.T) {
+	// REQ-LOOP-5: when one steering drain carries two switch requests, the
+	// last switch determines the active profile — ApplySwitch is called once
+	// with the last name.
+	provider := &fakeProvider{responses: [][]Message{
+		{{Role: RoleAssistant, Content: "answer one"}},
+		{{Role: RoleAssistant, Content: "answer two"}},
+	}}
+	profiles := &fakeProfileManager{
+		messages: []Message{{Role: RoleSystem, Content: "Profile switched to writer. Continue..."}},
+	}
+	steering := &fakeQueue{mode: QueueModeAll}
+	steering.Enqueue(
+		PendingMessage{SwitchProfile: "coder"},
+		PendingMessage{SwitchProfile: "writer"},
+	)
+	agent := &Agent{
+		Provider: provider, Tools: NewRegistry(), MaxIterations: 5,
+		Steering: steering, Profiles: profiles,
+	}
+
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "answer two" {
+		t.Errorf("answer = %q, want %q", answer, "answer two")
+	}
+	if len(profiles.names) != 1 || profiles.names[0] != "writer" {
+		t.Errorf("ApplySwitch called with %v, want exactly [writer] (last switch wins)", profiles.names)
+	}
+	if provider.calls != 2 {
+		t.Errorf("provider called %d times, want 2", provider.calls)
+	}
+}
+
+func TestRunNoMarkerWithoutSwitch(t *testing.T) {
+	// REQ-LOOP-6: a session with no profile switch inserts no marker (or
+	// system) messages into the history.
+	provider := &fakeProvider{responses: [][]Message{
+		{{Role: RoleAssistant, Content: "plain answer"}},
+	}}
+	agent := &Agent{Provider: provider, Tools: NewRegistry(), MaxIterations: 5}
+
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "plain answer" {
+		t.Errorf("answer = %q, want %q", answer, "plain answer")
+	}
+	for _, m := range provider.received[0] {
+		if m.Role == RoleSystem {
+			t.Errorf("unexpected system/marker message without a switch: %+v", m)
+		}
 	}
 }
