@@ -63,6 +63,14 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
+// SetModel reconfigures the model used by subsequent requests (D17,
+// REQ-CLI-4). It is additive: construction behavior is unchanged, and every
+// later request carries the new model field so the provider is reconfigured
+// in place rather than rebuilt.
+func (c *Client) SetModel(model string) {
+	c.model = model
+}
+
 // Chat exchanges the message sequence and the advertised tool set with the
 // provider and returns its response messages, which may carry tool calls
 // (REQ-PROV-1). HTTP failures map to the typed error surface (D10); the API

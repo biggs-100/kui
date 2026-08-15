@@ -55,12 +55,12 @@ Chain strategy: stacked-to-main
 
 ## Phase 5: SetModel + CLI
 
-- [ ] 5.1 Add `SetModel` to `adapters/providers/openai/client.go` (D17)
-- [ ] 5.2 Extend `client_test.go`: `SetModel` changes request model
-- [ ] 5.3 Modify `cmd/kui/main.go`: `list|switch|model` subcommands, resolution chain (REQ-CLI-4), `-- <prompt>`, usage
-- [ ] 5.4 Extend `main_test.go`: exec smoke — list marks active, no profiles, unknown switch, model persists, usage exit 2
+- [x] 5.1 Add `SetModel` to `adapters/providers/openai/client.go` (D17)
+- [x] 5.2 Extend `client_test.go`: `SetModel` changes request model
+- [x] 5.3 Modify `cmd/kui/main.go`: `list|switch|model` subcommands, resolution chain (REQ-CLI-4), `-- <prompt>`, usage
+- [x] 5.4 Extend `main_test.go`: exec smoke — list marks active, no profiles, unknown switch, model persists, usage exit 2
 
 ## Phase 6: Verification
 
-- [ ] 6.1 Run `go test ./...`, `go vet`, `gofmt -l .`
-- [ ] 6.2 Trace every REQ to a passing test; baseline 55 green; revert readiness
+- [x] 6.1 Run `go test ./...`, `go vet`, `gofmt -l .`
+- [x] 6.2 Trace every REQ to a passing test; baseline 55 green; revert readiness
