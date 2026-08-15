@@ -28,12 +28,12 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Permissions
 
-- [ ] 2.1 RED `loop_test.go`: filtered tools slice to Chat; denied dispatch → `PermissionError` (REQ-PERM-4)
-- [ ] 2.2 RED payload: httptest body excludes denied, keeps allowed (REQ-PERM-3)
-- [ ] 2.3 Add `gopkg.in/yaml.v3` to `go.mod` (adapter-only)
-- [ ] 2.4 Create `internal/adapters/permissions/ruleset.go`: `Flatten`, `Evaluate` (findLast, `path.Match`), Ask→Deny, `Filter`
-- [ ] 2.5 Create `ruleset_test.go`: last-wins, wildcard, empty, unregistered, ask→deny
-- [ ] 2.6 Modify `loop.go`: filter `Tools.List()` pre-Chat; `Allow` guard
+- [x] 2.1 RED `loop_test.go`: filtered tools slice to Chat; denied dispatch → `PermissionError` (REQ-PERM-4)
+- [x] 2.2 RED payload: httptest body excludes denied, keeps allowed (REQ-PERM-3)
+- [x] 2.3 yaml.v3 resolved: NOT added in this slice — rules are constructed programmatically; `Flatten` consumes `[]Rule`. The yaml loader lands with PR 3 (`adapters/profile/loader.go`), keeping core stdlib-only
+- [x] 2.4 Create `internal/adapters/permissions/ruleset.go`: `Flatten`, `Evaluate` (findLast, `path.Match`), Ask→Deny, `Filter`
+- [x] 2.5 Create `ruleset_test.go`: last-wins, wildcard, empty, unregistered, ask→deny
+- [x] 2.6 Modify `loop.go`: filter `Tools.List()` pre-Chat; `Allow` guard
 
 ## Phase 3: Profile Runtime + Hot Switch
 

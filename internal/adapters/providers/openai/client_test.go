@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/biggs-100/kui/internal/adapters/permissions"
 	"github.com/biggs-100/kui/internal/core"
 )
 
@@ -469,5 +471,110 @@ func TestChatDefaultBaseURL(t *testing.T) {
 	}
 	if want := "https://api.openai.com/v1/chat/completions"; transport.gotURL.String() != want {
 		t.Errorf("request URL = %q, want %q", transport.gotURL.String(), want)
+	}
+}
+
+// payloadServer captures the raw request body and returns a canned answer, so
+// payload tests assert the exact bytes the client sends (REQ-PERM-3).
+func payloadServer(t *testing.T, rawBody *string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		*rawBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"done"}}]}`)
+	}))
+}
+
+// toolNames lists the advertised function names of a decoded request body.
+func toolNames(req decodedRequest) []string {
+	names := make([]string, 0, len(req.Tools))
+	for _, tool := range req.Tools {
+		names = append(names, tool.Function.Name)
+	}
+	return names
+}
+
+// TestChatPayloadDenyAllHidesEveryTool covers REQ-PERM-3 "Deny removes from
+// payload": with a "*": "deny" ruleset the outgoing request body carries no
+// tools at all — the denied tool's name never reaches the wire.
+func TestChatPayloadDenyAllHidesEveryTool(t *testing.T) {
+	var rawBody string
+	srv := payloadServer(t, &rawBody)
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+
+	registry := core.NewRegistry()
+	if err := registry.Register(readFileTool()); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+	agent := &core.Agent{
+		Provider:      c,
+		Tools:         registry,
+		MaxIterations: 5,
+		Permissions:   permissions.Flatten([]permissions.Rule{{Pattern: "*", Action: permissions.Deny}}),
+	}
+
+	if _, err := agent.Run(context.Background(), "list the files"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if strings.Contains(rawBody, "read_file") {
+		t.Errorf("request body %q still mentions hidden tool read_file", rawBody)
+	}
+	var got decodedRequest
+	if err := json.Unmarshal([]byte(rawBody), &got); err != nil {
+		t.Fatalf("request body is not valid JSON: %v", err)
+	}
+	if len(got.Tools) != 0 {
+		t.Errorf("payload tools = %v, want none under deny-all", toolNames(got))
+	}
+}
+
+// TestChatPayloadKeepsAllowedTools covers REQ-PERM-3 "Allow keeps in
+// payload": rules ["*": "deny", "allow read_*"] keep read_file in the body
+// while write_file and bash disappear.
+func TestChatPayloadKeepsAllowedTools(t *testing.T) {
+	var rawBody string
+	srv := payloadServer(t, &rawBody)
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+
+	registry := core.NewRegistry()
+	for _, tool := range []core.Tool{
+		readFileTool(),
+		fakeTool{name: "write_file", description: "write a file", schema: `{"type":"object","properties":{}}`},
+		fakeTool{name: "bash", description: "run a shell command", schema: `{"type":"object","properties":{}}`},
+	} {
+		if err := registry.Register(tool); err != nil {
+			t.Fatalf("Register(%s) failed: %v", tool.Name(), err)
+		}
+	}
+	agent := &core.Agent{
+		Provider:      c,
+		Tools:         registry,
+		MaxIterations: 5,
+		Permissions: permissions.Flatten([]permissions.Rule{
+			{Pattern: "*", Action: permissions.Deny},
+			{Pattern: "read_*", Action: permissions.Allow},
+		}),
+	}
+
+	if _, err := agent.Run(context.Background(), "list the files"); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var got decodedRequest
+	if err := json.Unmarshal([]byte(rawBody), &got); err != nil {
+		t.Fatalf("request body is not valid JSON: %v", err)
+	}
+	if want := []string{"read_file"}; !reflect.DeepEqual(toolNames(got), want) {
+		t.Errorf("payload tools = %v, want %v (write_file and bash must be hidden)", toolNames(got), want)
+	}
+	for _, hidden := range []string{"write_file", "bash"} {
+		if strings.Contains(rawBody, hidden) {
+			t.Errorf("request body %q still mentions hidden tool %q", rawBody, hidden)
+		}
 	}
 }
