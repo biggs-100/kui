@@ -1,6 +1,6 @@
 # Binaries
-kui.exe
-kui
+/kui.exe
+/kui
 *.exe
 *.dll
 
@@ -13,6 +13,9 @@ coverage.*
 .agent/
 .kui/
 .env
+
+# Agent tooling
+.atl/
 
 # OS
 .DS_Store
