@@ -9,6 +9,9 @@ const (
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
 	RoleTool      = "tool"
+	// RoleSystem marks system prompts and profile-context marker messages
+	// (D16, REQ-LOOP-6). Providers serialize it verbatim as role "system".
+	RoleSystem = "system"
 )
 
 // ToolCall is a provider request to invoke a tool. Arguments is the raw JSON

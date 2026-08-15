@@ -1,0 +1,5 @@
+name: profile-system
+created: 2026-08-14T23:13:31-05:00
+phase: propose
+description: "Implement the kui profile system: profiles as first-class units (per-profile model, tools, skills, prompts, permissions), hot-swap with TAB/shift+TAB in the same session, per-profile model persistence, and profile configuration files easy to customize."
+status: active

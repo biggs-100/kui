@@ -47,3 +47,78 @@ type DuplicateToolError struct {
 func (e *DuplicateToolError) Error() string {
 	return fmt.Sprintf("tool %q already registered", e.Name)
 }
+
+// UnknownProfileError is returned when a profile switch targets a profile
+// that is not registered (REQ-PROFILE-3).
+type UnknownProfileError struct {
+	Name string
+}
+
+func (e *UnknownProfileError) Error() string {
+	return fmt.Sprintf("unknown profile %q", e.Name)
+}
+
+// PermissionError is returned when the loop is asked to dispatch a tool the
+// active profile denies (D15, REQ-PERM-4).
+type PermissionError struct {
+	Tool string
+}
+
+func (e *PermissionError) Error() string {
+	return fmt.Sprintf("tool %q not permitted", e.Tool)
+}
+
+// ProfileActivationError reports a profile that failed to activate, naming
+// the profile and, when known, the file that caused the failure.
+type ProfileActivationError struct {
+	Name string
+	File string
+	Err  error
+}
+
+func (e *ProfileActivationError) Error() string {
+	if e.File != "" {
+		return fmt.Sprintf("profile %q activation failed (%s): %v", e.Name, e.File, e.Err)
+	}
+	return fmt.Sprintf("profile %q activation failed: %v", e.Name, e.Err)
+}
+
+// Unwrap exposes the underlying activation failure.
+func (e *ProfileActivationError) Unwrap() error {
+	return e.Err
+}
+
+// SkillLoadError reports a skill that failed to load, naming the skill and
+// the file that failed (REQ-SKILL-3).
+type SkillLoadError struct {
+	Name string
+	File string
+	Err  error
+}
+
+func (e *SkillLoadError) Error() string {
+	if e.File != "" {
+		return fmt.Sprintf("skill %q failed to load (%s): %v", e.Name, e.File, e.Err)
+	}
+	return fmt.Sprintf("skill %q failed to load: %v", e.Name, e.Err)
+}
+
+// Unwrap exposes the underlying load failure.
+func (e *SkillLoadError) Unwrap() error {
+	return e.Err
+}
+
+// StoreError wraps persistence failures of the profile store (REQ-PROFILE-4).
+type StoreError struct {
+	Op  string
+	Err error
+}
+
+func (e *StoreError) Error() string {
+	return fmt.Sprintf("store %s failed: %v", e.Op, e.Err)
+}
+
+// Unwrap exposes the underlying store failure.
+func (e *StoreError) Unwrap() error {
+	return e.Err
+}
