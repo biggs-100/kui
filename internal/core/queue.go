@@ -23,7 +23,10 @@ type PendingMessage struct {
 // PendingQueue is the port the loop uses to drain queued messages between
 // turns (REQ-QUEUE-1/2, D19). Steering drains after each completed turn;
 // FollowUp drains only when the loop would otherwise stop. Drain returns the
-// released messages and removes them from the queue.
+// released messages and removes them from the queue. Enqueue appends a
+// message for injection between turns — the TUI controller uses this to
+// queue profile switches (REQ-TUI-PROF-3).
 type PendingQueue interface {
+	Enqueue(message PendingMessage)
 	Drain() []PendingMessage
 }

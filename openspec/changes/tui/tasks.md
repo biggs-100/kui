@@ -38,11 +38,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Controller — Runtime Wiring (Slice B)
 
-- [ ] 2.1 RED: `internal/tui/controller_test.go` — table-driven: cycle wrap/rapid presses, switch enqueued, per-prompt model chain, events emitted on Run completion; fake Runner (Run+Steering) + fake ModelMemory
-- [ ] 2.2 GREEN: `internal/tui/controller.go` — `Controller` struct (profiles, active index, events chan tea.Msg, wiring); `Start`, `SubmitPrompt`, `SwitchProfile`, `Events` methods; channel + tea.Cmd handoff (D3)
-- [ ] 2.3 RED: `internal/tui/controller_test.go` — add nil observer rendering scenario; channel overflow drops on full (D3 select-default)
-- [ ] 2.4 GREEN: `internal/tui/controller.go` — wire Observer into Run goroutine; implement select-default drop on channel full
-- [ ] 2.5 Verify: `go test ./internal/tui/... -race -count=1` — controller tests pass
+- [x] 2.1 RED: `internal/tui/controller_test.go` — table-driven: cycle wrap/rapid presses, switch enqueued, per-prompt model chain, events emitted on Run completion; fake Runner (Run+Steering) + fake ModelMemory
+- [x] 2.2 GREEN: `internal/tui/controller.go` — `Controller` struct (profiles, active index, events chan tea.Msg, wiring); `Start`, `SubmitPrompt`, `SwitchProfile`, `Events` methods; channel + tea.Cmd handoff (D3)
+- [x] 2.3 RED: `internal/tui/controller_test.go` — add nil observer rendering scenario; channel overflow drops on full (D3 select-default)
+- [x] 2.4 GREEN: `internal/tui/controller.go` — wire Observer into Run goroutine; implement select-default drop on channel full
+- [x] 2.5 Verify: `go test ./internal/tui/... -race -count=1` — controller tests pass
 
 ## Phase 3: Views — Header, Chat, Tool (Slice C)
 
