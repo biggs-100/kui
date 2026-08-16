@@ -46,13 +46,13 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Views — Header, Chat, Tool (Slice C)
 
-- [ ] 3.1 RED: `internal/tui/views/header_test.go` — golden tests: two tabs + active marked; no-profiles hint (REQ-TUI-PROF-1/4)
-- [ ] 3.2 GREEN: `internal/tui/views/header.go` — `HeaderModel` with profile names, active index; lipgloss tab rendering; no-profiles fallback
-- [ ] 3.3 RED: `internal/tui/views/chat_test.go` — golden tests: message list grows on chunk; empty input ignored; stream error renders error state (REQ-TUI-CHAT-1/2)
-- [ ] 3.4 GREEN: `internal/tui/views/chat.go` — `ChatModel` with messages slice, input buffer, `AppendChunk`, `SetError`; message rendering with profile/model metadata (REQ-TUI-CHAT-3)
-- [ ] 3.5 RED: `internal/tui/views/tool_test.go` — golden tests: tool calls render; nil observer → empty list (REQ-TUI-TOOL-1/2)
-- [ ] 3.6 GREEN: `internal/tui/views/tool.go` — `ToolModel` with tool events list; append call/result; nil-safe empty state
-- [ ] 3.7 Verify: `go test ./internal/tui/views/... -update` — all golden tests pass
+- [x] 3.1 RED: `internal/tui/views/header_test.go` — golden tests: two tabs + active marked; no-profiles hint (REQ-TUI-PROF-1/4)
+- [x] 3.2 GREEN: `internal/tui/views/header.go` — `HeaderModel` with profile names, active index; lipgloss tab rendering; no-profiles fallback
+- [x] 3.3 RED: `internal/tui/views/chat_test.go` — golden tests: message list grows on chunk; empty input ignored; stream error renders error state (REQ-TUI-CHAT-1/2)
+- [x] 3.4 GREEN: `internal/tui/views/chat.go` — `ChatModel` with messages slice, input buffer, `AppendChunk`, `SetError`; message rendering with profile/model metadata (REQ-TUI-CHAT-3)
+- [x] 3.5 RED: `internal/tui/views/tool_test.go` — golden tests: tool calls render; nil observer → empty list (REQ-TUI-TOOL-1/2)
+- [x] 3.6 GREEN: `internal/tui/views/tool.go` — `ToolModel` with tool events list; append call/result; nil-safe empty state
+- [x] 3.7 Verify: `go test ./internal/tui/views/... -update` — all golden tests pass
 
 ## Phase 4: App + CLI Entrypoint (Slice D)
 
