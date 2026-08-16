@@ -67,6 +67,6 @@ Chain strategy: stacked-to-main
 
 ## Phase 5: Documentation & Cleanup (Slice E)
 
-- [ ] 5.1 Create `docs/decisions/0004-tui-architecture.md` — ADR: boundary confinement (D1), observer port (D2), channel+Cmd concurrency (D3), per-prompt run model (D4)
-- [ ] 5.2 Update `cmd/kui/main.go` usage string — add `kui tui` entry (REQ-CLI-5)
-- [ ] 5.3 Verify: `go vet ./...` + `go build ./...` — clean
+- [x] 5.1 Create `docs/decisions/0004-tui-architecture.md` — ADR: boundary confinement (D1), observer port (D2), channel+Cmd concurrency (D3), per-prompt run model (D4)
+- [x] 5.2 Update `cmd/kui/main.go` usage string — add `kui tui` entry (REQ-CLI-5)
+- [x] 5.3 Verify: `go vet ./...` + `go build ./...` — clean
