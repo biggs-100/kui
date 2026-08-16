@@ -34,6 +34,10 @@ type Agent struct {
 	// Permissions filters the advertised tool set before Chat and guards
 	// dispatch with Allow (D15, REQ-PERM-3/4). Nil disables both.
 	Permissions PermissionEvaluator
+	// Observer is an optional port that receives turn and tool events
+	// (REQ-LOOP-7). Nil disables event delivery; a panicking observer is
+	// recovered by the emit helpers so the loop is never affected.
+	Observer Observer
 }
 
 // Run executes one single-session loop from the user prompt to a final
@@ -52,6 +56,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 	messages := []Message{{Role: RoleUser, Content: prompt}}
 
 	for range a.MaxIterations {
+		emitTurnStart(a.Observer)
+
 		tools := a.Tools.List()
 		if a.Permissions != nil {
 			// D15: hide denied tools from the provider request payload so the
@@ -76,6 +82,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 						return "", err
 					}
 					if changed {
+						emitTurnEnd(a.Observer)
 						continue
 					}
 				}
@@ -83,9 +90,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			if a.FollowUp != nil {
 				if drained := a.FollowUp.Drain(); len(drained) > 0 {
 					messages = append(messages, pendingMessages(drained)...)
+					emitTurnEnd(a.Observer)
 					continue
 				}
 			}
+			emitTurnEnd(a.Observer)
 			return lastContent(response), nil
 		}
 
@@ -103,10 +112,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 				// a request arrives (REQ-PERM-4).
 				return "", &PermissionError{Tool: call.Name}
 			}
+			emitToolCall(a.Observer, *call)
 			result, err := tool.Execute(ctx, json.RawMessage(call.Arguments))
 			if err != nil {
 				return "", &ToolError{Name: call.Name, Err: err}
 			}
+			emitToolResult(a.Observer, call.ID, result)
 			messages = append(messages, Message{
 				Role:       RoleTool,
 				Content:    result,
@@ -127,6 +138,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 				}
 			}
 		}
+
+		emitTurnEnd(a.Observer)
 	}
 
 	return "", &IterationLimitError{Max: a.MaxIterations}
