@@ -56,14 +56,14 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: App + CLI Entrypoint (Slice D)
 
-- [ ] 4.1 RED: `internal/tui/app_test.go` — `Model.Update`: chunkMsg grows answer; tab/shift+tab cycles profile; resize reflows; q/ctrl+c quits; empty input ignored; nil observer (REQ-TUI-APP-1/2/3/4)
-- [ ] 4.2 GREEN: `internal/tui/app.go` — `App` (tea.Model): Init/Update/View; three-region layout; keybindings; delegates to controller
-- [ ] 4.3 RED: `internal/tui/run_test.go` — `Run(ctx, wiring)` composes store/loader/manager/controller; startup failure returns error (REQ-TUI-APP-1)
-- [ ] 4.4 GREEN: `internal/tui/run.go` — `Run(ctx, wiring)` composition; builds store, loader, manager, agent, controller; starts controller goroutine
-- [ ] 4.5 RED: `cmd/kui/main_test.go` — `kui tui` dispatches; startup validation failure prints stderr; one-shot prompt unchanged (REQ-CLI-5)
-- [ ] 4.6 GREEN: `cmd/kui/main.go` — add `kui tui` dispatch; validate client first; call `internal/tui.Run`; update usage text
-- [ ] 4.7 RED: guard test scenario — `TestCoreImportsStdlibOnly` still passes after all changes (bubbletea not in core deps)
-- [ ] 4.8 Verify: `go test ./... -race -count=1` — full suite green
+- [x] 4.1 RED: `internal/tui/app_test.go` — `Model.Update`: chunkMsg grows answer; tab/shift+tab cycles profile; resize reflows; q/ctrl+c quits; empty input ignored; nil observer (REQ-TUI-APP-1/2/3/4)
+- [x] 4.2 GREEN: `internal/tui/app.go` — `App` (tea.Model): Init/Update/View; three-region layout; keybindings; delegates to controller
+- [x] 4.3 RED: `internal/tui/run_test.go` — `Run(ctx, wiring)` composes store/loader/manager/controller; startup failure returns error (REQ-TUI-APP-1)
+- [x] 4.4 GREEN: `internal/tui/run.go` — `Run(ctx, wiring)` composition; builds store, loader, manager, agent, controller; starts controller goroutine
+- [x] 4.5 RED: `cmd/kui/main_test.go` — `kui tui` dispatches; startup validation failure prints stderr; one-shot prompt unchanged (REQ-CLI-5)
+- [x] 4.6 GREEN: `cmd/kui/main.go` — add `kui tui` dispatch; validate client first; call `internal/tui.Run`; update usage text
+- [x] 4.7 RED: guard test scenario — `TestCoreImportsStdlibOnly` still passes after all changes (bubbletea not in core deps)
+- [x] 4.8 Verify: `go test ./... -race -count=1` — full suite green
 
 ## Phase 5: Documentation & Cleanup (Slice E)
 

@@ -36,6 +36,9 @@ type Controller struct {
 	active    int
 	events    chan any
 	eventsBuf int
+	// SetModeler sets the model on the provider before each prompt.
+	// When nil, model setting is skipped (e.g. in pure cycle tests).
+	SetModeler SetModeler
 
 	mu sync.Mutex
 }
@@ -65,6 +68,15 @@ func (c *Controller) ActiveProfile() string {
 	return c.profiles[c.active]
 }
 
+// Profiles returns the list of profile names.
+func (c *Controller) Profiles() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cp := make([]string, len(c.profiles))
+	copy(cp, c.profiles)
+	return cp
+}
+
 // SwitchProfile advances (delta > 0) or retreats (delta < 0) through the
 // profile list with wrap-around (D5). Each call advances exactly one step,
 // so rapid presses cycle deterministically (REQ-TUI-PROF-2). The switch is
@@ -86,10 +98,11 @@ func (c *Controller) SwitchProfile(delta int) {
 	}
 }
 
-// SubmitPrompt resolves the model for the active profile, then spawns a
-// goroutine to run agent.Run per D4 (one goroutine per prompt). Submissions
-// are blocked while a run is active — the caller must wait on the returned
-// channel or the Events channel for completion.
+// SubmitPrompt resolves the model for the active profile, sets it on the
+// provider (REQ-CLI-4), then spawns a goroutine to run agent.Run per D4
+// (one goroutine per prompt). Submissions are blocked while a run is
+// active — the caller must wait on the returned channel or the Events
+// channel for completion.
 //
 // Events (stream chunks, done, tool calls) are delivered through the
 // Events channel using D3 channel+Cmd handoff: buffered chan with
@@ -99,6 +112,7 @@ func (c *Controller) SubmitPrompt(text string) {
 	runner := c.runner
 	resolver := c.resolver
 	profile := c.profiles[c.active]
+	sm := c.SetModeler
 	c.mu.Unlock()
 
 	if runner == nil || resolver == nil {
@@ -106,9 +120,10 @@ func (c *Controller) SubmitPrompt(text string) {
 	}
 
 	model := resolver(profile)
-	_ = model // model is resolved; the runner/provider already knows it
-	// TODO: in Slice D, the controller will set the model on the provider
-	// before calling Run. For now, the resolver proves the chain runs.
+	// REQ-CLI-4: set the resolved model on the provider before each run.
+	if sm != nil {
+		sm.SetModel(model)
+	}
 
 	go func() {
 		_, err := runner.Run(context.Background(), text)

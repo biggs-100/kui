@@ -58,6 +58,16 @@ func (m *ChatModel) SetError(msg string) {
 	m.lastError = msg
 }
 
+// Messages returns the current message slice (for testing and inspection).
+func (m ChatModel) Messages() []Message {
+	return m.messages
+}
+
+// LastError returns the current error string (for testing).
+func (m ChatModel) LastError() string {
+	return m.lastError
+}
+
 var (
 	userRoleStyle = lipgloss.NewStyle().
 			Bold(true).
