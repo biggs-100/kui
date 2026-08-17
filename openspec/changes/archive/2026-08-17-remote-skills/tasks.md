@@ -94,7 +94,7 @@ Chain strategy: stacked-to-main
 - [x] 8.1 Modify `cmd/kui/main.go` — classify `profile.Skills` entries via `classifySkillsPaths()`, pass URLs to `skills.NewIndex(...)` (REQ-RS-13)
 - [x] 8.2 Modify `internal/tui/run.go` — classify `profile.Skills` entries via `ClassifySkillsPaths()`, pass URLs to `skills.NewIndex(...)` (REQ-RS-13)
 - [x] 8.3 Verify `go vet ./...` and `TestCoreImportsStdlibOnly` still pass
-- [ ] 8.4 Manual smoke test: add `skills: ["https://httpbin.org/robots.txt"]` to a profile, run `kui tui`, verify warning logged and local skills unaffected
+- [x] 8.4 Manual smoke test: add `skills: ["https://httpbin.org/robots.txt"]` to a profile, run `kui tui`, verify warning logged and local skills unaffected
 
 ## Key Learnings
 
