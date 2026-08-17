@@ -93,20 +93,21 @@ func run(args []string) int {
 
 	// The tui subcommand starts the interactive TUI (REQ-CLI-5).
 	if args[0] == "tui" {
-		return runTUI(root)
+		return runTUI(root, Options{})
 	}
 
-	// "--" separates options from the prompt: it is consumed, so a prompt that
-	// starts with "profile" or a dash is still reachable (REQ-CLI-1).
-	if args[0] == "--" {
-		args = args[1:]
-		if len(args) == 0 {
-			fmt.Fprint(os.Stderr, usage)
-			return 2
-		}
+	// Parse CLI flags into Options and remaining positional args (the prompt).
+	opts, remaining, err := parseFlags(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 2
+	}
+	if len(remaining) == 0 {
+		fmt.Fprint(os.Stderr, usage)
+		return 2
 	}
 
-	return runPrompt(root, args)
+	return runPrompt(root, opts, remaining)
 }
 
 // configRoot returns the directory holding the global kui configuration:
@@ -203,7 +204,7 @@ func profileSwitch(st *store.Store, loader *profile.Loader, args []string, root 
 			fmt.Fprint(os.Stderr, profileUsage)
 			return 2
 		}
-		return runPrompt(root, rest)
+		return runPrompt(root, Options{}, rest)
 	}
 	return 0
 }
@@ -235,7 +236,7 @@ func profileModel(st *store.Store, loader *profile.Loader, args []string) int {
 // REQ-CLI-4 resolution chain reconfigures the provider; and the profile's
 // SYSTEM.md plus the skills index system messages are seeded through the
 // steering queue (PR 4 note). The CLI keeps one agent and one history.
-func runPrompt(root string, args []string) int {
+func runPrompt(root string, opts Options, args []string) int {
 	ctx := context.Background()
 
 	client, err := openai.NewClient()
@@ -302,8 +303,12 @@ func runPrompt(root string, args []string) int {
 
 	if activeName != "" {
 		// REQ-CLI-4: resolve the per-profile model chain and reconfigure the
-		// provider before the session starts.
-		client.SetModel(resolveModel(st, loader, activeName))
+		// provider before the session starts. The --model flag takes highest priority.
+		if opts.Model != "" {
+			client.SetModel(opts.Model)
+		} else {
+			client.SetModel(resolveModel(st, loader, activeName))
+		}
 
 		// D18 session-start activation: apply the switch up front so the tool
 		// subset, permissions, and active profile are in place for the first
@@ -320,6 +325,11 @@ func runPrompt(root string, args []string) int {
 		if sys := ag.SystemMessages(); len(sys) > 0 {
 			ag.Steering().Enqueue(core.PendingMessage{Content: sys[0].Content})
 		}
+	}
+
+	// When no profile is active, the --model flag still applies.
+	if activeName == "" && opts.Model != "" {
+		client.SetModel(opts.Model)
 	}
 
 	answer, err := ag.Run(ctx, strings.Join(args, " "))
@@ -351,7 +361,7 @@ func resolveModel(st *store.Store, loader *profile.Loader, name string) string {
 // runTUI starts the interactive TUI (REQ-CLI-5). It validates the provider
 // before starting — if startup fails, it prints an actionable error to
 // stderr and exits non-zero without rendering the TUI (REQ-TUI-APP-1).
-func runTUI(root string) int {
+func runTUI(root string, opts Options) int {
 	cfgRoot := configRoot()
 	wiring := tui.Wiring{
 		ProfileRoot: filepath.Join(cfgRoot, "profiles"),

@@ -696,3 +696,40 @@ func TestCLIOneShotPromptUnchanged(t *testing.T) {
 		t.Errorf("stdout = %q, want the answer", stdout)
 	}
 }
+
+// TestCLIModelFlagOverride verifies that --model flag overrides the resolved
+// model in the REQ-CLI-4 chain. This tests the integration of parseFlags
+// with the CLI runtime.
+func TestCLIModelFlagOverride(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		bodies = append(bodies, req.Model)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"model override ok"}}]}`)
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	// No saved model, no profile.yaml model — only --model flag.
+	_, stderr, code := runCLI(t, map[string]string{
+		"OPENAI_API_KEY":  "sk-test-123",
+		"OPENAI_BASE_URL": srv.URL,
+		"KUI_HOME":        home,
+	}, "--model", "gpt-4o", "hello")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr)
+	}
+	if len(bodies) == 0 {
+		t.Fatal("provider received no requests")
+	}
+	if bodies[0] != "gpt-4o" {
+		t.Errorf("request model = %q, want %q (flag override)", bodies[0], "gpt-4o")
+	}
+}
