@@ -1,0 +1,5 @@
+name: tui
+created: 2026-08-15T13:39:38-05:00
+phase: propose
+description: "Implement the kui TUI with Bubble Tea: OpenCode-style chat interface, profile switcher with TAB/shift+TAB (agent_cycle keybind pattern from opencode), per-profile model persistence in the UI, tool output views, and session wiring to the agent runtime."
+status: active
