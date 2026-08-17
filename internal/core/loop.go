@@ -39,6 +39,10 @@ type Agent struct {
 	// (REQ-LOOP-7). Nil disables event delivery; a panicking observer is
 	// recovered by the emit helpers so the loop is never affected.
 	Observer Observer
+	// Hooks is an optional registry of lifecycle hook handlers (REQ-LOOP-12).
+	// When non-nil, hooks fire at defined lifecycle points with mutable context.
+	// When nil, all hook checks are skipped at zero cost (D7).
+	Hooks *HookRegistry
 }
 
 // Run executes one single-session loop from the user prompt to a final
@@ -65,6 +69,18 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			// model never sees them (REQ-PERM-3).
 			tools = a.Permissions.Filter(tools)
 		}
+		// REQ-LOOP-13: emit before_provider_request hook so handlers can
+		// mutate the messages sent to the LLM. The hook receives a copy of
+		// the current messages; SetMessages replaces them.
+		if a.Hooks.HasHooks("before_provider_request") {
+			hookCtx := NewHookContext("before_provider_request", messages)
+			hookCtx = emitHook(a.Hooks, "before_provider_request", hookCtx)
+			// Apply any message mutations from the hook handlers.
+			if hookCtx != nil {
+				messages = hookCtx.Messages()
+			}
+		}
+
 		// REQ-LOOP-8: detect StreamingProvider via type assertion. If the
 		// provider implements StreamingProvider, use the streaming path to
 		// forward text deltas in real time. Otherwise fall back to Chat().
@@ -128,10 +144,48 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 				return "", &PermissionError{Tool: call.Name}
 			}
 			emitToolCall(a.Observer, *call)
-			result, err := tool.Execute(ctx, json.RawMessage(call.Arguments))
-			if err != nil {
-				return "", &ToolError{Name: call.Name, Err: err}
+
+			// REQ-LOOP-14: emit before_tool_execution hook so handlers can
+			// block tool execution via Block(). If blocked, skip execution
+			// and return a blocked-tool result to the provider.
+			var (
+				blocked    bool
+				blockReason string
+			)
+			if a.Hooks.HasHooks("before_tool_execution") {
+				hookCtx := NewHookContext("before_tool_execution", messages)
+				hookCtx.SetToolCall(call)
+				hookCtx = emitHook(a.Hooks, "before_tool_execution", hookCtx)
+				if hookCtx != nil && hookCtx.IsBlocked() {
+					blocked = true
+					blockReason = hookCtx.BlockReason()
+				}
 			}
+
+			var result string
+			if blocked {
+				// Tool execution skipped: return a blocked-tool result.
+				result = `{"error":"blocked","reason":"` + blockReason + `"}`
+			} else {
+				var execErr error
+				result, execErr = tool.Execute(ctx, json.RawMessage(call.Arguments))
+				if execErr != nil {
+					return "", &ToolError{Name: call.Name, Err: execErr}
+				}
+			}
+
+			// REQ-LOOP-15: emit after_tool_execution hook for result observation.
+			if a.Hooks.HasHooks("after_tool_execution") {
+				msgs := append(messages, Message{
+					Role:       RoleTool,
+					Content:    result,
+					ToolCallID: call.ID,
+				})
+				afterCtx := NewHookContext("after_tool_execution", msgs)
+				afterCtx.SetToolCall(call)
+				_ = emitHook(a.Hooks, "after_tool_execution", afterCtx)
+			}
+
 			emitToolResult(a.Observer, call.ID, result)
 			messages = append(messages, Message{
 				Role:       RoleTool,
@@ -219,6 +273,31 @@ func lastContent(messages []Message) string {
 		return ""
 	}
 	return messages[len(messages)-1].Content
+}
+
+// emitHook emits a lifecycle hook via the HookRegistry, recovering from any
+// handler panic so the loop is never affected (D8). Returns the HookContext
+// so callers can inspect mutations (e.g., IsBlocked). When registry is nil
+// the call is a no-op and returns nil.
+func emitHook(registry *HookRegistry, event string, ctx HookContext) (ret HookContext) {
+	if registry == nil {
+		return ctx
+	}
+	ret = ctx
+	defer func() {
+		if r := recover(); r != nil {
+			// Panic recovered — hook handler misbehaved but the loop
+			// continues unaffected (D8, REQ-LOOP-7).
+			ret = ctx
+		}
+	}()
+	if err := registry.Emit(event, ctx); err != nil {
+		// Hook errors are logged/observed but do not abort the loop
+		// (REQ-LOOP-13, REQ-LOOP-15). The error is silently discarded
+		// here; a future observer port can surface it.
+		_ = err
+	}
+	return ret
 }
 
 // runStreamingTurn calls StreamChat and consumes the channel, forwarding text

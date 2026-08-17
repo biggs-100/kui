@@ -19,6 +19,10 @@ import (
 	"github.com/biggs-100/kui/internal/adapters/tools"
 	"github.com/biggs-100/kui/internal/agent"
 	"github.com/biggs-100/kui/internal/core"
+
+	// Blank import triggers init() self-registration of example extensions (D6).
+	_ "github.com/biggs-100/kui/internal/extensions/example"
+
 	"github.com/biggs-100/kui/internal/tui"
 )
 
