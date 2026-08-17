@@ -37,13 +37,13 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Core Implementation — Manager + Tool Bridge (Slice B, PR 2)
 
-- [ ] 2.1 RED: Create `internal/mcp/tool_test.go` — test Name() returns prefixed name, Description(), Schema() returns JSON string, Execute() calls tools/call with unprefixed name and returns concatenated text content, isError returns error (REQ-MCP-17..20)
-- [ ] 2.2 GREEN: Create `internal/mcp/tool.go` — MCPTool struct implementing core.Tool: Name (prefixed), Description, Schema (JSON string), Execute (delegates to client)
-- [ ] 2.3 REFACTOR: Extract response content concatenation helper
-- [ ] 2.4 RED: Create `internal/mcp/manager_test.go` — test NewManager with config, ConnectAll concurrent success + partial failure (non-fatal), Shutdown kills all + idempotent, Tools() returns prefixed tools, crashed server tools return error (REQ-MCP-11..16)
-- [ ] 2.5 GREEN: Create `internal/mcp/manager.go` — Manager struct, NewManager, ConnectAll (concurrent with errgroup), Shutdown (idempotent), Tools() returning []core.Tool
-- [ ] 2.6 REFACTOR: Add godoc on lifecycle states, tighten error logging
-- [ ] 2.7 Verify: `go test ./internal/mcp/ -count=1` passes all manager and tool tests
+- [x] 2.1 RED: Create `internal/mcp/tool_test.go` — test Name() returns prefixed name, Description(), Schema() returns JSON string, Execute() calls tools/call with unprefixed name and returns concatenated text content, isError returns error (REQ-MCP-17..20)
+- [x] 2.2 GREEN: Create `internal/mcp/tool.go` — MCPTool struct implementing core.Tool: Name (prefixed), Description, Schema (JSON string), Execute (delegates to client)
+- [x] 2.3 REFACTOR: Extract response content concatenation helper
+- [x] 2.4 RED: Create `internal/mcp/manager_test.go` — test NewManager with config, ConnectAll concurrent success + partial failure (non-fatal), Shutdown kills all + idempotent, Tools() returns prefixed tools, crashed server tools return error (REQ-MCP-11..16)
+- [x] 2.5 GREEN: Create `internal/mcp/manager.go` — Manager struct, NewManager, ConnectAll (concurrent with errgroup), Shutdown (idempotent), Tools() returning []core.Tool
+- [x] 2.6 REFACTOR: Add godoc on lifecycle states, tighten error logging
+- [x] 2.7 Verify: `go test ./internal/mcp/ -count=1` passes all manager and tool tests
 
 ## Phase 3: Integration — CLI + TUI Wiring (Slice C, PR 3)
 
