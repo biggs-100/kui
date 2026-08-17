@@ -14,6 +14,7 @@ import (
 	"github.com/biggs-100/kui/internal/adapters/tools"
 	"github.com/biggs-100/kui/internal/agent"
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/mcp"
 )
 
 // maxIterations bounds the provider calls per run so a misbehaving provider
@@ -104,6 +105,24 @@ func Run(ctx context.Context, w Wiring) error {
 	for _, tool := range tools.Default(w.ProjectDir, 0) {
 		if err := full.Register(tool); err != nil {
 			return fmt.Errorf("register tool: %w", err)
+		}
+	}
+
+	// MCP integration (REQ-TOOLS-4): load config from global and project
+	// paths, connect to enabled servers, and register discovered tools.
+	// MCP failures are non-fatal — built-in tools always work.
+	mcpConfig, err := mcp.LoadConfig(
+		filepath.Join(w.ConfigRoot, "mcp.yaml"),
+		filepath.Join(w.ProjectDir, ".kui", "mcp.yaml"),
+	)
+	if err == nil && mcpConfig != nil && len(mcpConfig.Servers) > 0 {
+		mgr := mcp.NewMCPManager(mcpConfig)
+		defer mgr.Shutdown()
+		if err := mgr.ConnectAll(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "kui: mcp: %v\n", err)
+		}
+		for _, tool := range mgr.Tools() {
+			_ = full.Register(tool)
 		}
 	}
 
