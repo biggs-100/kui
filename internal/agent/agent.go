@@ -19,6 +19,7 @@ type Agent struct {
 	manager       *Manager
 	skills        *skills.Index
 	provider      core.Provider
+	hooks         *core.HookRegistry
 	steering      *PendingMessageQueue
 	followUp      *PendingMessageQueue
 	maxIterations int
@@ -54,6 +55,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 		Steering:      a.steering,
 		FollowUp:      a.followUp,
 		Profiles:      a.manager,
+		Hooks:         a.hooks,
 	}
 	if ruleset := a.manager.Ruleset(); ruleset != nil {
 		loop.Permissions = ruleset
@@ -111,4 +113,24 @@ func (a *Agent) FollowUp() *PendingMessageQueue {
 // assertion for real-time token streaming (D7, D8).
 func (a *Agent) Provider() core.Provider {
 	return a.provider
+}
+
+// SetSkills replaces the skills index so a reload can swap state without
+// recreating the Agent (D8, REQ-RELOAD-19). Subsequent SystemMessages calls
+// reflect the new index.
+func (a *Agent) SetSkills(index *skills.Index) {
+	a.skills = index
+}
+
+// SetProvider replaces the provider so subsequent runs use the new one (D8,
+// REQ-RELOAD-19). Provider() then exposes it for StreamingProvider detection.
+func (a *Agent) SetProvider(p core.Provider) {
+	a.provider = p
+}
+
+// SetHooks replaces the hook registry that Run wires into the loop (D8,
+// REQ-RELOAD-19). A nil registry keeps the loop's behavior identical — no
+// hooks fire (REQ-RELOAD-20).
+func (a *Agent) SetHooks(h *core.HookRegistry) {
+	a.hooks = h
 }

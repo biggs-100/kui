@@ -176,3 +176,114 @@ func TestRunEmptySteeringReturnsSingleAnswer(t *testing.T) {
 		t.Errorf("provider received %d calls, want 1", len(provider.calls))
 	}
 }
+
+func TestSetSkillsReplacesIndex(t *testing.T) {
+	// REQ-RELOAD-19: SetSkills swaps the skills index so SystemMessages
+	// reflects the new index, not the old one.
+	oldIndex := newTestSkills(t, map[string]string{"old-skill": "old body\n"})
+	newIndex := newTestSkills(t, map[string]string{"new-skill": "new body\n"})
+	agent := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), oldIndex, nil, 4)
+
+	agent.SetSkills(newIndex)
+	messages := agent.SystemMessages()
+	if len(messages) != 1 {
+		t.Fatalf("SystemMessages() = %v, want one system message for the new index", messages)
+	}
+	content := messages[0].Content
+	if !strings.Contains(content, "new-skill") {
+		t.Errorf("SystemMessages content missing new-skill: %q", content)
+	}
+	if strings.Contains(content, "old-skill") {
+		t.Errorf("SystemMessages content still references old-skill after SetSkills: %q", content)
+	}
+}
+
+func TestSetProviderReplacesProvider(t *testing.T) {
+	// REQ-RELOAD-19: SetProvider swaps the provider so subsequent runs use the
+	// new one and Provider() exposes it (StreamingProvider detection).
+	first := &fakeProvider{responses: [][]core.Message{
+		{{Role: core.RoleAssistant, Content: "first"}},
+	}}
+	second := &fakeProvider{responses: [][]core.Message{
+		{{Role: core.RoleAssistant, Content: "second"}},
+	}}
+	index := newTestSkills(t, map[string]string{})
+	agent := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, first, 4)
+
+	agent.SetProvider(second)
+	if got := agent.Provider(); got != second {
+		t.Fatalf("Provider() = %T, want the new provider", got)
+	}
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "second" {
+		t.Errorf("Run() = %q, want %q (from the new provider)", answer, "second")
+	}
+	if len(first.calls) != 0 {
+		t.Errorf("old provider received %d calls, want 0 after SetProvider", len(first.calls))
+	}
+	if len(second.calls) != 1 {
+		t.Errorf("new provider received %d calls, want 1", len(second.calls))
+	}
+}
+
+func TestSetHooksReplacesRegistry(t *testing.T) {
+	// REQ-RELOAD-19/20: SetHooks swaps the hook registry and Agent.Run wires
+	// it into the loop, so the new registry's hook fires during a run while
+	// the replaced registry's hook does not.
+	provider := &fakeProvider{responses: [][]core.Message{
+		{{Role: core.RoleAssistant, Content: "done"}},
+	}}
+	index := newTestSkills(t, map[string]string{})
+	agent := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
+
+	oldHooks := core.NewHookRegistry()
+	oldFired := false
+	_ = oldHooks.Register("before_provider_request", func(core.HookContext) error {
+		oldFired = true
+		return nil
+	})
+	agent.SetHooks(oldHooks)
+
+	newHooks := core.NewHookRegistry()
+	fired := false
+	_ = newHooks.Register("before_provider_request", func(core.HookContext) error {
+		fired = true
+		return nil
+	})
+	agent.SetHooks(newHooks)
+
+	if _, err := agent.Run(context.Background(), "hello"); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if !fired {
+		t.Error("hook from the new registry did not fire during Run (loop.Hooks not wired)")
+	}
+	if oldFired {
+		t.Error("hook from the replaced registry fired after SetHooks")
+	}
+}
+
+func TestSetHooksNilIsSafe(t *testing.T) {
+	// REQ-RELOAD-20: a nil hook registry keeps the loop's behavior identical —
+	// SetHooks(nil) is a safe no-op and no hooks fire.
+	provider := &fakeProvider{responses: [][]core.Message{
+		{{Role: core.RoleAssistant, Content: "plain"}},
+	}}
+	index := newTestSkills(t, map[string]string{})
+	agent := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
+
+	agent.SetHooks(nil)
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "plain" {
+		t.Errorf("Run() = %q, want %q (nil hooks unchanged behavior)", answer, "plain")
+	}
+	if len(provider.calls) != 1 {
+		t.Errorf("provider received %d calls, want 1", len(provider.calls))
+	}
+}
