@@ -318,10 +318,10 @@ func (i *Index) add(skill *Skill, layer string) {
 	i.byName[skill.Name] = skill
 }
 
-// classifySkillsPaths separates a mixed list of skill entries into local
+// ClassifySkillsPaths separates a mixed list of skill entries into local
 // directory names and remote registry URLs. HTTP/HTTPS entries are classified
 // as remote; everything else is local (REQ-RS-13, REQ-RS-14).
-func classifySkillsPaths(items []string) (dirs []string, urls []string) {
+func ClassifySkillsPaths(items []string) (dirs []string, urls []string) {
 	for _, item := range items {
 		if strings.HasPrefix(item, "http://") || strings.HasPrefix(item, "https://") {
 			urls = append(urls, item)

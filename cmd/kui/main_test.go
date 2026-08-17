@@ -600,6 +600,80 @@ func TestCLIUsageIncludesTuiSubcommand(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Remote Skills Wiring (REQ-RS-13, Slice C).
+// ---------------------------------------------------------------------------
+
+// TestCLIProfileWithSkillsURL covers REQ-RS-13: a profile declaring a skills
+// registry URL must wire it through to NewIndex. The CLI must succeed (exit 0)
+// even when the remote registry is unreachable — registry failures are logged
+// as warnings, not fatal errors (REQ-RS-18).
+func TestCLIProfileWithSkillsURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"remote-skills-ok"}}]}`)
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	// Profile declares a remote skills URL — classifySkillsPaths must extract
+	// it and pass it to NewIndex (REQ-RS-13).
+	writeProfileDir(t, home, "remote", `name: remote
+system_prompt: SYSTEM.md
+skills:
+  - "https://example.com/skills/index.json"
+`)
+	writeHomeFile(t, home, filepath.Join("profiles", "remote", "SYSTEM.md"), "You are remote.\n")
+	writeHomeFile(t, home, filepath.Join(".kui", "active"), "remote")
+
+	stdout, stderr, code := runCLI(t, map[string]string{
+		"OPENAI_API_KEY":  "sk-test-123",
+		"OPENAI_BASE_URL": srv.URL,
+		"KUI_HOME":        home,
+	}, "hello")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr)
+	}
+	if stdout != "remote-skills-ok\n" {
+		t.Errorf("stdout = %q, want the answer", stdout)
+	}
+}
+
+// TestCLIProfileWithMixedSkills covers REQ-RS-13/REQ-RS-14: a profile with
+// both local skill names and remote registry URLs must classify them correctly.
+// Local names are directory names; URLs are passed to NewIndex as registries.
+func TestCLIProfileWithMixedSkills(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"mixed-ok"}}]}`)
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	writeProfileDir(t, home, "mixed", `name: mixed
+system_prompt: SYSTEM.md
+skills:
+  - "go-testing"
+  - "https://example.com/skills/index.json"
+`)
+	writeHomeFile(t, home, filepath.Join("profiles", "mixed", "SYSTEM.md"), "You are mixed.\n")
+	writeHomeFile(t, home, filepath.Join(".kui", "active"), "mixed")
+
+	stdout, stderr, code := runCLI(t, map[string]string{
+		"OPENAI_API_KEY":  "sk-test-123",
+		"OPENAI_BASE_URL": srv.URL,
+		"KUI_HOME":        home,
+	}, "hello")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr)
+	}
+	if stdout != "mixed-ok\n" {
+		t.Errorf("stdout = %q, want the answer", stdout)
+	}
+}
+
 // TestCLIOneShotPromptUnchanged covers REQ-CLI-5: the existing one-shot
 // prompt behavior must remain unchanged after adding kui tui.
 func TestCLIOneShotPromptUnchanged(t *testing.T) {

@@ -321,7 +321,7 @@ func TestIndexSkillMetadata(t *testing.T) {
 
 func TestClassifySkillsPathsMixed(t *testing.T) {
 	// REQ-RS-13, REQ-RS-14: mixed local names and registry URLs are separated.
-	local, remote := classifySkillsPaths([]string{
+	local, remote := ClassifySkillsPaths([]string{
 		"go-testing",
 		"https://example.com/skills/index.json",
 		"k8s",
@@ -337,7 +337,7 @@ func TestClassifySkillsPathsMixed(t *testing.T) {
 
 func TestClassifySkillsPathsEmpty(t *testing.T) {
 	// REQ-RS-14: empty input returns two empty slices.
-	local, remote := classifySkillsPaths(nil)
+	local, remote := ClassifySkillsPaths(nil)
 	if len(local) != 0 {
 		t.Errorf("local = %v, want empty", local)
 	}
@@ -348,7 +348,7 @@ func TestClassifySkillsPathsEmpty(t *testing.T) {
 
 func TestClassifySkillsPathsAllURLs(t *testing.T) {
 	// REQ-RS-14: all-URLs input returns empty local, populated remote.
-	local, remote := classifySkillsPaths([]string{
+	local, remote := ClassifySkillsPaths([]string{
 		"https://a.com/index.json",
 		"https://b.com/index.json",
 	})
@@ -362,7 +362,7 @@ func TestClassifySkillsPathsAllURLs(t *testing.T) {
 
 func TestClassifySkillsPathsAllNames(t *testing.T) {
 	// REQ-RS-14: all-names input returns populated local, empty remote.
-	local, remote := classifySkillsPaths([]string{"go-testing", "k8s"})
+	local, remote := ClassifySkillsPaths([]string{"go-testing", "k8s"})
 	if len(local) != 2 {
 		t.Errorf("local has %d entries, want 2", len(local))
 	}

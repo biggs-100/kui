@@ -130,10 +130,16 @@ func Run(ctx context.Context, w Wiring) error {
 	manager := agent.NewManager(loader, full)
 
 	profileDir := ""
+	var skillsURLs []string
 	if activeName, err := st.Active(); err == nil && activeName != "" {
 		profileDir = filepath.Join(w.ConfigRoot, "profiles", activeName)
+		// REQ-RS-13: classify profile skills entries — URLs become remote
+		// registries, directory names stay local (REQ-RS-14).
+		if resolved, err := loader.Resolve(activeName); err == nil {
+			_, skillsURLs = skills.ClassifySkillsPaths(resolved.Skills)
+		}
 	}
-	skillsIndex, err := skills.NewIndex(w.ConfigRoot, w.ProjectDir, profileDir)
+	skillsIndex, err := skills.NewIndex(w.ConfigRoot, w.ProjectDir, profileDir, skillsURLs...)
 	if err != nil {
 		return fmt.Errorf("build skills index: %w", err)
 	}
