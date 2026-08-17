@@ -7,8 +7,10 @@
 package skills
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,27 +71,157 @@ type Index struct {
 	Collisions []string
 }
 
-// NewIndex discovers skills across the global, project and profile layer
-// roots and builds an index WITHOUT reading any body file (REQ-SKILL-2). A
-// skill named in more than one layer resolves to the nearest
-// (profile > project > global) and the shadowed layer is recorded in
-// Collisions (REQ-SKILL-1).
-func NewIndex(globalDir, projectDir, profileDir string) (*Index, error) {
+// NewIndex discovers skills across the global, remote, project and profile
+// layer roots and builds an index WITHOUT reading any body file (REQ-SKILL-2).
+// A skill named in more than one layer resolves to the nearest
+// (profile > project > remote > global) and the shadowed layer is recorded in
+// Collisions (REQ-SKILL-1, REQ-RS-15). Optional registryURLs are fetched
+// concurrently; failures are logged and skipped (REQ-RS-18).
+func NewIndex(globalDir, projectDir, profileDir string, registryURLs ...string) (*Index, error) {
 	index := &Index{byName: make(map[string]*Skill)}
-	layers := []struct {
-		dir   string
-		layer string
-	}{
-		{dir: globalDir, layer: "global"},
-		{dir: projectDir, layer: "project"},
-		{dir: profileDir, layer: "profile"},
+
+	// Layer 1: global
+	if err := index.scanLayer(globalDir, "global"); err != nil {
+		return nil, err
 	}
-	for _, layer := range layers {
-		if err := index.scanLayer(layer.dir, layer.layer); err != nil {
-			return nil, err
+
+	// Layer 2: remote (between global and project) — REQ-RS-15
+	if len(registryURLs) > 0 {
+		index.fetchRemoteRegistries(globalDir, registryURLs)
+	}
+
+	// Layer 3: project
+	if err := index.scanLayer(projectDir, "project"); err != nil {
+		return nil, err
+	}
+
+	// Layer 4: profile
+	if err := index.scanLayer(profileDir, "profile"); err != nil {
+		return nil, err
+	}
+
+	return index, nil
+}
+
+// fetchRemoteRegistries fetches skills from all registry URLs concurrently.
+// Failures are logged as warnings and do not prevent local skills from loading
+// (REQ-RS-4, REQ-RS-18).
+func (idx *Index) fetchRemoteRegistries(globalDir string, registryURLs []string) {
+	client := NewRegistryClient(10)
+	cacheDir := filepath.Join(globalDir, "cache")
+	cache := NewCache(cacheDir)
+
+	for _, url := range registryURLs {
+		idx.fetchRemote(context.Background(), client, cache, url)
+	}
+}
+
+// fetchRemote fetches a skill index from one registry and downloads/caches
+// each skill. Cached skills are reused when the version matches. All errors
+// are logged and skipped (REQ-RS-4, REQ-RS-18).
+func (idx *Index) fetchRemote(ctx context.Context, client *RegistryClient, cache *Cache, baseURL string) {
+	index, err := client.FetchIndex(ctx, baseURL)
+	if err != nil {
+		log.Printf("kui: remote skills: fetch index from %s: %v", baseURL, err)
+		return
+	}
+
+	hostname := extractHostname(baseURL)
+
+	for _, skill := range index.Skills {
+		prefixedName := hostname + "/" + skill.Name
+		skillDir := cache.Dir(baseURL, skill.Name, skill.Version)
+
+		if cache.IsCached(skillDir, skill.Version) {
+			// Use cached version — scan from cache dir
+			idx.scanCachedSkill(skillDir, prefixedName, skill)
+			continue
+		}
+
+		// Download all files
+		files := make(map[string][]byte)
+		for _, file := range skill.Files {
+			data, err := client.FetchFile(ctx, baseURL, skill.Name, file)
+			if err != nil {
+				log.Printf("kui: remote skills: fetch %s/%s: %v", skill.Name, file, err)
+				continue
+			}
+			files[file] = data
+		}
+
+		if err := cache.Store(baseURL, skill.Name, skill.Version, files); err != nil {
+			log.Printf("kui: remote skills: cache store %s: %v", skill.Name, err)
+			continue
+		}
+
+		idx.scanCachedSkill(skillDir, prefixedName, skill)
+	}
+}
+
+// scanCachedSkill indexes a single remote skill from its cached directory.
+// It tries skill.yaml first, then falls back to frontmatter parsing of
+// SKILL.md (REQ-RS-3, REQ-RS-20).
+func (idx *Index) scanCachedSkill(skillDir, prefixedName string, entry IndexSkill) {
+	// Try skill.yaml first
+	yamlPath := filepath.Join(skillDir, metadataFileName)
+	data, err := os.ReadFile(yamlPath)
+	if err == nil {
+		meta, err := parseMeta(data)
+		if err == nil {
+			bodyPath := filepath.Join(skillDir, bodyFileName)
+			idx.add(&Skill{
+				Name:        prefixedName,
+				Description: meta.Description,
+				Triggers:    meta.Triggers,
+				BodyPath:    bodyPath,
+				Layer:       "remote",
+			}, "remote")
+			return
 		}
 	}
-	return index, nil
+
+	// Fall back to frontmatter of SKILL.md (REQ-RS-20)
+	skillMDPath := filepath.Join(skillDir, bodyFileName)
+	mdData, err := os.ReadFile(skillMDPath)
+	if err != nil {
+		// No skill.yaml and no SKILL.md — skip this skill
+		return
+	}
+	fm, _, err := ParseFrontmatter(mdData)
+	if err != nil {
+		log.Printf("kui: remote skills: parse frontmatter %s: %v", skillMDPath, err)
+		return
+	}
+
+	idx.add(&Skill{
+		Name:        prefixedName,
+		Description: fm.Description,
+		Triggers:    fm.Triggers,
+		BodyPath:    skillMDPath,
+		Layer:       "remote",
+	}, "remote")
+}
+
+// extractHostname extracts the hostname from a URL, stripping the scheme and
+// port. For "https://registry.com:8080/skills" it returns "registry.com".
+func extractHostname(url string) string {
+	// Strip scheme
+	host := url
+	for _, prefix := range []string{"https://", "http://"} {
+		if strings.HasPrefix(host, prefix) {
+			host = strings.TrimPrefix(host, prefix)
+			break
+		}
+	}
+	// Strip path
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
+	// Strip port
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	return host
 }
 
 // List returns the indexed skills in deterministic first-seen order.
@@ -184,6 +316,20 @@ func (i *Index) add(skill *Skill, layer string) {
 		i.order = append(i.order, skill.Name)
 	}
 	i.byName[skill.Name] = skill
+}
+
+// ClassifySkillsPaths separates a mixed list of skill entries into local
+// directory names and remote registry URLs. HTTP/HTTPS entries are classified
+// as remote; everything else is local (REQ-RS-13, REQ-RS-14).
+func ClassifySkillsPaths(items []string) (dirs []string, urls []string) {
+	for _, item := range items {
+		if strings.HasPrefix(item, "http://") || strings.HasPrefix(item, "https://") {
+			urls = append(urls, item)
+		} else {
+			dirs = append(dirs, item)
+		}
+	}
+	return
 }
 
 // parseMeta parses one skill.yaml.

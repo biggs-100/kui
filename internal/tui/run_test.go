@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/biggs-100/kui/internal/core"
@@ -118,6 +120,87 @@ func TestRunMaxIterDefault(t *testing.T) {
 	err := Run(context.Background(), wiring)
 	if err == nil {
 		t.Fatal("expected error from Run")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Remote Skills Wiring (REQ-RS-13, Slice C)
+// ---------------------------------------------------------------------------
+
+// TestRunProfileWithSkillsURL verifies that Run wires profile skills through
+// to NewIndex. When a profile declares a skills registry URL, Run must classify
+// it and pass it to NewIndex (REQ-RS-13). The test creates a profile with a
+// skills URL and verifies Run succeeds (registry failures are non-fatal).
+func TestRunProfileWithSkillsURL(t *testing.T) {
+	cfgRoot := t.TempDir()
+	profileRoot := filepath.Join(cfgRoot, "profiles")
+	profileDir := filepath.Join(profileRoot, "myprofile")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Profile declares a remote skills URL — this must be extracted and
+	// passed to NewIndex (REQ-RS-13).
+	profileYAML := []byte("name: myprofile\nskills:\n  - \"https://example.com/skills/index.json\"\n")
+	if err := os.WriteFile(filepath.Join(profileDir, "profile.yaml"), profileYAML, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Set as active profile
+	_ = os.MkdirAll(filepath.Join(cfgRoot, ".kui"), 0o755)
+	if err := os.WriteFile(filepath.Join(cfgRoot, ".kui", "active"), []byte("myprofile"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wiring := Wiring{
+		ProfileRoot: profileRoot,
+		ProjectDir:  t.TempDir(),
+		ConfigRoot:  cfgRoot,
+		Client:      errClientFactory(errors.New("provider fails after skills wiring")),
+		MaxIter:     10,
+	}
+
+	err := Run(context.Background(), wiring)
+	if err == nil {
+		t.Fatal("expected error from Run with failing provider")
+	}
+	// The error must be from the provider, not from skills index building.
+	// If skills wiring is broken, Run would crash before reaching the provider.
+	if err.Error() != "provider fails after skills wiring" {
+		t.Errorf("error = %q, want provider error (skills wiring must not crash)", err.Error())
+	}
+}
+
+// TestRunProfileWithNoSkills is a backward-compatibility check: a profile
+// without a skills field must work identically to the old behavior.
+func TestRunProfileWithNoSkills(t *testing.T) {
+	cfgRoot := t.TempDir()
+	profileRoot := filepath.Join(cfgRoot, "profiles")
+	profileDir := filepath.Join(profileRoot, "noremote")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profileYAML := []byte("name: noremote\n")
+	if err := os.WriteFile(filepath.Join(profileDir, "profile.yaml"), profileYAML, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.MkdirAll(filepath.Join(cfgRoot, ".kui"), 0o755)
+	if err := os.WriteFile(filepath.Join(cfgRoot, ".kui", "active"), []byte("noremote"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wiring := Wiring{
+		ProfileRoot: profileRoot,
+		ProjectDir:  t.TempDir(),
+		ConfigRoot:  cfgRoot,
+		Client:      errClientFactory(errors.New("no-skills-ok")),
+		MaxIter:     10,
+	}
+
+	err := Run(context.Background(), wiring)
+	if err == nil {
+		t.Fatal("expected error from Run with failing provider")
+	}
+	if err.Error() != "no-skills-ok" {
+		t.Errorf("error = %q, want provider error only (no skills should be fine)", err.Error())
 	}
 }
 

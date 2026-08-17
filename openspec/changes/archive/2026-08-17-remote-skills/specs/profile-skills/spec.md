@@ -1,10 +1,10 @@
-# profile-skills Specification
+# profile-skills Delta — MODIFIED by remote-skills
 
 ## Purpose
 
-Skills are discoverable units — name, description, triggers, and a SKILL.md body — found in layered directories. This spec extends the layer model with remote skills fetched from registries, and allows the `skills` config field to accept URLs alongside local names. The system prompt carries only the skills index; full bodies load on demand at invocation.
+Skills are discoverable units — name, description, triggers, and a SKILL.md body — found in layered directories. This delta extends the layer model with remote skills fetched from registries, and allows the `skills` config field to accept URLs alongside local names.
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: REQ-SKILL-1 — Layered Discovery
 
@@ -38,6 +38,7 @@ Skills MUST be discovered across the global, remote, project, and profile layers
 ### Requirement: REQ-SKILL-2 — Index and Trigger Matching
 
 Each skill MUST expose a name, description, and triggers. A skill MUST be applicable when a message matches at least one trigger. The index MUST be buildable without reading any skill body.
+(Previously: No change to trigger matching logic itself.)
 
 #### Scenario: Trigger match
 
@@ -54,6 +55,7 @@ Each skill MUST expose a name, description, and triggers. A skill MUST be applic
 ### Requirement: REQ-SKILL-3 — On-Demand Content
 
 The system prompt MUST contain only the skills index (names, descriptions, triggers) and MUST NOT contain any skill body. The full SKILL.md content MUST be loaded only when the skill is invoked.
+(Previously: No change to content loading behavior.)
 
 #### Scenario: Index-only prompt
 
@@ -73,6 +75,8 @@ The system prompt MUST contain only the skills index (names, descriptions, trigg
 - GIVEN an index entry whose SKILL.md does not exist
 - WHEN the skill is invoked
 - THEN a typed error naming the missing file is returned
+
+## ADDED Requirements
 
 ### Requirement: REQ-RS-13 — Skills Field Accepts URLs
 

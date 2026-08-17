@@ -283,10 +283,16 @@ func runPrompt(root string, args []string) int {
 	}
 
 	profileDir := ""
+	var skillsURLs []string
 	if activeName != "" {
 		profileDir = filepath.Join(cfgRoot, "profiles", activeName)
+		// REQ-RS-13: classify profile skills entries — URLs become remote
+		// registries, directory names stay local (REQ-RS-14).
+		if resolved, err := loader.Resolve(activeName); err == nil {
+			_, skillsURLs = skills.ClassifySkillsPaths(resolved.Skills)
+		}
 	}
-	skillsIndex, err := skills.NewIndex(cfgRoot, root, profileDir)
+	skillsIndex, err := skills.NewIndex(cfgRoot, root, profileDir, skillsURLs...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: build skills index: %v\n", err)
 		return 1
