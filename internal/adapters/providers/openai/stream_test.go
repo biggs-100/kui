@@ -660,3 +660,79 @@ func TestStreamChatStreamField(t *testing.T) {
 		t.Errorf("request body stream = %v, want true", stream)
 	}
 }
+
+// TestParseSSEChunkReasoningContent verifies that an SSE chunk with
+// reasoning_content is extracted into StreamChunk.ReasoningDelta.
+func TestParseSSEChunkReasoningContent(t *testing.T) {
+	sseLines := []string{
+		`data: {"choices":[{"delta":{"reasoning_content":"thinking step"},"index":0}]}`,
+		`data: [DONE]`,
+	}
+	srv := sseServer(t, sseLines)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	chunks := collectChunks(parseSSEStream(context.Background(), resp.Body), 5*time.Second)
+
+	if len(chunks) != 2 {
+		t.Fatalf("got %d chunks, want 2 (reasoning + done)", len(chunks))
+	}
+	if chunks[0].ReasoningDelta != "thinking step" {
+		t.Errorf("chunks[0].ReasoningDelta = %q, want %q", chunks[0].ReasoningDelta, "thinking step")
+	}
+	if chunks[0].TextDelta != "" {
+		t.Errorf("chunks[0].TextDelta = %q, want empty", chunks[0].TextDelta)
+	}
+}
+
+// TestParseSSEChunkNoReasoningContent verifies that an SSE chunk without
+// reasoning_content does not populate ReasoningDelta.
+func TestParseSSEChunkNoReasoningContent(t *testing.T) {
+	sseLines := []string{
+		`data: {"choices":[{"delta":{"content":"hello"},"index":0}]}`,
+		`data: [DONE]`,
+	}
+	srv := sseServer(t, sseLines)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	chunks := collectChunks(parseSSEStream(context.Background(), resp.Body), 5*time.Second)
+
+	if len(chunks) != 2 {
+		t.Fatalf("got %d chunks, want 2 (text + done)", len(chunks))
+	}
+	if chunks[0].ReasoningDelta != "" {
+		t.Errorf("chunks[0].ReasoningDelta = %q, want empty", chunks[0].ReasoningDelta)
+	}
+	if chunks[0].TextDelta != "hello" {
+		t.Errorf("chunks[0].TextDelta = %q, want %q", chunks[0].TextDelta, "hello")
+	}
+}
+
+// TestParseSSEChunkBothReasoningAndContent verifies that a chunk with both
+// reasoning_content and content emits reasoning first (current structure returns
+// first match; reasoning is checked before content).
+func TestParseSSEChunkBothReasoningAndContent(t *testing.T) {
+	// When both fields are present, parseSSEChunk checks reasoning_content first
+	sseData := `{"choices":[{"delta":{"reasoning_content":"thinking","content":"hello"},"index":0}]}`
+	chunk, ok := parseSSEChunk(sseData)
+	if !ok {
+		t.Fatal("parseSSEChunk returned false, want true")
+	}
+	if chunk.ReasoningDelta != "thinking" {
+		t.Errorf("ReasoningDelta = %q, want %q", chunk.ReasoningDelta, "thinking")
+	}
+	if chunk.TextDelta != "" {
+		t.Errorf("TextDelta = %q, want empty (reasoning takes priority)", chunk.TextDelta)
+	}
+}

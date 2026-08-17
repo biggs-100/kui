@@ -32,6 +32,8 @@ type Options struct {
 	Approve bool
 	// Print writes the answer to stdout regardless of mode.
 	Print bool
+	// Thinking selects the reasoning effort level: off, low, medium, high.
+	Thinking string
 }
 
 // stringFlags maps long flag names to whether they take a value argument.
@@ -41,6 +43,7 @@ var stringFlags = map[string]bool{
 	"tools":         true,  // --tools <value>
 	"exclude-tools": true,  // --exclude-tools <value>
 	"mode":          true,  // --mode <value>
+	"thinking":      true,  // --thinking <value>
 }
 
 // shortMap maps single-character short flags to their long equivalents.
@@ -230,5 +233,7 @@ func setStringOption(opts *Options, name, value string) {
 		opts.ExcludeTools = value
 	case "mode":
 		opts.Mode = value
+	case "thinking":
+		opts.Thinking = value
 	}
 }

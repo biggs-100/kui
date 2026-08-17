@@ -23,6 +23,7 @@ type Config struct {
 	SystemPrompt string   `yaml:"system_prompt"`
 	Tools        []string `yaml:"tools"`
 	Skills       []string `yaml:"skills"`
+	Thinking     string   `yaml:"thinking"`
 	Permissions  []Rule   `yaml:"permissions"`
 }
 
@@ -43,6 +44,7 @@ type Profile struct {
 	SystemPrompt string // absolute path to the SYSTEM.md body
 	Tools        []string
 	Skills       []string
+	Thinking     string
 	Permissions  []Rule
 }
 
@@ -197,6 +199,9 @@ func resolve(name, profileDir, projectDir, globalDir string, config, project, gl
 		}
 		if len(p.Skills) == 0 {
 			p.Skills = layer.config.Skills
+		}
+		if p.Thinking == "" {
+			p.Thinking = layer.config.Thinking
 		}
 	}
 	// Permissions concatenate farthest-first so the profile layer is last

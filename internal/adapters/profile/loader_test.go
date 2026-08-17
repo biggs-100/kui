@@ -258,3 +258,51 @@ func TestDiscoverEmptyRoot(t *testing.T) {
 		t.Errorf("Discover() = %v, want empty", names)
 	}
 }
+
+func TestResolveThinkingFromProfile(t *testing.T) {
+	// Profile layer declares thinking: high → resolved profile carries it.
+	loader, _ := buildLayers(t, `
+name: coder
+system_prompt: SYSTEM.md
+thinking: high
+`, "", "")
+	got, err := loader.Resolve("coder")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if got.Thinking != "high" {
+		t.Errorf("Thinking = %q, want %q", got.Thinking, "high")
+	}
+}
+
+func TestResolveThinkingNearestWins(t *testing.T) {
+	// Profile declares thinking: medium, project declares thinking: low.
+	// Nearest layer (profile) wins.
+	loader, _ := buildLayers(t, `
+name: coder
+system_prompt: SYSTEM.md
+thinking: medium
+`, "thinking: low\n", "")
+	got, err := loader.Resolve("coder")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if got.Thinking != "medium" {
+		t.Errorf("Thinking = %q, want %q (profile wins over project)", got.Thinking, "medium")
+	}
+}
+
+func TestResolveThinkingEmpty(t *testing.T) {
+	// No thinking in any layer → resolved Thinking is empty (default "off" at call site).
+	loader, _ := buildLayers(t, `
+name: coder
+system_prompt: SYSTEM.md
+`, "", "")
+	got, err := loader.Resolve("coder")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if got.Thinking != "" {
+		t.Errorf("Thinking = %q, want empty", got.Thinking)
+	}
+}

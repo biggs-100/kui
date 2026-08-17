@@ -67,8 +67,9 @@ type streamChoice struct {
 
 // streamDelta mirrors the OpenAI streaming delta shape.
 type streamDelta struct {
-	Content   string           `json:"content"`
-	ToolCalls []streamToolCall `json:"tool_calls"`
+	Content          string           `json:"content"`
+	ReasoningContent string           `json:"reasoning_content"`
+	ToolCalls        []streamToolCall `json:"tool_calls"`
 }
 
 // streamToolCall mirrors the OpenAI streaming tool call shape.
@@ -123,6 +124,11 @@ func parseSSEChunk(data string) (core.StreamChunk, bool) {
 	}
 
 	delta := resp.Choices[0].Delta
+
+	// Reasoning content delta (checked before text content)
+	if delta.ReasoningContent != "" {
+		return core.StreamChunk{ReasoningDelta: delta.ReasoningContent}, true
+	}
 
 	// Text content delta
 	if delta.Content != "" {

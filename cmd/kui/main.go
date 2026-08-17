@@ -65,6 +65,7 @@ Flags:
   --mode <text|json>               output format (default: text)
   --approve, -a                    bypass all permission checks
   --print, -p                      alias for non-interactive one-shot
+  --thinking <off|low|medium|high>  reasoning effort level (default: off)
 
 Use "kui -- PROMPT..." to run a prompt that starts with "profile" or a dash.
 
@@ -84,6 +85,9 @@ profile subcommands:
                        activate <name> for the session; with --, also run a
                        session that switches to it mid-run
   model <name> <model> set and persist a per-profile model
+  thinking <name> <level>
+                       set and persist a per-profile thinking level
+                       (off, low, medium, high)
 `
 
 // skillsIndex is a type alias for the skills index returned by buildSkillsIndex.
@@ -152,6 +156,14 @@ func run(args []string) int {
 		return 2
 	}
 
+	// Validate --thinking flag early so invalid levels surface as usage errors.
+	if opts.Thinking != "" {
+		if _, err := resolveThinking(opts.Thinking); err != nil {
+			fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+			return 2
+		}
+	}
+
 	return runPrompt(root, opts, remaining)
 }
 
@@ -188,6 +200,8 @@ func runProfile(root string, args []string) int {
 		return profileSwitch(st, loader, args[1:], root)
 	case "model":
 		return profileModel(st, loader, args[1:])
+	case "thinking":
+		return profileThinking(st, loader, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "kui: unknown profile subcommand %q\n", args[0])
 		fmt.Fprint(os.Stderr, profileUsage)
@@ -270,6 +284,74 @@ func profileModel(st *store.Store, loader *profile.Loader, args []string) int {
 	}
 	if err := st.Set(name, model); err != nil {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// profileThinking sets and persists a per-profile thinking level in the
+// profile.yaml file. The level is validated against {off, low, medium, high}
+// before writing. An unknown profile is an actionable error naming it; missing
+// arguments are a usage error.
+func profileThinking(st *store.Store, loader *profile.Loader, args []string) int {
+	if len(args) < 2 {
+		fmt.Fprint(os.Stderr, profileUsage)
+		return 2
+	}
+	name, level := args[0], args[1]
+
+	// Validate the thinking level before doing any I/O.
+	if _, err := resolveThinking(level); err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 2
+	}
+
+	if _, err := loader.Resolve(name); err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 1
+	}
+
+	profileDir := filepath.Join(configRoot(), "profiles", name)
+	profilePath := filepath.Join(profileDir, "profile.yaml")
+
+	// Read existing profile.yaml, update thinking field, write back.
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kui: read profile: %v\n", err)
+		return 1
+	}
+
+	content := string(data)
+	// Check if thinking line already exists and replace it.
+	lines := strings.Split(content, "\n")
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "thinking:") {
+			lines[i] = "thinking: " + level
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Append thinking field before any permissions block or at end.
+		insertIdx := len(lines)
+		for i, line := range lines {
+			if strings.TrimSpace(line) == "permissions:" {
+				insertIdx = i
+				break
+			}
+		}
+		// Insert thinking field.
+		newLines := make([]string, 0, len(lines)+1)
+		newLines = append(newLines, lines[:insertIdx]...)
+		newLines = append(newLines, "thinking: "+level)
+		newLines = append(newLines, lines[insertIdx:]...)
+		lines = newLines
+	}
+
+	if err := os.WriteFile(profilePath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "kui: write profile: %v\n", err)
 		return 1
 	}
 	return 0
@@ -416,6 +498,13 @@ func runPrompt(root string, opts Options, args []string) int {
 		client.SetModel(resolveWithOverride(opts.Model, st, loader, ""))
 	}
 
+	// Resolve thinking level: flag > profile > "off" (D1-D3).
+	thinkingLevel := resolveThinkingLevel(opts.Thinking, loader, activeName)
+	client.SetThinking(thinkingLevel)
+	if opts.Verbose {
+		log.Printf("kui: thinking=%s\n", thinkingLevel)
+	}
+
 	answer, err := ag.Run(ctx, strings.Join(args, " "))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
@@ -449,6 +538,33 @@ func resolveWithOverride(override string, st *store.Store, loader *profile.Loade
 		return override
 	}
 	return resolveModel(st, loader, name)
+}
+
+// resolveThinking validates a thinking level string against the allowed values
+// {off, low, medium, high}. Empty input returns "off" (the default). Invalid
+// input returns an actionable error listing the valid values.
+func resolveThinking(level string) (string, error) {
+	if level == "" {
+		return "off", nil
+	}
+	switch level {
+	case "off", "low", "medium", "high":
+		return level, nil
+	default:
+		return "", fmt.Errorf("invalid thinking level %q: must be one of off, low, medium, high", level)
+	}
+}
+
+// resolveThinkingLevel applies the layered resolution chain for thinking:
+// --thinking flag (highest priority) → profile.yaml thinking → "off" (default).
+func resolveThinkingLevel(flagLevel string, loader *profile.Loader, activeName string) string {
+	if flagLevel != "" {
+		return flagLevel
+	}
+	if resolved, err := loader.Resolve(activeName); err == nil && resolved.Thinking != "" {
+		return resolved.Thinking
+	}
+	return "off"
 }
 
 // resolveModel applies the REQ-CLI-4 resolution chain: the profile's saved
