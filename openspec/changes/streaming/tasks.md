@@ -49,15 +49,15 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Agent Loop Streaming Path
 
-- [ ] 3.1 RED: `internal/core/loop_test.go` — test streaming path: mock StreamingProvider returns [TextDelta("Hello"), TextDelta(" world"), Done]; verify observer.OnTextDelta called 2 times; verify final answer is "Hello world"
-- [ ] 3.2 GREEN: `internal/core/loop.go` — in Run(), add type assertion `if sp, ok := provider.(StreamingProvider)`, call StreamChat, consume channel: forward TextDelta via emitTextDelta, accumulate tool calls, on Done close and execute accumulated tools
-- [ ] 3.3 Verify: `go test ./internal/core/...` — pass
-- [ ] 3.4 RED: `internal/core/loop_test.go` — test streaming with tool calls: mock returns [TextDelta, ToolCallStart, ToolCallDelta, ToolCallEnd, Done]; verify tool calls executed post-stream; verify loop continues with tool results
-- [ ] 3.5 GREEN: `internal/core/loop.go` — implement tool call accumulation during streaming: track []ToolCall from ToolCallStart/Delta/End events, execute after channel closes, feed results back into loop
-- [ ] 3.6 Verify: `go test ./internal/core/...` — pass
-- [ ] 3.7 RED: `internal/core/loop_test.go` — test nil observer with streaming (no panic); test streaming error mid-stream (StreamChunk{Error} → loop returns error); test context cancellation closes stream
-- [ ] 3.8 GREEN: `internal/core/loop.go` — ensure nil observer path is safe; handle StreamChunk{Error} by returning error; respect context cancellation
-- [ ] 3.9 Verify: `go test ./internal/core/...` — pass
+- [x] 3.1 RED: `internal/core/loop_stream_test.go` — test streaming path: mock StreamingProvider returns [TextDelta("Hello"), TextDelta(" world"), Done]; verify observer.OnTextDelta called 2 times; verify final answer is "Hello world"
+- [x] 3.2 GREEN: `internal/core/loop.go` — in Run(), add type assertion `if sp, ok := provider.(StreamingProvider)`, call StreamChat, consume channel: forward TextDelta via emitTextDelta, accumulate tool calls, on Done close and execute accumulated tools
+- [x] 3.3 Verify: `go test ./internal/core/...` — pass
+- [x] 3.4 RED: `internal/core/loop_stream_test.go` — test streaming with tool calls: mock returns [TextDelta, ToolCallStart, ToolCallDelta, Done]; verify tool calls executed post-stream; verify loop continues with tool results
+- [x] 3.5 GREEN: `internal/core/loop.go` — implement tool call accumulation during streaming: track []ToolCall from ToolCallStart/Delta events, execute after channel closes, feed results back into loop
+- [x] 3.6 Verify: `go test ./internal/core/...` — pass
+- [x] 3.7 RED: `internal/core/loop_stream_test.go` — test nil observer with streaming (no panic); test streaming error mid-stream (StreamChunk{Error} → loop returns error); test context cancellation closes stream
+- [x] 3.8 GREEN: `internal/core/loop.go` — ensure nil observer path is safe; handle StreamChunk{Error} by returning error; respect context cancellation
+- [x] 3.9 Verify: `go test ./internal/core/... -race` — pass
 
 ## Phase 4: Controller + TUI Wiring
 
