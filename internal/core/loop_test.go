@@ -240,8 +240,8 @@ type fakeQueue struct {
 	drainCount int
 }
 
-func (q *fakeQueue) Enqueue(messages ...PendingMessage) {
-	q.queue = append(q.queue, messages...)
+func (q *fakeQueue) Enqueue(message PendingMessage) {
+	q.queue = append(q.queue, message)
 }
 
 func (q *fakeQueue) Drain() []PendingMessage {
@@ -308,11 +308,9 @@ func TestRunSteeringDrainsAllBeforeNextRequest(t *testing.T) {
 		{{Role: RoleAssistant, Content: "done"}},
 	}}
 	steering := &fakeQueue{mode: QueueModeAll}
-	steering.Enqueue(
-		PendingMessage{Content: "steer one"},
-		PendingMessage{Content: "steer two"},
-		PendingMessage{Content: "steer three"},
-	)
+	steering.Enqueue(PendingMessage{Content: "steer one"})
+	steering.Enqueue(PendingMessage{Content: "steer two"})
+	steering.Enqueue(PendingMessage{Content: "steer three"})
 	agent := &Agent{Provider: provider, Tools: registry, MaxIterations: 5, Steering: steering}
 
 	answer, err := agent.Run(context.Background(), "start")
@@ -485,11 +483,9 @@ func TestRunBudgetCountsFollowUpContinuations(t *testing.T) {
 	// One-at-a-time mode keeps the loop alive for exactly one continuation
 	// per drain, so the follow-up queue drives the loop into the budget.
 	followUp := &fakeQueue{mode: QueueModeOneAtATime}
-	followUp.Enqueue(
-		PendingMessage{Content: "again"},
-		PendingMessage{Content: "again"},
-		PendingMessage{Content: "again"},
-	)
+	followUp.Enqueue(PendingMessage{Content: "again"})
+	followUp.Enqueue(PendingMessage{Content: "again"})
+	followUp.Enqueue(PendingMessage{Content: "again"})
 	agent := &Agent{Provider: provider, Tools: NewRegistry(), MaxIterations: 3, FollowUp: followUp}
 
 	_, err := agent.Run(context.Background(), "loop")
@@ -739,10 +735,8 @@ func TestRunMultipleSwitchesLastWins(t *testing.T) {
 		messages: []Message{{Role: RoleSystem, Content: "Profile switched to writer. Continue..."}},
 	}
 	steering := &fakeQueue{mode: QueueModeAll}
-	steering.Enqueue(
-		PendingMessage{SwitchProfile: "coder"},
-		PendingMessage{SwitchProfile: "writer"},
-	)
+	steering.Enqueue(PendingMessage{SwitchProfile: "coder"})
+	steering.Enqueue(PendingMessage{SwitchProfile: "writer"})
 	agent := &Agent{
 		Provider: provider, Tools: NewRegistry(), MaxIterations: 5,
 		Steering: steering, Profiles: profiles,

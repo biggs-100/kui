@@ -19,6 +19,7 @@ import (
 	"github.com/biggs-100/kui/internal/adapters/tools"
 	"github.com/biggs-100/kui/internal/agent"
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/tui"
 )
 
 // maxIterations bounds the provider calls per run so a misbehaving provider
@@ -35,6 +36,7 @@ const usage = `kui [--] PROMPT...
 Runs the agent loop once and prints the final answer to stdout.
 
 Subcommands:
+  kui tui                          start the interactive TUI
   kui profile list                 list profiles, marking the active one
   kui profile switch <name> [-- PROMPT...]
                                    activate <name> for the session; with --,
@@ -82,6 +84,11 @@ func run(args []string) int {
 	// The profile subcommand group handles its own usage.
 	if args[0] == "profile" {
 		return runProfile(root, args[1:])
+	}
+
+	// The tui subcommand starts the interactive TUI (REQ-CLI-5).
+	if args[0] == "tui" {
+		return runTUI(root)
 	}
 
 	// "--" separates options from the prompt: it is consumed, so a prompt that
@@ -309,4 +316,26 @@ func resolveModel(st *store.Store, loader *profile.Loader, name string) string {
 		return model
 	}
 	return defaultModel
+}
+
+// runTUI starts the interactive TUI (REQ-CLI-5). It validates the provider
+// before starting — if startup fails, it prints an actionable error to
+// stderr and exits non-zero without rendering the TUI (REQ-TUI-APP-1).
+func runTUI(root string) int {
+	cfgRoot := configRoot()
+	wiring := tui.Wiring{
+		ProfileRoot: filepath.Join(cfgRoot, "profiles"),
+		ProjectDir:  root,
+		ConfigRoot:  cfgRoot,
+		Client: func() (core.Provider, error) {
+			return openai.NewClient()
+		},
+		MaxIter: maxIterations,
+	}
+
+	if err := tui.Run(context.Background(), wiring); err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 1
+	}
+	return 0
 }

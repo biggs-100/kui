@@ -565,3 +565,60 @@ func TestCLIProfileSystemPromptInjected(t *testing.T) {
 		t.Errorf("second request %q does not contain the profile system prompt", bodies[1])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TUI subcommand (REQ-CLI-5, REQ-TUI-APP-1).
+// ---------------------------------------------------------------------------
+
+// TestCLITUIDispatchStartupFailure covers REQ-CLI-5 "Startup validation
+// failure": `kui tui` without a valid provider prints an actionable error
+// to stderr and exits non-zero.
+func TestCLITUIDispatchStartupFailure(t *testing.T) {
+	_, stderr, code := runCLI(t, map[string]string{
+		"OPENAI_API_KEY": "",
+		"KUI_HOME":       t.TempDir(),
+	}, "tui")
+
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1 (startup validation failure)", code)
+	}
+	if !strings.Contains(stderr, "OPENAI_API_KEY") {
+		t.Errorf("stderr = %q, want an error naming OPENAI_API_KEY", stderr)
+	}
+}
+
+// TestCLIUsageIncludesTuiSubcommand covers REQ-CLI-5: the usage text must
+// mention `kui tui` as a subcommand.
+func TestCLIUsageIncludesTuiSubcommand(t *testing.T) {
+	_, stderr, code := runCLI(t, nil)
+
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (usage)", code)
+	}
+	if !strings.Contains(stderr, "kui tui") {
+		t.Errorf("stderr = %q, want usage text mentioning 'kui tui'", stderr)
+	}
+}
+
+// TestCLIOneShotPromptUnchanged covers REQ-CLI-5: the existing one-shot
+// prompt behavior must remain unchanged after adding kui tui.
+func TestCLIOneShotPromptUnchanged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"hello from fake"}}]}`)
+	}))
+	defer srv.Close()
+
+	stdout, stderr, code := runCLI(t, map[string]string{
+		"OPENAI_API_KEY":  "sk-test-123",
+		"OPENAI_BASE_URL": srv.URL,
+		"KUI_HOME":        t.TempDir(),
+	}, "hello")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr)
+	}
+	if stdout != "hello from fake\n" {
+		t.Errorf("stdout = %q, want the answer", stdout)
+	}
+}
