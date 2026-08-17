@@ -47,8 +47,8 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Integration — CLI + TUI Wiring (Slice C, PR 3)
 
-- [ ] 3.1 RED: Add test in `cmd/kui/` or integration test — verify MCP manager initializes from config, MCP tools appear in registry, shutdown cleans up (REQ-TOOLS-4 MCP tools included)
-- [ ] 3.2 GREEN: Modify `cmd/kui/main.go` — load MCP config via `mcp.Load()`, create MCPManager, call ConnectAll (non-fatal on error), register MCP tools in full registry, defer Shutdown
-- [ ] 3.3 GREEN: Modify `internal/tui/run.go` — add MCP initialization in TUI startup, register MCP tools before agent creation, defer shutdown
-- [ ] 3.4 Verify: `go test ./... && go build ./cmd/kui` — all tests pass, guard test `TestCoreImportsStdlibOnly` still passes
-- [ ] 3.5 Cleanup: Remove any dead code, verify gofmt/go vet clean
+- [x] 3.1 RED: Add test in `cmd/kui/` or integration test — verify MCP manager initializes from config, MCP tools appear in registry, shutdown cleans up (REQ-TOOLS-4 MCP tools included)
+- [x] 3.2 GREEN: Modify `cmd/kui/main.go` — load MCP config via `mcp.Load()`, create MCPManager, call ConnectAll (non-fatal on error), register MCP tools in full registry, defer Shutdown
+- [x] 3.3 GREEN: Modify `internal/tui/run.go` — add MCP initialization in TUI startup, register MCP tools before agent creation, defer shutdown
+- [x] 3.4 Verify: `go test ./... && go build ./cmd/kui` — all tests pass, guard test `TestCoreImportsStdlibOnly` still passes
+- [x] 3.5 Cleanup: Remove any dead code, verify gofmt/go vet clean

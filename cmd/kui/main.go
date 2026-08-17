@@ -23,6 +23,7 @@ import (
 	// Blank import triggers init() self-registration of example extensions (D6).
 	_ "github.com/biggs-100/kui/internal/extensions/example"
 
+	"github.com/biggs-100/kui/internal/mcp"
 	"github.com/biggs-100/kui/internal/tui"
 )
 
@@ -254,6 +255,25 @@ func runPrompt(root string, args []string) int {
 			return 1
 		}
 	}
+
+	// MCP integration (REQ-TOOLS-4): load config from global and project
+	// paths, connect to enabled servers, and register discovered tools.
+	// MCP failures are non-fatal — built-in tools always work.
+	mcpConfig, err := mcp.LoadConfig(
+		filepath.Join(cfgRoot, "mcp.yaml"),
+		filepath.Join(root, ".kui", "mcp.yaml"),
+	)
+	if err == nil && mcpConfig != nil && len(mcpConfig.Servers) > 0 {
+		mgr := mcp.NewMCPManager(mcpConfig)
+		defer mgr.Shutdown()
+		if err := mgr.ConnectAll(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "kui: mcp: %v\n", err)
+		}
+		for _, tool := range mgr.Tools() {
+			_ = full.Register(tool)
+		}
+	}
+
 	manager := agent.NewManager(loader, full)
 
 	activeName, err := st.Active()
