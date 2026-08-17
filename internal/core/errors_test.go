@@ -35,6 +35,31 @@ func TestErrorTypesReportContext(t *testing.T) {
 // TestErrorTypesUnwrapRootCause verifies the wrapping errors expose their
 // underlying cause to errors.Is / errors.As, while non-wrapping errors stay
 // opaque — matching the established UnknownToolError/ToolError contract.
+// TestHookErrorStringFormat verifies that HookError.Error() includes the
+// event name and the wrapped error (REQ-HOOK-3).
+func TestHookErrorStringFormat(t *testing.T) {
+	cause := errors.New("handler exploded")
+	err := &HookError{Event: "before_tool_execution", Err: cause}
+
+	got := err.Error()
+	if !strings.Contains(got, "before_tool_execution") {
+		t.Errorf("Error() = %q, want it to contain event name %q", got, "before_tool_execution")
+	}
+	if !strings.Contains(got, "handler exploded") {
+		t.Errorf("Error() = %q, want it to contain cause %q", got, "handler exploded")
+	}
+}
+
+// TestHookErrorUnwrap verifies that HookError unwraps to its cause.
+func TestHookErrorUnwrap(t *testing.T) {
+	cause := errors.New("root cause")
+	err := &HookError{Event: "test_event", Err: cause}
+
+	if !errors.Is(err, cause) {
+		t.Errorf("HookError does not unwrap to cause %v", cause)
+	}
+}
+
 func TestErrorTypesUnwrapRootCause(t *testing.T) {
 	cause := errors.New("root cause")
 

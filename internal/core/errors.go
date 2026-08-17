@@ -108,6 +108,22 @@ func (e *SkillLoadError) Unwrap() error {
 	return e.Err
 }
 
+// HookError wraps a hook handler failure with the event name so callers can
+// identify which hook event triggered the error (REQ-HOOK-3).
+type HookError struct {
+	Event string
+	Err   error
+}
+
+func (e *HookError) Error() string {
+	return fmt.Sprintf("hook %q failed: %v", e.Event, e.Err)
+}
+
+// Unwrap exposes the underlying handler error to errors.Is / errors.As.
+func (e *HookError) Unwrap() error {
+	return e.Err
+}
+
 // StoreError wraps persistence failures of the profile store (REQ-PROFILE-4).
 type StoreError struct {
 	Op  string
