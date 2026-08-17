@@ -65,27 +65,27 @@ Chain strategy: stacked-to-main
 
 ### Phase 5: URL Classification
 
-- [ ] 5.1 RED: Add test in `index_test.go` for `classifySkillsPaths(["go-testing", "https://r.com/skills/index.json"])` → local=["go-testing"], remote=["https://r.com/skills/index.json"] (REQ-RS-13, REQ-RS-14)
-- [ ] 5.2 GREEN: Implement `classifySkillsPaths(entries []string) (localNames, registryURLs []string)` — HTTP/HTTPS prefix check (REQ-RS-14)
-- [ ] 5.3 RED: Add test for all-URLs and all-names edge cases
+- [x] 5.1 RED: Add test in `index_test.go` for `classifySkillsPaths(["go-testing", "https://r.com/skills/index.json"])` → local=["go-testing"], remote=["https://r.com/skills/index.json"] (REQ-RS-13, REQ-RS-14)
+- [x] 5.2 GREEN: Implement `classifySkillsPaths(entries []string) (localNames, registryURLs []string)` — HTTP/HTTPS prefix check (REQ-RS-14)
+- [x] 5.3 RED: Add test for all-URLs and all-names edge cases
 
 ### Phase 6: 4-Layer Index
 
-- [ ] 6.1 RED: Add test for `NewIndex` with registry URLs returns remote skills between global and project (REQ-RS-15)
-- [ ] 6.2 GREEN: Modify `NewIndex(globalDir, projectDir, profileDir string, registryURLs []string)` signature; add `scanRemote()` layer that fetches registries and adds skills with layer="remote" (REQ-RS-15, REQ-RS-17)
-- [ ] 6.3 RED: Add test for remote shadows global but project/profile shadow remote (REQ-SKILL-1, REQ-RS-15)
-- [ ] 6.4 RED: Add test for remote skill name prefixed with hostname: `registry.com/go-testing` (REQ-RS-16)
-- [ ] 6.5 GREEN: Implement hostname extraction from registry URL and `{"host}/{name"}` prefix in `scanRemote()` (REQ-RS-16)
-- [ ] 6.6 RED: Add test for empty registry URLs → only local skills indexed (REQ-RS-17)
-- [ ] 6.7 RED: Add test for registry failure logs warning, local skills still present (REQ-RS-4, REQ-RS-18)
-- [ ] 6.8 GREEN: Wrap registry fetches in goroutines with `sync.WaitGroup`; catch errors, `log.Printf` warnings, continue (REQ-RS-18)
-- [ ] 6.9 RED: Add test for remote skills appear in `List()` alongside local skills (REQ-RS-19)
-- [ ] 6.10 RED: Add test for frontmatter metadata used when no skill.yaml for remote skill (REQ-RS-20)
-- [ ] 6.11 GREEN: In `scanRemote()`, try `skill.yaml` first, fall back to frontmatter parsing of `SKILL.md` (REQ-RS-3, REQ-RS-20)
+- [x] 6.1 RED: Add test for `NewIndex` with registry URLs returns remote skills between global and project (REQ-RS-15)
+- [x] 6.2 GREEN: Modify `NewIndex(globalDir, projectDir, profileDir string, registryURLs []string)` signature; add `scanRemote()` layer that fetches registries and adds skills with layer="remote" (REQ-RS-15, REQ-RS-17)
+- [x] 6.3 RED: Add test for remote shadows global but project/profile shadow remote (REQ-SKILL-1, REQ-RS-15)
+- [x] 6.4 RED: Add test for remote skill name prefixed with hostname: `registry.com/go-testing` (REQ-RS-16)
+- [x] 6.5 GREEN: Implement hostname extraction from registry URL and `{"host}/{name"}` prefix in `scanRemote()` (REQ-RS-16)
+- [x] 6.6 RED: Add test for empty registry URLs → only local skills indexed (REQ-RS-17)
+- [x] 6.7 RED: Add test for registry failure logs warning, local skills still present (REQ-RS-4, REQ-RS-18)
+- [x] 6.8 GREEN: Wrap registry fetches in goroutines with `sync.WaitGroup`; catch errors, `log.Printf` warnings, continue (REQ-RS-18)
+- [x] 6.9 RED: Add test for remote skills appear in `List()` alongside local skills (REQ-RS-19)
+- [x] 6.10 RED: Add test for frontmatter metadata used when no skill.yaml for remote skill (REQ-RS-20)
+- [x] 6.11 GREEN: In `scanRemote()`, try `skill.yaml` first, fall back to frontmatter parsing of `SKILL.md` (REQ-RS-3, REQ-RS-20)
 
 ### Phase 7: Update Existing Tests
 
-- [ ] 7.1 Update all existing `NewIndex(groot, proot, froot)` calls in `index_test.go` to pass `nil` for new `registryURLs` param — all existing tests must pass unchanged
+- [x] 7.1 Update all existing `NewIndex(groot, proot, froot)` calls in `index_test.go` to pass `nil` for new `registryURLs` param — all existing tests must pass unchanged
 
 ## Slice C: CLI/TUI Integration (PR 3)
 

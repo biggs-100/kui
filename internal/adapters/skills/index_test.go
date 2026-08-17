@@ -1,7 +1,10 @@
 package skills
 
 import (
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -312,4 +315,353 @@ func TestIndexSkillMetadata(t *testing.T) {
 	if want := filepath.Join(groot, "skills", "go-testing", "SKILL.md"); skill.BodyPath != want {
 		t.Errorf("BodyPath = %q, want %q", skill.BodyPath, want)
 	}
+}
+
+// --- Phase 5: URL Classification (REQ-RS-13, REQ-RS-14) ---
+
+func TestClassifySkillsPathsMixed(t *testing.T) {
+	// REQ-RS-13, REQ-RS-14: mixed local names and registry URLs are separated.
+	local, remote := classifySkillsPaths([]string{
+		"go-testing",
+		"https://example.com/skills/index.json",
+		"k8s",
+		"http://registry.local/index.json",
+	})
+	if len(local) != 2 || local[0] != "go-testing" || local[1] != "k8s" {
+		t.Errorf("local = %v, want [go-testing k8s]", local)
+	}
+	if len(remote) != 2 || remote[0] != "https://example.com/skills/index.json" || remote[1] != "http://registry.local/index.json" {
+		t.Errorf("remote = %v, want [https://example.com/skills/index.json http://registry.local/index.json]", remote)
+	}
+}
+
+func TestClassifySkillsPathsEmpty(t *testing.T) {
+	// REQ-RS-14: empty input returns two empty slices.
+	local, remote := classifySkillsPaths(nil)
+	if len(local) != 0 {
+		t.Errorf("local = %v, want empty", local)
+	}
+	if len(remote) != 0 {
+		t.Errorf("remote = %v, want empty", remote)
+	}
+}
+
+func TestClassifySkillsPathsAllURLs(t *testing.T) {
+	// REQ-RS-14: all-URLs input returns empty local, populated remote.
+	local, remote := classifySkillsPaths([]string{
+		"https://a.com/index.json",
+		"https://b.com/index.json",
+	})
+	if len(local) != 0 {
+		t.Errorf("local = %v, want empty", local)
+	}
+	if len(remote) != 2 {
+		t.Errorf("remote has %d entries, want 2", len(remote))
+	}
+}
+
+func TestClassifySkillsPathsAllNames(t *testing.T) {
+	// REQ-RS-14: all-names input returns populated local, empty remote.
+	local, remote := classifySkillsPaths([]string{"go-testing", "k8s"})
+	if len(local) != 2 {
+		t.Errorf("local has %d entries, want 2", len(local))
+	}
+	if len(remote) != 0 {
+		t.Errorf("remote = %v, want empty", remote)
+	}
+}
+
+// --- Phase 6: 4-Layer Index (REQ-RS-15) ---
+
+func TestNewIndexNilRegistriesBackwardCompatible(t *testing.T) {
+	// REQ-RS-17: NewIndex with nil registries works exactly as before.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{"go-testing": skillYAML("go-testing", "run go tests", "go test")},
+		map[string]string{},
+		map[string]string{},
+	)
+	index, err := NewIndex(groot, proot, froot)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	skills := index.List()
+	if len(skills) != 1 {
+		t.Fatalf("List() has %d skills, want 1", len(skills))
+	}
+	if skills[0].Name != "go-testing" {
+		t.Errorf("skill name = %q, want go-testing", skills[0].Name)
+	}
+}
+
+func TestNewIndexEmptyRegistries(t *testing.T) {
+	// REQ-RS-17: empty registry URLs list behaves like no registries.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{"a": skillYAML("a", "skill a", "alpha")},
+		map[string]string{},
+		map[string]string{},
+	)
+	index, err := NewIndex(groot, proot, froot)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	if len(index.List()) != 1 {
+		t.Fatalf("List() has %d skills, want 1", len(index.List()))
+	}
+}
+
+func TestNewIndexWithRegistryURL(t *testing.T) {
+	// REQ-RS-15: NewIndex with a registry URL adds a remote layer between
+	// global and project. REQ-RS-16: remote skills get hostname prefix.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{"global-skill": skillYAML("global-skill", "global", "global")},
+		map[string]string{"project-skill": skillYAML("project-skill", "project", "project")},
+		map[string]string{},
+	)
+	// Set up a mock registry serving one skill.
+	srv := mockRegistryServer(t, RegistryIndex{
+		Skills: []IndexSkill{
+			{Name: "remote-skill", Version: "v1", Files: []string{"SKILL.md"}},
+		},
+	}, map[string]map[string][]byte{
+		"remote-skill": {"SKILL.md": []byte("---\nname: remote-skill\ndescription: from remote\ntriggers:\n  - remote\n---\n# remote\n")},
+	})
+	defer srv.Close()
+
+	index, err := NewIndex(groot, proot, froot, srv.URL)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	skills := index.List()
+	if len(skills) != 3 {
+		t.Fatalf("List() has %d skills, want 3 (global+remote+project): %v", len(skills), skills)
+	}
+	// Verify remote skill is present with correct layer (REQ-RS-16: hostname-prefixed).
+	hostname := extractHostname(srv.URL)
+	prefixed := hostname + "/remote-skill"
+	remote, ok := index.Get(prefixed)
+	if !ok {
+		t.Fatalf("Get(%q) not found; available: %v", prefixed, index.List())
+	}
+	if remote.Layer != "remote" {
+		t.Errorf("remote skill Layer = %q, want remote", remote.Layer)
+	}
+}
+
+func TestNewIndexNilRegistriesParam(t *testing.T) {
+	// REQ-RS-17: passing no registries works identically to before.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{"x": skillYAML("x", "skill x", "x")},
+		map[string]string{},
+		map[string]string{},
+	)
+	index, err := NewIndex(groot, proot, froot)
+	if err != nil {
+		t.Fatalf("NewIndex(groot,proot,froot) returned error: %v", err)
+	}
+	if len(index.List()) != 1 {
+		t.Errorf("List() has %d skills, want 1", len(index.List()))
+	}
+}
+
+// --- Phase 6 continued: Collision resolution and failure isolation ---
+
+func TestRemoteShadowsGlobal(t *testing.T) {
+	// REQ-SKILL-1, REQ-RS-15: remote layer shadows global but is shadowed by
+	// project and profile.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{"tool": skillYAML("tool", "global", "tool")},
+		map[string]string{},
+		map[string]string{},
+	)
+	srv := mockRegistryServer(t, RegistryIndex{
+		Skills: []IndexSkill{
+			{Name: "tool", Version: "v1", Files: []string{"SKILL.md"}},
+		},
+	}, map[string]map[string][]byte{
+		"tool": {"SKILL.md": []byte("---\ndescription: remote\ntoggles:\n  - tool\n---\n")},
+	})
+	defer srv.Close()
+
+	index, err := NewIndex(groot, proot, froot, srv.URL)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	skill, ok := index.Get(extractHostname(srv.URL) + "/tool")
+	if !ok {
+		t.Fatal("remote tool skill not found")
+	}
+	if skill.Layer != "remote" {
+		t.Errorf("Layer = %q, want remote (shadows global)", skill.Layer)
+	}
+	if skill.Description != "remote" {
+		t.Errorf("Description = %q, want remote", skill.Description)
+	}
+}
+
+func TestProjectShadowRemote(t *testing.T) {
+	// REQ-SKILL-1, REQ-RS-15: project layer shadows remote layer.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{},
+		map[string]string{"tool": skillYAML("tool", "project", "tool")},
+		map[string]string{},
+	)
+	srv := mockRegistryServer(t, RegistryIndex{
+		Skills: []IndexSkill{
+			{Name: "tool", Version: "v1", Files: []string{"SKILL.md"}},
+		},
+	}, map[string]map[string][]byte{
+		"tool": {"SKILL.md": []byte("---\ndescription: remote\ntoggles:\n  - tool\n---\n")},
+	})
+	defer srv.Close()
+
+	index, err := NewIndex(groot, proot, froot, srv.URL)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	skill, ok := index.Get("tool")
+	if !ok {
+		t.Fatal("Get(tool) not found")
+	}
+	if skill.Layer != "project" {
+		t.Errorf("Layer = %q, want project (shadows remote)", skill.Layer)
+	}
+}
+
+func TestProfileShadowRemote(t *testing.T) {
+	// REQ-SKILL-1, REQ-RS-15: profile layer shadows remote layer.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{},
+		map[string]string{},
+		map[string]string{"tool": skillYAML("tool", "profile", "tool")},
+	)
+	srv := mockRegistryServer(t, RegistryIndex{
+		Skills: []IndexSkill{
+			{Name: "tool", Version: "v1", Files: []string{"SKILL.md"}},
+		},
+	}, map[string]map[string][]byte{
+		"tool": {"SKILL.md": []byte("---\ndescription: remote\ntoggles:\n  - tool\n---\n")},
+	})
+	defer srv.Close()
+
+	index, err := NewIndex(groot, proot, froot, srv.URL)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	skill, ok := index.Get("tool")
+	if !ok {
+		t.Fatal("Get(tool) not found")
+	}
+	if skill.Layer != "profile" {
+		t.Errorf("Layer = %q, want profile (shadows remote)", skill.Layer)
+	}
+}
+
+func TestRegistryFailureLocalSkillsStillPresent(t *testing.T) {
+	// REQ-RS-4, REQ-RS-18: when a registry URL fails, local skills are still
+	// indexed and a warning is logged (not a fatal error).
+	groot, proot, froot := buildIndex(t,
+		map[string]string{"local-skill": skillYAML("local-skill", "local", "local")},
+		map[string]string{},
+		map[string]string{},
+	)
+	// Use an invalid URL that will fail to connect.
+	index, err := NewIndex(groot, proot, froot, "http://127.0.0.1:1/nonexistent")
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v (registry failure should not be fatal)", err)
+	}
+	skills := index.List()
+	if len(skills) != 1 {
+		t.Fatalf("List() has %d skills, want 1 (local skill still present)", len(skills))
+	}
+	if skills[0].Name != "local-skill" {
+		t.Errorf("skill name = %q, want local-skill", skills[0].Name)
+	}
+}
+
+func TestRemoteSkillsAppearInList(t *testing.T) {
+	// REQ-RS-19: remote skills appear in List() alongside local skills.
+	groot, proot, froot := buildIndex(t,
+		map[string]string{"local-a": skillYAML("local-a", "local a", "alpha")},
+		map[string]string{"local-b": skillYAML("local-b", "local b", "beta")},
+		map[string]string{},
+	)
+	srv := mockRegistryServer(t, RegistryIndex{
+		Skills: []IndexSkill{
+			{Name: "remote-x", Version: "v1", Files: []string{"SKILL.md"}},
+		},
+	}, map[string]map[string][]byte{
+		"remote-x": {"SKILL.md": []byte("---\ndescription: remote x\ntriggers:\n  - gamma\n---\n")},
+	})
+	defer srv.Close()
+
+	index, err := NewIndex(groot, proot, froot, srv.URL)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	skills := index.List()
+	if len(skills) != 3 {
+		t.Fatalf("List() has %d skills, want 3 (local-a + remote-x + local-b)", len(skills))
+	}
+	// Verify remote skill is in the list.
+	names := make(map[string]bool)
+	for _, s := range skills {
+		names[s.Name] = true
+	}
+	hostname := extractHostname(srv.URL)
+	if !names[hostname+"/remote-x"] {
+		t.Errorf("remote-x not in List(): %v", skills)
+	}
+}
+
+func TestRemoteSkillFrontmatterMetadata(t *testing.T) {
+	// REQ-RS-20: frontmatter metadata is used when no skill.yaml for remote.
+	groot, proot, froot := buildIndex(t, map[string]string{}, map[string]string{}, map[string]string{})
+	srv := mockRegistryServer(t, RegistryIndex{
+		Skills: []IndexSkill{
+			{Name: "fm-skill", Version: "v1", Files: []string{"SKILL.md"}},
+		},
+	}, map[string]map[string][]byte{
+		"fm-skill": {"SKILL.md": []byte("---\nname: fm-skill\ndescription: from frontmatter\ntriggers:\n  - frontmatter\n---\n# Body\n")},
+	})
+	defer srv.Close()
+
+	index, err := NewIndex(groot, proot, froot, srv.URL)
+	if err != nil {
+		t.Fatalf("NewIndex returned error: %v", err)
+	}
+	hostname := extractHostname(srv.URL)
+	skill, ok := index.Get(hostname + "/fm-skill")
+	if !ok {
+		t.Fatalf("Get(%s/fm-skill) not found", hostname)
+	}
+	if skill.Description != "from frontmatter" {
+		t.Errorf("Description = %q, want 'from frontmatter'", skill.Description)
+	}
+	if len(skill.Triggers) != 1 || skill.Triggers[0] != "frontmatter" {
+		t.Errorf("Triggers = %v, want [frontmatter]", skill.Triggers)
+	}
+	if skill.Layer != "remote" {
+		t.Errorf("Layer = %q, want remote", skill.Layer)
+	}
+}
+
+// mockRegistryServer starts an httptest server serving a fake registry with the
+// given index and per-skill files.
+func mockRegistryServer(t *testing.T, index RegistryIndex, skillFiles map[string]map[string][]byte) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/index.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(index)
+	})
+	for skillName, files := range skillFiles {
+		for fileName, data := range files {
+			p := "/" + skillName + "/" + fileName
+			d := data // capture
+			mux.HandleFunc(p, func(w http.ResponseWriter, r *http.Request) {
+				w.Write(d)
+			})
+		}
+	}
+	return httptest.NewServer(mux)
 }
