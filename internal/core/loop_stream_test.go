@@ -287,6 +287,88 @@ func TestRunStreamingNonStreamingObserverSkipsDeltas(t *testing.T) {
 	}
 }
 
+func TestRunStreamingSteeringDrainsBetweenStreamTurns(t *testing.T) {
+	// REQ-LOOP-11: the steering queue drains between streaming turns — the
+	// queued message is injected before the second StreamChat call, exactly
+	// like the sync path (TestRunSteeringDrainsAllBeforeNextRequest).
+	provider := &fakeStreamingProvider{
+		streamResponses: [][]StreamChunk{
+			{
+				{TextDelta: "first answer"},
+				{Done: true},
+			},
+			{
+				{TextDelta: "final answer"},
+				{Done: true},
+			},
+		},
+	}
+	steering := &fakeQueue{mode: QueueModeAll}
+	steering.Enqueue(PendingMessage{Content: "steer now"})
+	agent := &Agent{Provider: provider, Tools: NewRegistry(), MaxIterations: 5, Steering: steering}
+
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "final answer" {
+		t.Errorf("answer = %q, want %q", answer, "final answer")
+	}
+	if provider.streamCalls != 2 {
+		t.Errorf("StreamChat called %d times, want 2 (steering kept the loop alive)", provider.streamCalls)
+	}
+	if provider.chatCalls != 0 {
+		t.Errorf("Chat called %d times, want 0 (streaming path used)", provider.chatCalls)
+	}
+	// The second StreamChat call must carry the steering message.
+	second := provider.received[1]
+	last := second[len(second)-1]
+	if last.Role != RoleUser || last.Content != "steer now" {
+		t.Errorf("last message of second StreamChat = %+v, want the injected steering message", last)
+	}
+}
+
+func TestRunStreamingFollowUpDrainsAfterStream(t *testing.T) {
+	// REQ-LOOP-11: the follow-up queue drains after the streaming inner loop
+	// would otherwise stop, keeping the loop alive with a new streaming turn —
+	// exactly like the sync path (TestRunFollowUpDrainsAtStop).
+	provider := &fakeStreamingProvider{
+		streamResponses: [][]StreamChunk{
+			{
+				{TextDelta: "first answer"},
+				{Done: true},
+			},
+			{
+				{TextDelta: "final answer"},
+				{Done: true},
+			},
+		},
+	}
+	followUp := &fakeQueue{mode: QueueModeAll}
+	followUp.Enqueue(PendingMessage{Content: "follow up please"})
+	agent := &Agent{Provider: provider, Tools: NewRegistry(), MaxIterations: 5, FollowUp: followUp}
+
+	answer, err := agent.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "final answer" {
+		t.Errorf("answer = %q, want the follow-up turn's answer %q", answer, "final answer")
+	}
+	if provider.streamCalls != 2 {
+		t.Errorf("StreamChat called %d times, want 2 (follow-up kept the loop alive)", provider.streamCalls)
+	}
+	if provider.chatCalls != 0 {
+		t.Errorf("Chat called %d times, want 0 (streaming path used)", provider.chatCalls)
+	}
+	// The second StreamChat call must carry the follow-up message.
+	second := provider.received[1]
+	last := second[len(second)-1]
+	if last.Role != RoleUser || last.Content != "follow up please" {
+		t.Errorf("last message of second StreamChat = %+v, want the injected follow-up message", last)
+	}
+}
+
 // plainObserver implements Observer but NOT StreamingObserver.
 type plainObserver struct{}
 

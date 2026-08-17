@@ -545,6 +545,33 @@ func TestStreamChatSendsStreamTrue(t *testing.T) {
 	}
 }
 
+// TestStreamChatBadRequestReturnsError verifies that a 400 response to a
+// stream:true request surfaces as an error, not a channel — the adapter's
+// stream-unsupported fallback (REQ-OAI-STREAM-1, "Fall back to Chat on stream
+// unsupported" scenario). A server that cannot stream answers with 400 and an
+// application/json error body; StreamChat must report it as an error carrying
+// the status.
+func TestStreamChatBadRequestReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"message":"streaming is not supported"}}`)
+	}))
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+
+	ch, err := c.StreamChat(context.Background(), []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil)
+	if err == nil {
+		t.Fatal("StreamChat() error = nil, want error for status 400 (stream unsupported)")
+	}
+	if ch != nil {
+		t.Error("StreamChat() returned a channel alongside the error, want nil channel")
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("error = %q, want it to mention status 400", err.Error())
+	}
+}
+
 // TestStreamChatHTTPErrors verifies that StreamChat returns appropriate typed
 // errors for HTTP failure status codes (REQ-PROV-4).
 func TestStreamChatHTTPErrors(t *testing.T) {
