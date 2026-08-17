@@ -49,6 +49,9 @@ var shortMap = map[string]string{
 	"m":  "model",
 	"a":  "", // approve (bool)
 	"p":  "", // print (bool)
+	"t":  "tools",
+	"xt": "exclude-tools",
+	"nt": "", // no-tools (bool)
 	"ne": "", // no-extensions (bool)
 	"ns": "", // no-skills (bool)
 }
