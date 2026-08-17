@@ -67,8 +67,9 @@ func okServer(t *testing.T, assert func(t *testing.T, r *http.Request)) *httptes
 // decodedRequest mirrors the OpenAI-compatible chat request wire format so the
 // tests assert the actual bytes the client sends, not internal structs.
 type decodedRequest struct {
-	Model    string `json:"model"`
-	Messages []struct {
+	Model           string `json:"model"`
+	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
+	Messages        []struct {
 		Role       string `json:"role"`
 		Content    string `json:"content"`
 		ToolCallID string `json:"tool_call_id"`
@@ -474,6 +475,81 @@ func TestSetModelChangesRequestModel(t *testing.T) {
 	}
 	if requests != 2 {
 		t.Errorf("provider received %d requests, want 2", requests)
+	}
+}
+
+// TestSetThinkingChangesRequest verifies that SetThinking stores the level
+// and the next request body carries reasoning_effort.
+func TestSetThinkingChangesRequest(t *testing.T) {
+	srv := okServer(t, func(t *testing.T, r *http.Request) {
+		body := decodeRequest(t, r)
+		if body.ReasoningEffort == nil {
+			t.Error("ReasoningEffort = nil, want pointer to high")
+		} else if *body.ReasoningEffort != "high" {
+			t.Errorf("ReasoningEffort = %q, want %q", *body.ReasoningEffort, "high")
+		}
+	})
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+	c.SetThinking("high")
+
+	if _, err := c.Chat(context.Background(), []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+}
+
+// TestSetThinkingOffOmitsReasoning verifies that thinking level "off" does not
+// include reasoning_effort in the request body (nil pointer → omitempty).
+func TestSetThinkingOffOmitsReasoning(t *testing.T) {
+	var rawBody string
+	srv := payloadServer(t, &rawBody)
+	defer srv.Close()
+	c := newClientEnv(t, srv)
+	c.SetThinking("off")
+
+	if _, err := c.Chat(context.Background(), []core.Message{{Role: core.RoleUser, Content: "hi"}}, nil); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if strings.Contains(rawBody, "reasoning_effort") {
+		t.Errorf("request body %q must not contain reasoning_effort for thinking=off", rawBody)
+	}
+}
+
+// TestChatRequestMarshalNilReasoningEffort verifies JSON marshaling omits
+// reasoning_effort when the pointer is nil.
+func TestChatRequestMarshalNilReasoningEffort(t *testing.T) {
+	req := chatRequest{
+		Model:    "gpt-4o",
+		Messages: []requestMessage{{Role: "user", Content: "hi"}},
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if strings.Contains(string(data), "reasoning_effort") {
+		t.Errorf("JSON %q must not contain reasoning_effort when nil", string(data))
+	}
+}
+
+// TestChatRequestMarshalWithReasoningEffort verifies JSON marshaling includes
+// reasoning_effort when the pointer is set.
+func TestChatRequestMarshalWithReasoningEffort(t *testing.T) {
+	level := "medium"
+	req := chatRequest{
+		Model:           "gpt-4o",
+		Messages:        []requestMessage{{Role: "user", Content: "hi"}},
+		ReasoningEffort: &level,
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if re, ok := parsed["reasoning_effort"]; !ok || re != "medium" {
+		t.Errorf("reasoning_effort = %v, want %q", re, "medium")
 	}
 }
 

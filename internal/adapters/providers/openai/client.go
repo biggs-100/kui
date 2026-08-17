@@ -31,10 +31,11 @@ const (
 // Client is a core.Provider speaking the OpenAI-compatible chat-completions
 // protocol (REQ-PROV-1). It is safe for concurrent use.
 type Client struct {
-	apiKey  string
-	baseURL string
-	model   string
-	http    *http.Client
+	apiKey       string
+	baseURL      string
+	model        string
+	thinkingLevel string
+	http         *http.Client
 }
 
 // NewClient reads credentials and endpoint configuration from the
@@ -71,15 +72,33 @@ func (c *Client) SetModel(model string) {
 	c.model = model
 }
 
+// SetThinking reconfigures the reasoning effort level used by subsequent
+// requests. It follows the same pattern as SetModel: a stateful setter on the
+// concrete type that takes effect on the next request. Valid levels are off,
+// low, medium, high — validation is done at the CLI layer before calling this.
+func (c *Client) SetThinking(level string) {
+	c.thinkingLevel = level
+}
+
+// thinkingEffort returns a pointer to the thinking level string for inclusion
+// in the request body, or nil when the level is empty or "off" (the default).
+func (c *Client) thinkingEffort() *string {
+	if c.thinkingLevel == "" || c.thinkingLevel == "off" {
+		return nil
+	}
+	return &c.thinkingLevel
+}
+
 // Chat exchanges the message sequence and the advertised tool set with the
 // provider and returns its response messages, which may carry tool calls
 // (REQ-PROV-1). HTTP failures map to the typed error surface (D10); the API
 // key never appears in any returned error (D8, REQ-PROV-3).
 func (c *Client) Chat(ctx context.Context, messages []core.Message, tools []core.Tool) ([]core.Message, error) {
 	body, err := json.Marshal(chatRequest{
-		Model:    c.model,
-		Messages: requestMessages(messages),
-		Tools:    requestTools(tools),
+		Model:           c.model,
+		Messages:        requestMessages(messages),
+		Tools:           requestTools(tools),
+		ReasoningEffort: c.thinkingEffort(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build chat request: %w", err)
@@ -122,10 +141,11 @@ func (c *Client) Chat(ctx context.Context, messages []core.Message, tools []core
 // The request carries "stream": true and the response is parsed as SSE.
 func (c *Client) StreamChat(ctx context.Context, messages []core.Message, tools []core.Tool) (<-chan core.StreamChunk, error) {
 	body, err := json.Marshal(chatRequest{
-		Model:    c.model,
-		Messages: requestMessages(messages),
-		Tools:    requestTools(tools),
-		Stream:   true,
+		Model:           c.model,
+		Messages:        requestMessages(messages),
+		Tools:           requestTools(tools),
+		Stream:          true,
+		ReasoningEffort: c.thinkingEffort(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build stream request: %w", err)
@@ -217,10 +237,11 @@ func chunksFromMessages(msgs []core.Message) <-chan core.StreamChunk {
 // chatRequest is the OpenAI-compatible chat completions request body. Model is
 // always present so compatible servers never receive a request without it.
 type chatRequest struct {
-	Model    string           `json:"model"`
-	Messages []requestMessage `json:"messages"`
-	Tools    []requestTool    `json:"tools,omitempty"`
-	Stream   bool             `json:"stream,omitempty"`
+	Model           string           `json:"model"`
+	Messages        []requestMessage `json:"messages"`
+	Tools           []requestTool    `json:"tools,omitempty"`
+	Stream          bool             `json:"stream,omitempty"`
+	ReasoningEffort *string          `json:"reasoning_effort,omitempty"`
 }
 
 type requestMessage struct {

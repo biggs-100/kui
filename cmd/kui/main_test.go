@@ -733,3 +733,120 @@ func TestCLIModelFlagOverride(t *testing.T) {
 		t.Errorf("request model = %q, want %q (flag override)", bodies[0], "gpt-4o")
 	}
 }
+
+// TestCLIThinkingFlagSendsReasoningEffort verifies that --thinking medium sends
+// reasoning_effort in the request body.
+func TestCLIThinkingFlagSendsReasoningEffort(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		bodies = append(bodies, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"done"}}]}`)
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	_, stderr, code := runCLI(t, map[string]string{
+		"OPENAI_API_KEY":  "sk-test-123",
+		"OPENAI_BASE_URL": srv.URL,
+		"KUI_HOME":        home,
+	}, "--thinking", "medium", "hello")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr)
+	}
+	if len(bodies) == 0 {
+		t.Fatal("provider received no requests")
+	}
+	if !strings.Contains(bodies[0], `"reasoning_effort":"medium"`) {
+		t.Errorf("request body %q does not contain reasoning_effort:medium", bodies[0])
+	}
+}
+
+// TestCLIThinkingOffOmitsReasoningEffort verifies that --thinking off (or no
+// thinking flag) omits reasoning_effort from the request body.
+func TestCLIThinkingOffOmitsReasoningEffort(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		bodies = append(bodies, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"done"}}]}`)
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	_, stderr, code := runCLI(t, map[string]string{
+		"OPENAI_API_KEY":  "sk-test-123",
+		"OPENAI_BASE_URL": srv.URL,
+		"KUI_HOME":        home,
+	}, "--thinking", "off", "hello")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr)
+	}
+	if len(bodies) == 0 {
+		t.Fatal("provider received no requests")
+	}
+	if strings.Contains(bodies[0], "reasoning_effort") {
+		t.Errorf("request body %q must not contain reasoning_effort for thinking=off", bodies[0])
+	}
+}
+
+// TestCLIThinkingInvalidLevel verifies that --thinking banana prints an error
+// and exits 2 (usage error).
+func TestCLIThinkingInvalidLevel(t *testing.T) {
+	_, stderr, code := runCLI(t, map[string]string{
+		"KUI_HOME": t.TempDir(),
+	}, "--thinking", "banana", "hello")
+
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (usage error)", code)
+	}
+	if !strings.Contains(stderr, "banana") {
+		t.Errorf("stderr = %q, want it to mention the invalid level", stderr)
+	}
+}
+
+// TestCLIProfileThinkingSubcommand verifies that `kui profile thinking <name>
+// <level>` persists the thinking level in profile.yaml.
+func TestCLIProfileThinkingSubcommand(t *testing.T) {
+	home := t.TempDir()
+	writeProfileDir(t, home, "coder", "name: coder\nsystem_prompt: SYSTEM.md\n")
+
+	_, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "profile", "thinking", "coder", "high")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr = %q", code, stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "profiles", "coder", "profile.yaml"))
+	if err != nil {
+		t.Fatalf("read profile.yaml: %v", err)
+	}
+	if !strings.Contains(string(data), "thinking: high") {
+		t.Errorf("profile.yaml = %q, want it to contain 'thinking: high'", string(data))
+	}
+}
+
+// TestCLIProfileThinkingInvalidLevel verifies that `kui profile thinking <name>
+// banana` prints an error and exits non-zero.
+func TestCLIProfileThinkingInvalidLevel(t *testing.T) {
+	home := t.TempDir()
+	writeProfileDir(t, home, "coder", "name: coder\n")
+
+	_, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "profile", "thinking", "coder", "banana")
+
+	if code == 0 {
+		t.Error("exit code = 0, want non-zero for an invalid thinking level")
+	}
+	if !strings.Contains(stderr, "banana") {
+		t.Errorf("stderr = %q, want it to mention the invalid level", stderr)
+	}
+}

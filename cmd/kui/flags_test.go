@@ -45,6 +45,9 @@ func TestOptionsZeroValues(t *testing.T) {
 	if opts.Print != false {
 		t.Error("Print should be false")
 	}
+	if opts.Thinking != "" {
+		t.Errorf("Thinking = %q, want empty", opts.Thinking)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +365,58 @@ func TestParseFlagsExcludeToolsComma(t *testing.T) {
 	}
 	if opts.ExcludeTools != "bash" {
 		t.Errorf("ExcludeTools = %q, want %q", opts.ExcludeTools, "bash")
+	}
+}
+
+func TestParseFlagsThinkingSpace(t *testing.T) {
+	opts, _, err := parseFlags([]string{"--thinking", "high"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Thinking != "high" {
+		t.Errorf("Thinking = %q, want %q", opts.Thinking, "high")
+	}
+}
+
+func TestParseFlagsThinkingEquals(t *testing.T) {
+	opts, _, err := parseFlags([]string{"--thinking=medium"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Thinking != "medium" {
+		t.Errorf("Thinking = %q, want %q", opts.Thinking, "medium")
+	}
+}
+
+func TestResolveThinkingInvalid(t *testing.T) {
+	_, err := resolveThinking("banana")
+	if err == nil {
+		t.Fatal("expected error for invalid thinking level, got nil")
+	}
+	if !contains(err.Error(), "banana") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "banana")
+	}
+}
+
+func TestResolveThinkingEmpty(t *testing.T) {
+	level, err := resolveThinking("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if level != "off" {
+		t.Errorf("level = %q, want %q", level, "off")
+	}
+}
+
+func TestResolveThinkingValid(t *testing.T) {
+	for _, want := range []string{"off", "low", "medium", "high"} {
+		level, err := resolveThinking(want)
+		if err != nil {
+			t.Fatalf("resolveThinking(%q) error = %v", want, err)
+		}
+		if level != want {
+			t.Errorf("resolveThinking(%q) = %q, want %q", want, level, want)
+		}
 	}
 }
 
