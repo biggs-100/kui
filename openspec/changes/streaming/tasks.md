@@ -38,14 +38,14 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: OpenAI SSE Adapter
 
-- [ ] 2.1 RED: `internal/adapters/providers/openai/client_test.go` — test StreamChat with mock SSE server: normal text deltas parsed correctly; [DONE] sentinel closes channel; large event (200KB tool call) fits in 256KB buffer
-- [ ] 2.2 GREEN: `internal/adapters/providers/openai/client.go` — add StreamChat method: POST with stream: true, create goroutine reading bufio.Scanner (256KB buffer), parse data: prefix lines, detect [DONE], unmarshal choices[].delta.content into StreamChunk, send to buffered chan(64), close channel on completion
-- [ ] 2.3 GREEN: `internal/adapters/providers/openai/client.go` — add SSE response types (streamingDelta, streamingChoice, streamingResponse) for unmarshalling
-- [ ] 2.4 GREEN: `internal/adapters/providers/openai/client.go` — add tool call accumulation: track index/name across chunks, emit ToolCallStart when function.name first seen, ToolCallDelta for arguments, ToolCallEnd on index change or stream end
-- [ ] 2.5 Verify: `go test ./internal/adapters/providers/openai/...` — pass
-- [ ] 2.6 RED: `internal/adapters/providers/openai/client_test.go` — test error mid-stream: SSE connection drops → StreamChunk{Error} sent, channel closed; test context cancellation stops stream; test no [DONE] before EOF sends error
-- [ ] 2.7 GREEN: `internal/adapters/providers/openai/client.go` — handle mid-stream errors: send StreamChunk{Error: err}, close channel; handle context cancellation in scanner loop; handle EOF without [DONE] as error
-- [ ] 2.8 Verify: `go test ./internal/adapters/providers/openai/...` — pass
+- [x] 2.1 RED: `internal/adapters/providers/openai/client_test.go` — test StreamChat with mock SSE server: normal text deltas parsed correctly; [DONE] sentinel closes channel; large event (200KB tool call) fits in 256KB buffer
+- [x] 2.2 GREEN: `internal/adapters/providers/openai/client.go` — add StreamChat method: POST with stream: true, create goroutine reading bufio.Scanner (256KB buffer), parse data: prefix lines, detect [DONE], unmarshal choices[].delta.content into StreamChunk, send to buffered chan(64), close channel on completion
+- [x] 2.3 GREEN: `internal/adapters/providers/openai/client.go` — add SSE response types (streamingDelta, streamingChoice, streamingResponse) for unmarshalling
+- [x] 2.4 GREEN: `internal/adapters/providers/openai/client.go` — add tool call accumulation: track index/name across chunks, emit ToolCallStart when function.name first seen, ToolCallDelta for arguments, ToolCallEnd on index change or stream end
+- [x] 2.5 Verify: `go test ./internal/adapters/providers/openai/...` — pass
+- [x] 2.6 RED: `internal/adapters/providers/openai/client_test.go` — test error mid-stream: SSE connection drops → StreamChunk{Error} sent, channel closed; test context cancellation stops stream; test no [DONE] before EOF sends error
+- [x] 2.7 GREEN: `internal/adapters/providers/openai/client.go` — handle mid-stream errors: send StreamChunk{Error: err}, close channel; handle context cancellation in scanner loop; handle EOF without [DONE] as error
+- [x] 2.8 Verify: `go test ./internal/adapters/providers/openai/...` — pass
 
 ## Phase 3: Agent Loop Streaming Path
 

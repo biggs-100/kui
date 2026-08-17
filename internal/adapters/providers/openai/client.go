@@ -117,12 +117,58 @@ func (c *Client) Chat(ctx context.Context, messages []core.Message, tools []core
 	return parseResponse(parsed)
 }
 
+// StreamChat sends a streaming chat request and returns a channel of
+// StreamChunks. It implements the StreamingProvider interface (REQ-OAI-STREAM-1).
+// The request carries "stream": true and the response is parsed as SSE.
+func (c *Client) StreamChat(ctx context.Context, messages []core.Message, tools []core.Tool) (<-chan core.StreamChunk, error) {
+	body, err := json.Marshal(chatRequest{
+		Model:    c.model,
+		Messages: requestMessages(messages),
+		Tools:    requestTools(tools),
+		Stream:   true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build stream request: %w", err)
+	}
+
+	endpoint := strings.TrimRight(c.baseURL, "/") + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create stream request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, &TransportError{Err: err}
+	}
+
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
+		resp.Body.Close()
+		return nil, &AuthError{}
+	case resp.StatusCode == http.StatusTooManyRequests:
+		resp.Body.Close()
+		return nil, &RateLimitError{}
+	case resp.StatusCode >= http.StatusInternalServerError:
+		resp.Body.Close()
+		return nil, &ServerError{Status: resp.StatusCode}
+	case resp.StatusCode != http.StatusOK:
+		resp.Body.Close()
+		return nil, fmt.Errorf("unexpected provider status %d", resp.StatusCode)
+	}
+
+	return parseSSEStream(ctx, resp.Body), nil
+}
+
 // chatRequest is the OpenAI-compatible chat completions request body. Model is
 // always present so compatible servers never receive a request without it.
 type chatRequest struct {
 	Model    string           `json:"model"`
 	Messages []requestMessage `json:"messages"`
 	Tools    []requestTool    `json:"tools,omitempty"`
+	Stream   bool             `json:"stream,omitempty"`
 }
 
 type requestMessage struct {
