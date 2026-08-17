@@ -61,10 +61,10 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Controller + TUI Wiring
 
-- [ ] 4.1 RED: `internal/tui/controller_test.go` — test streaming path: mock runner implementing StreamingProvider, verify streamChunkMsg emitted per delta, verify streamDoneMsg on completion
-- [ ] 4.2 GREEN: `internal/tui/controller.go` — in SubmitPrompt, add type assertion for StreamingProvider; if streaming: call StreamChat, consume channel in goroutine, emit streamChunkMsg for each TextDelta via tea.Cmd, emit streamDoneMsg on channel close
-- [ ] 4.3 Verify: `go test ./internal/tui/...` — pass
-- [ ] 4.4 RED: `internal/tui/controller_test.go` — test sync fallback: mock runner implementing only Provider (no StreamingProvider), verify Chat() called instead; test stream error → streamDoneMsg{err} emitted
-- [ ] 4.5 GREEN: `internal/tui/controller.go` — ensure sync fallback path is unchanged; handle stream error: emit streamDoneMsg{err} on error chunk
-- [ ] 4.6 Verify: `go test ./internal/tui/...` — pass
-- [ ] 4.7 Verify ALL: `go test ./...` — full test suite pass
+- [x] 4.1 RED: `internal/tui/controller_test.go` — test streaming path: mock runner implementing StreamingProvider, verify streamChunkMsg emitted per delta, verify streamDoneMsg on completion
+- [x] 4.2 GREEN: `internal/tui/controller.go` — in SubmitPrompt, add type assertion for StreamingProvider; if streaming: call StreamChat, consume channel in goroutine, emit streamChunkMsg for each TextDelta via tea.Cmd, emit streamDoneMsg on channel close
+- [x] 4.3 Verify: `go test ./internal/tui/...` — pass
+- [x] 4.4 RED: `internal/tui/controller_test.go` — test sync fallback: mock runner implementing only Provider (no StreamingProvider), verify Chat() called instead; test stream error → streamDoneMsg{err} emitted
+- [x] 4.5 GREEN: `internal/tui/controller.go` — ensure sync fallback path is unchanged; handle stream error: emit streamDoneMsg{err} on error chunk
+- [x] 4.6 Verify: `go test ./internal/tui/...` — pass
+- [x] 4.7 Verify ALL: `go test ./...` — full test suite pass

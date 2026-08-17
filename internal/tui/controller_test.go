@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,13 @@ func (r *fakeRunner) Run(ctx context.Context, prompt string) (string, error) {
 
 func (r *fakeRunner) Steering() core.PendingQueue {
 	return r.steering
+}
+
+func (r *fakeRunner) Provider() core.Provider {
+	if r.agent != nil {
+		return r.agent.Provider
+	}
+	return nil
 }
 
 // fakeModelMemory is a minimal ModelMemory that returns a fixed model for
@@ -389,5 +397,193 @@ func TestSubmitPromptEventDropOnFullChannel(t *testing.T) {
 	// Channel should still be full (the done event was dropped)
 	if len(c.events) != 64 {
 		t.Errorf("channel length = %d, want 64 (overflow event should be dropped)", len(c.events))
+	}
+}
+
+// --- Streaming fakes ---
+
+// fakeStreamingProvider implements core.StreamingProvider for testing the
+// controller's streaming detection path.
+type fakeStreamingProvider struct {
+	responses [][]core.StreamChunk
+	calls     int
+}
+
+func (p *fakeStreamingProvider) Chat(_ context.Context, _ []core.Message, _ []core.Tool) ([]core.Message, error) {
+	return nil, fmt.Errorf("Chat should not be called on streaming provider")
+}
+
+func (p *fakeStreamingProvider) StreamChat(_ context.Context, _ []core.Message, _ []core.Tool) (<-chan core.StreamChunk, error) {
+	if p.calls >= len(p.responses) {
+		return nil, fmt.Errorf("fakeStreamingProvider: unexpected extra StreamChat call")
+	}
+	chunks := p.responses[p.calls]
+	p.calls++
+	ch := make(chan core.StreamChunk, len(chunks))
+	for _, c := range chunks {
+		ch <- c
+	}
+	close(ch)
+	return ch, nil
+}
+
+// streamingRunner is a Runner whose Provider returns a StreamingProvider.
+type streamingRunner struct {
+	provider core.StreamingProvider
+	steering core.PendingQueue
+}
+
+func (r *streamingRunner) Run(_ context.Context, _ string) (string, error) {
+	return "", fmt.Errorf("Run should not be called when streaming")
+}
+
+func (r *streamingRunner) Steering() core.PendingQueue {
+	return r.steering
+}
+
+func (r *streamingRunner) Provider() core.Provider {
+	return r.provider
+}
+
+// --- Streaming Tests (Task 4.1 RED + 4.2 GREEN) ---
+
+func TestControllerStreamingPath(t *testing.T) {
+	// D7: StreamingProvider detected via type assertion → StreamChat called,
+	// streamChunkMsg emitted per TextDelta, streamDoneMsg on completion.
+	provider := &fakeStreamingProvider{
+		responses: [][]core.StreamChunk{
+			{
+				{TextDelta: "Hello"},
+				{TextDelta: " world"},
+				{Done: true},
+			},
+		},
+	}
+	runner := &streamingRunner{provider: provider}
+	c := NewController([]string{"coder"}, runner, func(name string) string {
+		return "gpt-4o-mini"
+	})
+
+	c.SubmitPrompt("hello")
+	events := collectEvents(c.Events(), 500*time.Millisecond)
+
+	// Expect: 2 streamChunkMsg + 1 streamDoneMsg
+	var chunks []streamChunkMsg
+	var done streamDoneMsg
+	doneFound := false
+	for _, e := range events {
+		switch v := e.(type) {
+		case streamChunkMsg:
+			chunks = append(chunks, v)
+		case streamDoneMsg:
+			done = v
+			doneFound = true
+		}
+	}
+
+	if !doneFound {
+		t.Fatal("expected streamDoneMsg on events channel after stream completion")
+	}
+	if done.err != nil {
+		t.Errorf("streamDoneMsg.err = %v, want nil", done.err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("received %d streamChunkMsg, want 2", len(chunks))
+	}
+	if chunks[0].delta != "Hello" {
+		t.Errorf("chunk[0].delta = %q, want %q", chunks[0].delta, "Hello")
+	}
+	if chunks[1].delta != " world" {
+		t.Errorf("chunk[1].delta = %q, want %q", chunks[1].delta, " world")
+	}
+}
+
+// --- Sync Fallback Tests (Task 4.4 RED + 4.5 GREEN) ---
+
+func TestControllerSyncFallback(t *testing.T) {
+	// D7: provider does NOT implement StreamingProvider → Run() called
+	// instead, streamDoneMsg emitted on completion.
+	provider := &stubProvider{response: "done"}
+	queue := &stubQueue{}
+	runner := &fakeRunner{
+		agent: &core.Agent{
+			Provider:      provider,
+			Tools:         core.NewRegistry(),
+			MaxIterations: 1,
+		},
+		steering: queue,
+	}
+	c := NewController([]string{"coder"}, runner, func(name string) string {
+		return "gpt-4o-mini"
+	})
+
+	c.SubmitPrompt("hello")
+	events := collectEvents(c.Events(), 200*time.Millisecond)
+
+	// Should get only a streamDoneMsg (no streamChunkMsg)
+	found := false
+	for _, e := range events {
+		if d, ok := e.(streamDoneMsg); ok {
+			found = true
+			if d.err != nil {
+				t.Errorf("streamDoneMsg.err = %v, want nil", d.err)
+			}
+		}
+		if _, ok := e.(streamChunkMsg); ok {
+			t.Error("unexpected streamChunkMsg in sync fallback path")
+		}
+	}
+	if !found {
+		t.Error("expected streamDoneMsg after sync run")
+	}
+}
+
+func TestControllerStreamError(t *testing.T) {
+	// D8: error mid-stream → streamDoneMsg{err} emitted.
+	streamErr := fmt.Errorf("connection lost")
+	provider := &fakeStreamingProvider{
+		responses: [][]core.StreamChunk{
+			{
+				{TextDelta: "partial"},
+				{Error: streamErr},
+			},
+		},
+	}
+	runner := &streamingRunner{provider: provider}
+	c := NewController([]string{"coder"}, runner, func(name string) string {
+		return "gpt-4o-mini"
+	})
+
+	c.SubmitPrompt("hello")
+	events := collectEvents(c.Events(), 500*time.Millisecond)
+
+	// Should get streamChunkMsg for "partial", then streamDoneMsg{err}
+	var chunks []streamChunkMsg
+	var done streamDoneMsg
+	doneFound := false
+	for _, e := range events {
+		switch v := e.(type) {
+		case streamChunkMsg:
+			chunks = append(chunks, v)
+		case streamDoneMsg:
+			done = v
+			doneFound = true
+		}
+	}
+
+	if !doneFound {
+		t.Fatal("expected streamDoneMsg after stream error")
+	}
+	if done.err == nil {
+		t.Error("streamDoneMsg.err = nil, want stream error")
+	}
+	if done.err != streamErr {
+		t.Errorf("streamDoneMsg.err = %v, want %v", done.err, streamErr)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("received %d streamChunkMsg before error, want 1", len(chunks))
+	}
+	if chunks[0].delta != "partial" {
+		t.Errorf("chunk[0].delta = %q, want %q", chunks[0].delta, "partial")
 	}
 }

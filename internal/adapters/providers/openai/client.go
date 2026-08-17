@@ -159,7 +159,59 @@ func (c *Client) StreamChat(ctx context.Context, messages []core.Message, tools 
 		return nil, fmt.Errorf("unexpected provider status %d", resp.StatusCode)
 	}
 
+	// A non-SSE response means the server ignored "stream": true and
+	// returned a regular JSON response. Parse it synchronously and emit the
+	// messages as a single chunk sequence (text + tool calls + done) so the
+	// caller never needs a second HTTP request (REQ-OAI-STREAM-1). Mock
+	// servers returning application/json work through the streaming path.
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		defer func() { _ = resp.Body.Close() }()
+		var parsed chatResponse
+		if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+			return nil, &ParseError{Err: err}
+		}
+		msgs, err := parseResponse(parsed)
+		if err != nil {
+			return nil, err
+		}
+		return chunksFromMessages(msgs), nil
+	}
+
 	return parseSSEStream(ctx, resp.Body), nil
+}
+
+// chunksFromMessages converts a synchronous response message set into a
+// StreamChunk sequence: each content message becomes a text delta, each tool
+// call becomes a ToolCallStart + ToolCallDelta pair, and the sequence ends
+// with a Done chunk. It is used when a streaming request receives a regular
+// JSON response (the server ignored "stream": true).
+func chunksFromMessages(msgs []core.Message) <-chan core.StreamChunk {
+	chunks := make(chan core.StreamChunk, 64)
+	go func() {
+		defer close(chunks)
+		for _, m := range msgs {
+			if m.Content != "" {
+				chunks <- core.StreamChunk{TextDelta: m.Content}
+			}
+			if m.ToolCall != nil {
+				chunks <- core.StreamChunk{
+					ToolCallStart: &core.ToolCall{
+						ID:   m.ToolCall.ID,
+						Name: m.ToolCall.Name,
+					},
+				}
+				chunks <- core.StreamChunk{
+					ToolCallDelta: &core.ToolCallDelta{
+						ID:        m.ToolCall.ID,
+						Name:      m.ToolCall.Name,
+						Arguments: m.ToolCall.Arguments,
+					},
+				}
+			}
+		}
+		chunks <- core.StreamChunk{Done: true}
+	}()
+	return chunks
 }
 
 // chatRequest is the OpenAI-compatible chat completions request body. Model is

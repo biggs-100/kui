@@ -68,6 +68,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 		// REQ-LOOP-8: detect StreamingProvider via type assertion. If the
 		// provider implements StreamingProvider, use the streaming path to
 		// forward text deltas in real time. Otherwise fall back to Chat().
+		// The adapter is responsible for handling non-SSE responses: it
+		// emits a single chunk for JSON responses so no second request is
+		// ever made.
 		var (
 			response []Message
 			err      error
