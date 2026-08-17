@@ -61,6 +61,10 @@ func (r *agentRunner) Steering() core.PendingQueue {
 	return r.agent.Steering()
 }
 
+func (r *agentRunner) Provider() core.Provider {
+	return r.agent.Provider()
+}
+
 // modelLoaderAdapter wraps *profile.Loader to satisfy agent.ModelLoader.
 // profile.Loader.Resolve returns *profile.Profile, but agent.ModelLoader
 // expects *agent.ResolvedProfile.

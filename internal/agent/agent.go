@@ -105,3 +105,10 @@ func (a *Agent) Steering() *PendingMessageQueue {
 func (a *Agent) FollowUp() *PendingMessageQueue {
 	return a.followUp
 }
+
+// Provider returns the core.Provider used by the agent loop. This exposes the
+// underlying provider so the controller can detect StreamingProvider via type
+// assertion for real-time token streaming (D7, D8).
+func (a *Agent) Provider() core.Provider {
+	return a.provider
+}

@@ -39,19 +39,19 @@ The loop MUST expose an optional observer port through which tool-call, tool-res
 
 ### Requirement: REQ-OBS-STREAM-1 — OnTextDelta Method
 
-The Observer interface MUST include `OnTextDelta(delta string)` for real-time text chunk events. This method MUST be called for each text delta received during streaming. The method MUST be safe to call from any goroutine.
+A `StreamingObserver` interface MUST extend the Observer interface with `OnTextDelta(delta string)` for real-time text chunk events. It MUST be separate from the base Observer so existing Observer implementations stay unchanged (backward compatible). The loop MUST detect a streaming observer via type assertion and call `OnTextDelta` for each text delta received during streaming. The method MUST be safe to call from any goroutine.
 
 #### Scenario: OnTextDelta called per chunk
 
-- GIVEN an observer attached to a loop with a streaming provider
+- GIVEN a StreamingObserver attached to a loop with a streaming provider
 - WHEN three text deltas arrive during a stream
 - THEN `OnTextDelta` is called three times with the correct delta strings
 
-#### Scenario: OnTextDelta with empty delta
+#### Scenario: StreamingObserver detected via type assertion
 
-- GIVEN a stream producing an empty text delta
-- WHEN the chunk arrives
-- THEN `OnTextDelta("")` is called (not skipped)
+- GIVEN a loop whose observer only implements the base Observer (not StreamingObserver)
+- WHEN text deltas arrive during streaming
+- THEN no `OnTextDelta` call is attempted (silent skip, no panic)
 
 ### Requirement: REQ-OBS-STREAM-2 — Nil-Safe OnTextDelta
 

@@ -23,6 +23,10 @@ func (r *fakeAppRunner) Steering() core.PendingQueue {
 	return nil
 }
 
+func (r *fakeAppRunner) Provider() core.Provider {
+	return nil
+}
+
 // --- Model.Update tests (REQ-TUI-APP-1/2/3/4) ---
 
 func TestAppUpdateChunkMsgGrowsAnswer(t *testing.T) {

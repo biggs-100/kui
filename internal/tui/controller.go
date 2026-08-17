@@ -12,9 +12,12 @@ import (
 
 // Runner is the port the controller uses to execute prompts and access the
 // steering queue. The core.Agent satisfies this via Go's structural typing.
+// Provider exposes the underlying core.Provider so the controller can detect
+// StreamingProvider via type assertion for real-time token streaming (D7, D8).
 type Runner interface {
 	Run(ctx context.Context, prompt string) (string, error)
 	Steering() core.PendingQueue
+	Provider() core.Provider
 }
 
 // ModelResolver resolves the model name for a profile via the REQ-CLI-4
@@ -104,6 +107,13 @@ func (c *Controller) SwitchProfile(delta int) {
 // active — the caller must wait on the returned channel or the Events
 // channel for completion.
 //
+// If the runner's provider implements StreamingProvider, the controller
+// consumes the stream channel directly and emits streamChunkMsg for each
+// TextDelta, giving the TUI real-time token-by-token rendering (D7, D8).
+// On stream completion, streamDoneMsg is emitted. Error chunks emit
+// streamDoneMsg{err}. If the provider does not implement StreamingProvider,
+// the synchronous runner.Run path is used unchanged.
+//
 // Events (stream chunks, done, tool calls) are delivered through the
 // Events channel using D3 channel+Cmd handoff: buffered chan with
 // drop-on-full via select-default.
@@ -125,6 +135,13 @@ func (c *Controller) SubmitPrompt(text string) {
 		sm.SetModel(model)
 	}
 
+	// D7: detect StreamingProvider for real-time token streaming.
+	if sp, ok := runner.Provider().(core.StreamingProvider); ok {
+		go c.runStreamingPrompt(sp, text)
+		return
+	}
+
+	// Fallback: synchronous run via agent.Run.
 	go func() {
 		_, err := runner.Run(context.Background(), text)
 		if err != nil {
@@ -133,6 +150,30 @@ func (c *Controller) SubmitPrompt(text string) {
 		}
 		c.emit(streamDoneMsg{})
 	}()
+}
+
+// runStreamingPrompt consumes a StreamChat channel and emits streamChunkMsg
+// for each TextDelta, then streamDoneMsg on completion or error. It runs in
+// a goroutine (D4).
+func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string) {
+	stream, err := sp.StreamChat(context.Background(), []core.Message{
+		{Role: core.RoleUser, Content: text},
+	}, nil)
+	if err != nil {
+		c.emit(streamDoneMsg{err: err})
+		return
+	}
+
+	for chunk := range stream {
+		if chunk.Error != nil {
+			c.emit(streamDoneMsg{err: chunk.Error})
+			return
+		}
+		if chunk.TextDelta != "" {
+			c.emit(streamChunkMsg{delta: chunk.TextDelta})
+		}
+	}
+	c.emit(streamDoneMsg{})
 }
 
 // Events returns a read-only channel of controller events. The caller

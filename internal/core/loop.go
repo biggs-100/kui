@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // Agent runs the conversation loop between a Provider and registered Tools
@@ -64,7 +65,21 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			// model never sees them (REQ-PERM-3).
 			tools = a.Permissions.Filter(tools)
 		}
-		response, err := a.Provider.Chat(ctx, messages, tools)
+		// REQ-LOOP-8: detect StreamingProvider via type assertion. If the
+		// provider implements StreamingProvider, use the streaming path to
+		// forward text deltas in real time. Otherwise fall back to Chat().
+		// The adapter is responsible for handling non-SSE responses: it
+		// emits a single chunk for JSON responses so no second request is
+		// ever made.
+		var (
+			response []Message
+			err      error
+		)
+		if sp, ok := a.Provider.(StreamingProvider); ok {
+			response, err = a.runStreamingTurn(ctx, sp, messages, tools)
+		} else {
+			response, err = a.Provider.Chat(ctx, messages, tools)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -204,4 +219,70 @@ func lastContent(messages []Message) string {
 		return ""
 	}
 	return messages[len(messages)-1].Content
+}
+
+// runStreamingTurn calls StreamChat and consumes the channel, forwarding text
+// deltas to the observer and accumulating tool calls. It returns the same
+// message shape as Chat(): content messages plus tool-call messages. Tool
+// calls are accumulated during streaming and executed only after the channel
+// closes (REQ-LOOP-10, D8).
+func (a *Agent) runStreamingTurn(ctx context.Context, sp StreamingProvider, messages []Message, tools []Tool) ([]Message, error) {
+	stream, err := sp.StreamChat(ctx, messages, tools)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		textBuf      strings.Builder
+		toolCalls    []*ToolCall
+		pendingCalls = make(map[string]*ToolCall) // ID → tool call being built
+	)
+
+	for chunk := range stream {
+		// D8: mid-stream error → return immediately.
+		if chunk.Error != nil {
+			return nil, chunk.Error
+		}
+		if chunk.Done {
+			break
+		}
+
+		// REQ-LOOP-9: forward text deltas to the observer. emitTextDelta
+		// is nil-safe and handles StreamingObserver type assertion.
+		if chunk.TextDelta != "" {
+			textBuf.WriteString(chunk.TextDelta)
+			emitTextDelta(a.Observer, chunk.TextDelta)
+		}
+
+		// REQ-LOOP-10: accumulate tool calls from stream chunks.
+		if chunk.ToolCallStart != nil {
+			tc := &ToolCall{
+				ID:   chunk.ToolCallStart.ID,
+				Name: chunk.ToolCallStart.Name,
+			}
+			pendingCalls[tc.ID] = tc
+			toolCalls = append(toolCalls, tc)
+		}
+		if chunk.ToolCallDelta != nil {
+			if tc, ok := pendingCalls[chunk.ToolCallDelta.ID]; ok {
+				tc.Arguments += chunk.ToolCallDelta.Arguments
+			}
+		}
+	}
+
+	// Build response messages matching Chat() shape: content message first,
+	// then tool-call messages.
+	var response []Message
+	content := textBuf.String()
+	if content != "" {
+		response = append(response, Message{Role: RoleAssistant, Content: content})
+	}
+	for _, tc := range toolCalls {
+		response = append(response, Message{
+			Role:     RoleAssistant,
+			ToolCall: tc,
+		})
+	}
+
+	return response, nil
 }
