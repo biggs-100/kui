@@ -275,6 +275,10 @@ func runPrompt(root string, opts Options, args []string) int {
 		}
 	}
 
+	// Tool filtering (REQ-CLI-14..18): apply --tools, --exclude-tools,
+	// --no-tools after all tools are registered, before agent creation.
+	full = filterTools(full, opts.Tools, opts.ExcludeTools, opts.NoTools)
+
 	manager := agent.NewManager(loader, full)
 
 	activeName, err := st.Active()
@@ -303,12 +307,9 @@ func runPrompt(root string, opts Options, args []string) int {
 
 	if activeName != "" {
 		// REQ-CLI-4: resolve the per-profile model chain and reconfigure the
-		// provider before the session starts. The --model flag takes highest priority.
-		if opts.Model != "" {
-			client.SetModel(opts.Model)
-		} else {
-			client.SetModel(resolveModel(st, loader, activeName))
-		}
+		// provider before the session starts. The --model flag takes highest
+		// priority via resolveWithOverride (REQ-CLI-11).
+		client.SetModel(resolveWithOverride(opts.Model, st, loader, activeName))
 
 		// D18 session-start activation: apply the switch up front so the tool
 		// subset, permissions, and active profile are in place for the first
@@ -327,9 +328,9 @@ func runPrompt(root string, opts Options, args []string) int {
 		}
 	}
 
-	// When no profile is active, the --model flag still applies.
-	if activeName == "" && opts.Model != "" {
-		client.SetModel(opts.Model)
+	// When no profile is active, the --model flag still applies (REQ-CLI-11).
+	if activeName == "" {
+		client.SetModel(resolveWithOverride(opts.Model, st, loader, ""))
 	}
 
 	answer, err := ag.Run(ctx, strings.Join(args, " "))
@@ -339,6 +340,17 @@ func runPrompt(root string, opts Options, args []string) int {
 	}
 	_, _ = fmt.Fprintln(os.Stdout, answer)
 	return 0
+}
+
+// resolveWithOverride applies the REQ-CLI-4 resolution chain with the
+// --model override as highest priority. When override is non-empty, it is
+// returned immediately (REQ-CLI-11). Otherwise the standard chain applies:
+// saved model → profile.yaml model → OPENAI_MODEL → default (REQ-CLI-4).
+func resolveWithOverride(override string, st *store.Store, loader *profile.Loader, name string) string {
+	if override != "" {
+		return override
+	}
+	return resolveModel(st, loader, name)
 }
 
 // resolveModel applies the REQ-CLI-4 resolution chain: the profile's saved

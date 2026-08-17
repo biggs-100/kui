@@ -53,20 +53,20 @@ Chain strategy: stacked-to-main
 
 ### Phase 4: Model Override
 
-- [ ] B4.1 RED: Write failing test `TestResolveModelOverride` — verify `--model gpt-4o` takes precedence over saved model in resolveModel chain
-- [ ] B4.2 GREEN: Modify `resolveModel` signature to accept `override string` as highest-priority param; if non-empty, return it immediately
-- [ ] B4.3 GREEN: Update `runPrompt` to pass `opts.Model` to `resolveModel`
-- [ ] B4.4 REFACTOR: Add comment documenting override position in resolution chain
+- [x] B4.1 RED: Write failing test `TestResolveModelOverride` — verify `--model gpt-4o` takes precedence over saved model in resolveModel chain
+- [x] B4.2 GREEN: Modify `resolveModel` signature to accept `override string` as highest-priority param; if non-empty, return it immediately
+- [x] B4.3 GREEN: Update `runPrompt` to pass `opts.Model` to `resolveModel`
+- [x] B4.4 REFACTOR: Add comment documenting override position in resolution chain
 
 ### Phase 5: Tool Filtering
 
-- [ ] B5.1 RED: Write failing test `TestFilterToolsInclude` — `--tools read_file` → only read_file in registry
-- [ ] B5.2 RED: Write failing test `TestFilterToolsExclude` — `--exclude-tools bash` → bash removed
-- [ ] B5.3 RED: Write failing test `TestFilterToolsNoTools` — `--no-tools` → empty registry
-- [ ] B5.4 RED: Write failing test `TestFilterToolsExcludeWins` — `--tools read_file,bash --exclude-tools bash` → only read_file
-- [ ] B5.5 GREEN: Implement `filterTools(full *core.Registry, include, exclude string, noTools bool) *core.Registry` in `cmd/kui/flags.go`
-- [ ] B5.6 GREEN: Wire `filterTools` into `runPrompt` after tool registration, before agent creation
-- [ ] B5.7 REFACTOR: Extract tool name splitting into helper
+- [x] B5.1 RED: Write failing test `TestFilterToolsInclude` — `--tools read_file` → only read_file in registry
+- [x] B5.2 RED: Write failing test `TestFilterToolsExclude` — `--exclude-tools bash` → bash removed
+- [x] B5.3 RED: Write failing test `TestFilterToolsNoTools` — `--no-tools` → empty registry
+- [x] B5.4 RED: Write failing test `TestFilterToolsExcludeWins` — `--tools read_file,bash --exclude-tools bash` → only read_file
+- [x] B5.5 GREEN: Implement `filterTools(full *core.Registry, include, exclude string, noTools bool) *core.Registry` in `cmd/kui/flags.go`
+- [x] B5.6 GREEN: Wire `filterTools` into `runPrompt` after tool registration, before agent creation
+- [x] B5.7 REFACTOR: Extract tool name splitting into helper
 
 ## Slice C: Feature Disable + Output (PR 3)
 
