@@ -5,6 +5,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/biggs-100/kui/internal/core"
@@ -26,6 +27,12 @@ type Runner interface {
 // type so the agent package is not imported (guard test).
 type ModelResolver func(profileName string) string
 
+// Reloader is the port the controller uses to trigger a hot-reload of the
+// runtime (REQ-RELOAD-14). The concrete runtime.Runtime satisfies this.
+type Reloader interface {
+	Reload(ctx context.Context) error
+}
+
 // Controller manages profile switching, prompt submission, and event
 // delivery for the TUI. It owns the buffered events channel and the
 // active-profile index. The events channel uses D3 channel+Cmd handoff:
@@ -42,6 +49,12 @@ type Controller struct {
 	// SetModeler sets the model on the provider before each prompt.
 	// When nil, model setting is skipped (e.g. in pure cycle tests).
 	SetModeler SetModeler
+	reloader   Reloader // REQ-RELOAD-14
+
+	// Run tracking (REQ-RELOAD-13): guards cancel-and-wait for /reload.
+	running bool
+	cancel  context.CancelFunc
+	runDone chan struct{}
 
 	mu sync.Mutex
 }
@@ -135,21 +148,46 @@ func (c *Controller) SubmitPrompt(text string) {
 		sm.SetModel(model)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	c.mu.Lock()
+	c.running = true
+	c.cancel = cancel
+	done := make(chan struct{})
+	c.runDone = done
+	c.mu.Unlock()
+
 	// D7: detect StreamingProvider for real-time token streaming.
 	if sp, ok := runner.Provider().(core.StreamingProvider); ok {
-		go c.runStreamingPrompt(sp, text)
+		go func() {
+			c.runStreamingPrompt(sp, text)
+			c.finishRun(done)
+		}()
 		return
 	}
 
 	// Fallback: synchronous run via agent.Run.
 	go func() {
-		_, err := runner.Run(context.Background(), text)
+		defer c.finishRun(done)
+		_, err := runner.Run(ctx, text)
 		if err != nil {
+			if ctx.Err() != nil {
+				return // REQ-RELOAD-8: suppress cancel error display
+			}
 			c.emit(streamDoneMsg{err: err})
 			return
 		}
 		c.emit(streamDoneMsg{})
 	}()
+}
+
+// finishRun clears the running flag and closes the done channel so Reload()
+// can proceed after cancelling an active run (REQ-RELOAD-13).
+func (c *Controller) finishRun(done chan struct{}) {
+	c.mu.Lock()
+	c.running = false
+	c.cancel = nil
+	c.mu.Unlock()
+	close(done)
 }
 
 // runStreamingPrompt consumes a StreamChat channel and emits streamChunkMsg
@@ -225,4 +263,77 @@ type toolCallMsg struct {
 type toolResultMsg struct {
 	callID string
 	result string
+}
+
+// ── Reload support (REQ-RELOAD-13/14/15) ───────────────────────────────────
+
+// reloadStartMsg signals the start of a hot-reload.
+type reloadStartMsg struct{}
+
+// reloadDoneMsg signals completion of a hot-reload with optional error and
+// counts for status display (REQ-RELOAD-12).
+type reloadDoneMsg struct {
+	err      error
+	skills   int
+	profiles int
+}
+
+// SetReloader attaches the runtime to the controller for /reload support.
+func (c *Controller) SetReloader(r Reloader) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reloader = r
+}
+
+// ReloadProfiles replaces the profile list, preserving the active profile
+// when it still exists in the new list (REQ-RELOAD-15). If the active
+// profile was removed, index 0 becomes active.
+func (c *Controller) ReloadProfiles(names []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(names) == 0 {
+		names = []string{""}
+	}
+	// Find if current active still exists.
+	activeName := c.profiles[c.active]
+	c.profiles = names
+	c.active = 0
+	for i, p := range names {
+		if p == activeName {
+			c.active = i
+			return
+		}
+	}
+}
+
+// Reload triggers a cancel-and-wait hot-reload (REQ-RELOAD-6/7/8). It
+// cancels any active run, waits for it to finish, then delegates to the
+// Reloader port. The controller must not be used by SubmitPrompt while
+// reload is in progress — the running flag prevents interleaving.
+func (c *Controller) Reload() {
+	c.mu.Lock()
+	running, cancel, done, reloader :=
+		c.running, c.cancel, c.runDone, c.reloader
+	c.mu.Unlock()
+
+	c.emit(reloadStartMsg{})
+
+	if running && cancel != nil {
+		cancel() // REQ-RELOAD-7: cancel active run
+		if done != nil {
+			<-done // REQ-RELOAD-8: wait for run to exit
+		}
+	}
+
+	if reloader == nil {
+		c.emit(reloadDoneMsg{err: errors.New("reload not configured")})
+		return
+	}
+
+	if err := reloader.Reload(context.Background()); err != nil {
+		c.emit(reloadDoneMsg{err: err})
+		return
+	}
+
+	c.emit(reloadDoneMsg{})
 }

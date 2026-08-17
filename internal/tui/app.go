@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -71,6 +72,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toolResultMsg:
 		a.tool.AppendResult(msg.callID, msg.result)
 		return a, nil
+
+	case reloadStartMsg:
+		a.chat.SetStatus("reloading…")
+		return a, nil
+
+	case reloadDoneMsg:
+		if msg.err != nil {
+			a.chat.SetStatus("reload failed: " + msg.err.Error())
+		} else {
+			a.chat.SetStatus(fmt.Sprintf("reload complete"))
+		}
+		a.rebuildViews()
+		return a, nil
 	}
 
 	return a, nil
@@ -96,6 +110,10 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		text := a.input
 		a.input = ""
+		// REQ-RELOAD-11: handle slash commands before submitting.
+		if strings.HasPrefix(text, "/") {
+			return a.handleCommand(text)
+		}
 		a.chat.AppendMessage("user", text, a.ctrl.ActiveProfile(), "")
 		a.ctrl.SubmitPrompt(text)
 		return a, nil
@@ -123,6 +141,21 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 	}
 
+	return a, nil
+}
+
+// handleCommand dispatches slash commands. /reload triggers a hot-reload
+// of the runtime; /help shows available commands; unknown commands show an
+// error hint (REQ-RELOAD-11).
+func (a *App) handleCommand(text string) (tea.Model, tea.Cmd) {
+	switch text {
+	case "/reload":
+		a.ctrl.Reload()
+	case "/help":
+		a.chat.SetStatus("commands: /reload, /help")
+	default:
+		a.chat.SetStatus("unknown command: " + text + " (try /help)")
+	}
 	return a, nil
 }
 
