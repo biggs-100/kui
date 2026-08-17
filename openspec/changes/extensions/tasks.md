@@ -40,11 +40,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Loop Integration (internal/core/loop.go)
 
-- [ ] 2.1 RED: `internal/core/loop_hook_test.go` — test nil HookRegistry = no-op (existing behavior), non-nil fires hooks, before_provider_request mutates messages, before_tool_execution blocks tool, after_tool_execution observes result, hook error logged but doesn't abort loop
-- [ ] 2.2 GREEN: `internal/core/loop.go` — add `Hooks *HookRegistry` field to Agent struct; emit `before_provider_request` before Chat/StreamChat; emit `before_tool_execution` + block check before tool.Execute; emit `after_tool_execution` after result; wrap emit calls in recover (D8)
-- [ ] 2.3 GREEN: `internal/core/loop.go` — add `emitHook(registry, event, ctx)` helper with per-handler recover (mirrors emitObserver pattern)
-- [ ] 2.4 Verify: `go test ./internal/core/ -run "TestLoopHook|TestLoop"` — all pass; `go test ./internal/core/ -run TestCoreImportsStdlibOnly` — guard still green
-- [ ] 2.5 Verify: `go test ./internal/core/...` — full suite passes (backward compatibility)
+- [x] 2.1 RED: `internal/core/loop_hook_test.go` — test nil HookRegistry = no-op (existing behavior), non-nil fires hooks, before_provider_request mutates messages, before_tool_execution blocks tool, after_tool_execution observes result, hook error logged but doesn't abort loop
+- [x] 2.2 GREEN: `internal/core/loop.go` — add `Hooks *HookRegistry` field to Agent struct; emit `before_provider_request` before Chat/StreamChat; emit `before_tool_execution` + block check before tool.Execute; emit `after_tool_execution` after result; wrap emit calls in recover (D8)
+- [x] 2.3 GREEN: `internal/core/loop.go` — add `emitHook(registry, event, ctx)` helper with per-handler recover (mirrors emitObserver pattern)
+- [x] 2.4 Verify: `go test ./internal/core/ -run "TestLoopHook|TestLoop"` — all pass; `go test ./internal/core/ -run TestCoreImportsStdlibOnly` — guard still green
+- [x] 2.5 Verify: `go test ./internal/core/...` — full suite passes (backward compatibility)
 
 ## Phase 3: Discovery + Example (internal/adapters/extensions)
 
