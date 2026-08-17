@@ -7,11 +7,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/biggs-100/kui/internal/adapters/extensions"
+	"github.com/biggs-100/kui/internal/adapters/permissions"
 	"github.com/biggs-100/kui/internal/adapters/profile"
 	"github.com/biggs-100/kui/internal/adapters/providers/openai"
 	"github.com/biggs-100/kui/internal/adapters/skills"
@@ -49,6 +53,19 @@ Subcommands:
                                    mid-run with the profile-context marker
   kui profile model <name> <model> set and persist a per-profile model
 
+Flags:
+  --model, -m <model>              override the resolved model (highest priority)
+  --tools <list>                   comma-separated tool names to include
+  --exclude-tools <list>           comma-separated tool names to exclude
+  --no-tools                       disable all tools
+  --no-extensions, -ne             skip extension loading
+  --no-skills, -ns                 skip skill index building
+  --no-session                     (no-op, reserved for future use)
+  --verbose                        enable debug output to stderr
+  --mode <text|json>               output format (default: text)
+  --approve, -a                    bypass all permission checks
+  --print, -p                      alias for non-interactive one-shot
+
 Use "kui -- PROMPT..." to run a prompt that starts with "profile" or a dash.
 
 Environment:
@@ -68,6 +85,23 @@ profile subcommands:
                        session that switches to it mid-run
   model <name> <model> set and persist a per-profile model
 `
+
+// skillsIndex is a type alias for the skills index returned by buildSkillsIndex.
+// Using a type alias keeps the function variable testable without importing the
+// concrete skills package in test files that only need the type.
+type skillsIndex = skills.Index
+
+// loadExtensions is a function variable wrapping extensions.LoadAll so tests
+// can verify it is called or skipped based on --no-extensions (REQ-CLI-19).
+var loadExtensions = func(api core.ExtensionAPI) error {
+	return extensions.LoadAll(api)
+}
+
+// buildSkillsIndex is a function variable wrapping skills.NewIndex so tests
+// can verify it is called or skipped based on --no-skills (REQ-CLI-20).
+var buildSkillsIndex = func(globalDir, projectDir, profileDir string, registryURLs ...string) (*skillsIndex, error) {
+	return skills.NewIndex(globalDir, projectDir, profileDir, registryURLs...)
+}
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -93,7 +127,18 @@ func run(args []string) int {
 
 	// The tui subcommand starts the interactive TUI (REQ-CLI-5).
 	if args[0] == "tui" {
-		return runTUI(root, Options{})
+		// Parse flags first to check for --mode json conflict.
+		opts, _, err := parseFlags(args[1:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+			return 2
+		}
+		// --mode json + tui is rejected (REQ-CLI-23).
+		if opts.Mode == "json" {
+			fmt.Fprintf(os.Stderr, "kui: --mode json is not supported with the tui subcommand\n")
+			return 2
+		}
+		return runTUI(root, opts)
 	}
 
 	// Parse CLI flags into Options and remaining positional args (the prompt).
@@ -239,6 +284,17 @@ func profileModel(st *store.Store, loader *profile.Loader, args []string) int {
 func runPrompt(root string, opts Options, args []string) int {
 	ctx := context.Background()
 
+	// --verbose: redirect log output to stderr for debug info (REQ-CLI-22).
+	if opts.Verbose {
+		log.SetOutput(os.Stderr)
+		log.Println("kui: verbose mode enabled")
+	}
+
+	// --approve: warn about permission bypass (REQ-CLI-26).
+	if opts.Approve {
+		fmt.Fprintf(os.Stderr, "kui: WARNING: --approve bypasses all permission checks\n")
+	}
+
 	client, err := openai.NewClient()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
@@ -275,7 +331,28 @@ func runPrompt(root string, opts Options, args []string) int {
 		}
 	}
 
+	// Extension loading (REQ-CLI-19): skip when --no-extensions is set.
+	// Extensions register tools and hooks via the ExtensionAPI; skipping
+	// LoadAll means only built-in + MCP tools are available.
+	if !opts.NoExtensions {
+		hooks := core.NewHookRegistry()
+		if err := loadExtensions(&extAPI{registry: full, hooks: hooks}); err != nil {
+			fmt.Fprintf(os.Stderr, "kui: load extensions: %v\n", err)
+			// Extension errors are non-fatal — built-in tools always work.
+		}
+	}
+
+	// Tool filtering (REQ-CLI-14..18): apply --tools, --exclude-tools,
+	// --no-tools after all tools are registered, before agent creation.
+	full = filterTools(full, opts.Tools, opts.ExcludeTools, opts.NoTools)
+
 	manager := agent.NewManager(loader, full)
+
+	// --approve: bypass all permission checks (REQ-CLI-26). Set a permissive
+	// ruleset that allows every tool call without prompting.
+	if opts.Approve {
+		manager.SetRuleset(permissions.NewPermissive())
+	}
 
 	activeName, err := st.Active()
 	if err != nil {
@@ -293,21 +370,28 @@ func runPrompt(root string, opts Options, args []string) int {
 			_, skillsURLs = skills.ClassifySkillsPaths(resolved.Skills)
 		}
 	}
-	skillsIndex, err := skills.NewIndex(cfgRoot, root, profileDir, skillsURLs...)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "kui: build skills index: %v\n", err)
-		return 1
+
+	// Skill index (REQ-CLI-20): skip when --no-skills is set. The agent
+	// receives a nil skills index — skills are not resolved, not injected
+	// into the system prompt, and not available as tool sources.
+	var skillsIdx *skillsIndex
+	if !opts.NoSkills {
+		skillsIdx, err = buildSkillsIndex(cfgRoot, root, profileDir, skillsURLs...)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "kui: build skills index: %v\n", err)
+			return 1
+		}
 	}
 
-	ag := agent.NewAgent(manager, skillsIndex, client, maxIterations)
+	ag := agent.NewAgent(manager, skillsIdx, client, maxIterations)
+
+	// Resolve model for verbose logging and JSON output (REQ-CLI-4, REQ-CLI-11).
+	resolvedModel := resolveWithOverride(opts.Model, st, loader, activeName)
 
 	if activeName != "" {
-		// REQ-CLI-4: resolve the per-profile model chain and reconfigure the
-		// provider before the session starts. The --model flag takes highest priority.
-		if opts.Model != "" {
-			client.SetModel(opts.Model)
-		} else {
-			client.SetModel(resolveModel(st, loader, activeName))
+		client.SetModel(resolvedModel)
+		if opts.Verbose {
+			log.Printf("kui: model=%s profile=%s\n", resolvedModel, activeName)
 		}
 
 		// D18 session-start activation: apply the switch up front so the tool
@@ -327,9 +411,9 @@ func runPrompt(root string, opts Options, args []string) int {
 		}
 	}
 
-	// When no profile is active, the --model flag still applies.
-	if activeName == "" && opts.Model != "" {
-		client.SetModel(opts.Model)
+	// When no profile is active, the --model flag still applies (REQ-CLI-11).
+	if activeName == "" {
+		client.SetModel(resolveWithOverride(opts.Model, st, loader, ""))
 	}
 
 	answer, err := ag.Run(ctx, strings.Join(args, " "))
@@ -337,8 +421,34 @@ func runPrompt(root string, opts Options, args []string) int {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
 		return 1
 	}
+
+	// --mode json: wrap answer in JSON envelope (REQ-CLI-23).
+	if opts.Mode == "json" {
+		result := map[string]string{
+			"answer":  answer,
+			"profile": activeName,
+			"model":   resolvedModel,
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			fmt.Fprintf(os.Stderr, "kui: encode json: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
 	_, _ = fmt.Fprintln(os.Stdout, answer)
 	return 0
+}
+
+// resolveWithOverride applies the REQ-CLI-4 resolution chain with the
+// --model override as highest priority. When override is non-empty, it is
+// returned immediately (REQ-CLI-11). Otherwise the standard chain applies:
+// saved model → profile.yaml model → OPENAI_MODEL → default (REQ-CLI-4).
+func resolveWithOverride(override string, st *store.Store, loader *profile.Loader, name string) string {
+	if override != "" {
+		return override
+	}
+	return resolveModel(st, loader, name)
 }
 
 // resolveModel applies the REQ-CLI-4 resolution chain: the profile's saved
