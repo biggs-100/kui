@@ -18,10 +18,12 @@ type Message struct {
 }
 
 // ChatModel manages the conversation view: a scrollable list of messages,
-// streaming answer chunks, and error state (REQ-TUI-CHAT-1/2).
+// streaming answer chunks, error state, and a status line for reload feedback
+// (REQ-TUI-CHAT-1/2, REQ-RELOAD-12).
 type ChatModel struct {
 	messages  []Message
 	lastError string
+	status    string // REQ-RELOAD-12: neutral status line
 }
 
 // NewChatModel creates an empty ChatModel.
@@ -66,6 +68,16 @@ func (m ChatModel) Messages() []Message {
 // LastError returns the current error string (for testing).
 func (m ChatModel) LastError() string {
 	return m.lastError
+}
+
+// SetStatus sets a neutral status line for reload feedback (REQ-RELOAD-12).
+func (m *ChatModel) SetStatus(s string) {
+	m.status = s
+}
+
+// Status returns the current status string (for testing).
+func (m ChatModel) Status() string {
+	return m.status
 }
 
 var (
@@ -119,6 +131,10 @@ func (m ChatModel) Render() string {
 
 	if m.lastError != "" {
 		parts = append(parts, errorStyle.Render("error: "+m.lastError))
+	}
+
+	if m.status != "" {
+		parts = append(parts, emptyHintStyle.Render(m.status))
 	}
 
 	return strings.Join(parts, "\n\n")
