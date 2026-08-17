@@ -72,27 +72,27 @@ Chain strategy: stacked-to-main
 
 ### Phase 6: Feature Disable
 
-- [ ] C6.1 RED: Write failing test `TestNoExtensions` — verify `extensions.LoadAll()` not called when `--no-extensions` set (use spy/counter)
-- [ ] C6.2 RED: Write failing test `TestNoSkills` — verify `skills.NewIndex()` not called when `--no-skills` set
-- [ ] C6.3 GREEN: Add conditional guards in `runPrompt` for `opts.NoExtensions` and `opts.NoSkills`
-- [ ] C6.4 GREEN: Accept `Options` parameter in `runTUI` for feature-disable flags
-- [ ] C6.5 REFACTOR: Document no-op `--no-session` in usage string
+- [x] C6.1 RED: Write failing test `TestNoExtensions` — verify `extensions.LoadAll()` not called when `--no-extensions` set (use spy/counter)
+- [x] C6.2 RED: Write failing test `TestNoSkills` — verify `skills.NewIndex()` not called when `--no-skills` set
+- [x] C6.3 GREEN: Add conditional guards in `runPrompt` for `opts.NoExtensions` and `opts.NoSkills`
+- [x] C6.4 GREEN: Accept `Options` parameter in `runTUI` for feature-disable flags
+- [x] C6.5 REFACTOR: Document no-op `--no-session` in usage string
 
 ### Phase 7: Output & Approve
 
-- [ ] C7.1 RED: Write failing test `TestModeJson` — `--mode json` wraps answer in `{"answer":"..."}`
-- [ ] C7.2 RED: Write failing test `TestModeJsonRejectTUI` — `--mode json` with `tui` subcommand → error
-- [ ] C7.3 RED: Write failing test `TestVerboseStderr` — `--verbose` writes debug info to stderr
-- [ ] C7.4 RED: Write failing test `TestApproveWarning` — `--approve` writes warning to stderr
-- [ ] C7.5 GREEN: Implement JSON output wrapper at `runPrompt` return boundary
-- [ ] C7.6 GREEN: Add `Manager.SetRuleset(*permissions.Ruleset)` method for `--approve` bypass
-- [ ] C7.7 GREEN: Wire `--verbose` stderr logging in `runPrompt`
-- [ ] C7.8 REFACTOR: Update usage string with all 11 flags
+- [x] C7.1 RED: Write failing test `TestModeJson` — `--mode json` wraps answer in `{"answer":"..."}`
+- [x] C7.2 RED: Write failing test `TestModeJsonRejectTUI` — `--mode json` with `tui` subcommand → error
+- [x] C7.3 RED: Write failing test `TestVerboseStderr` — `--verbose` writes debug info to stderr
+- [x] C7.4 RED: Write failing test `TestApproveWarning` — `--approve` writes warning to stderr
+- [x] C7.5 GREEN: Implement JSON output wrapper at `runPrompt` return boundary
+- [x] C7.6 GREEN: Add `Manager.SetRuleset(*permissions.Ruleset)` method for `--approve` bypass
+- [x] C7.7 GREEN: Wire `--verbose` stderr logging in `runPrompt`
+- [x] C7.8 REFACTOR: Update usage string with all 11 flags
 
 ## Phase 8: Integration Testing
 
-- [ ] 8.1 Write integration test `TestRunPromptWithModel` — mock provider, verify model override flows through
-- [ ] 8.2 Write integration test `TestRunPromptWithTools` — verify tool filtering affects agent behavior
-- [ ] 8.3 Write integration test `TestRunPromptJsonOutput` — verify JSON envelope on stdout
-- [ ] 8.4 Run `go test ./cmd/kui/...` — all tests pass
-- [ ] 8.5 Run `go vet ./cmd/kui/...` — no issues
+- [x] 8.1 Write integration test `TestRunPromptWithModel` — mock provider, verify model override flows through
+- [x] 8.2 Write integration test `TestRunPromptWithTools` — verify tool filtering affects agent behavior
+- [x] 8.3 Write integration test `TestRunPromptJsonOutput` — verify JSON envelope on stdout
+- [x] 8.4 Run `go test ./cmd/kui/...` — all tests pass
+- [x] 8.5 Run `go vet ./cmd/kui/...` — no issues

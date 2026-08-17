@@ -46,6 +46,12 @@ func Flatten(layers ...[]Rule) *Ruleset {
 	return rs
 }
 
+// NewPermissive returns a ruleset that allows every tool. Used by --approve
+// to bypass all permission checks (REQ-CLI-26).
+func NewPermissive() *Ruleset {
+	return &Ruleset{}
+}
+
 // Evaluate resolves the decision for a tool name: the last matching rule
 // wins, ask rules degrade to deny as the safe interim behavior (REQ-PERM-2),
 // and a tool matching no rule is allowed (REQ-PERM-1).

@@ -158,6 +158,14 @@ func (m *Manager) Model() string {
 	return m.model
 }
 
+// SetRuleset overrides the current permission evaluator (REQ-CLI-26). Used by
+// --approve to bypass all permission checks with a permissive ruleset.
+func (m *Manager) SetRuleset(rs *permissions.Ruleset) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ruleset = rs
+}
+
 // subsetRegistry returns a registry containing only the named tools from the
 // full registry, in the profile's declared order (D16). Names not registered
 // in the full set are skipped, since an unregistered tool is simply not
