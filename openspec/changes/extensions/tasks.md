@@ -48,11 +48,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Discovery + Example (internal/adapters/extensions)
 
-- [ ] 3.1 RED: `internal/adapters/extensions/registry_test.go` — test Register appends, Register(nil) panics, LoadAll calls Init in order, LoadAll rolls back on failure, ShutdownAll reverse order, ShutdownAll idempotent, ShutdownAll collects errors
-- [ ] 3.2 GREEN: `internal/adapters/extensions/registry.go` — package-level `Register(ext)`, `LoadAll(api ExtensionAPI)`, `ShutdownAll()` functions; registration slice, init-order forward / reverse-order shutdown, error collection
-- [ ] 3.3 RED: `internal/adapters/extensions/example_ext_test.go` — test example extension Init/Shutdown lifecycle, tool registration, hook registration
-- [ ] 3.4 GREEN: `internal/extensions/example/example.go` — example extension implementing Extension interface; registers a tool and a hook during Init
-- [ ] 3.5 GREEN: `cmd/kui/main.go` — add blank import `_ "github.com/biggs-100/kui/internal/extensions/example"` (opt-in registration)
-- [ ] 3.6 Verify: `go test ./internal/adapters/extensions/...` — all pass
-- [ ] 3.7 Verify: `go build ./cmd/kui` — compiles with example extension imported
-- [ ] 3.8 Verify: `go test ./...` — full project suite passes
+- [x] 3.1 RED: `internal/adapters/extensions/registry_test.go` — test Register appends, Register(nil) panics, LoadAll calls Init in order, LoadAll rolls back on failure, ShutdownAll reverse order, ShutdownAll idempotent, ShutdownAll collects errors
+- [x] 3.2 GREEN: `internal/adapters/extensions/registry.go` — package-level `Register(ext)`, `LoadAll(api ExtensionAPI)`, `ShutdownAll()` functions; registration slice, init-order forward / reverse-order shutdown, error collection
+- [x] 3.3 RED: `internal/adapters/extensions/example_ext_test.go` — test example extension Init/Shutdown lifecycle, tool registration, hook registration
+- [x] 3.4 GREEN: `internal/extensions/example/example.go` — example extension implementing Extension interface; registers a tool and a hook during Init
+- [x] 3.5 GREEN: `cmd/kui/main.go` — add blank import `_ "github.com/biggs-100/kui/internal/extensions/example"` (opt-in registration)
+- [x] 3.6 Verify: `go test ./internal/adapters/extensions/...` — all pass
+- [x] 3.7 Verify: `go build ./cmd/kui` — compiles with example extension imported
+- [x] 3.8 Verify: `go test ./...` — full project suite passes
