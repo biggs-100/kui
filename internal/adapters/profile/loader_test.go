@@ -306,3 +306,51 @@ system_prompt: SYSTEM.md
 		t.Errorf("Thinking = %q, want empty", got.Thinking)
 	}
 }
+
+func TestResolveProviderFromProfile(t *testing.T) {
+	// Profile layer declares provider: opencode → resolved profile carries it.
+	loader, _ := buildLayers(t, `
+name: coder
+system_prompt: SYSTEM.md
+provider: opencode
+`, "", "")
+	got, err := loader.Resolve("coder")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if got.Provider != "opencode" {
+		t.Errorf("Provider = %q, want %q", got.Provider, "opencode")
+	}
+}
+
+func TestResolveProviderEmpty(t *testing.T) {
+	// No provider in any layer → resolved Provider is empty.
+	loader, _ := buildLayers(t, `
+name: coder
+system_prompt: SYSTEM.md
+`, "", "")
+	got, err := loader.Resolve("coder")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if got.Provider != "" {
+		t.Errorf("Provider = %q, want empty", got.Provider)
+	}
+}
+
+func TestResolveProviderNearestWins(t *testing.T) {
+	// Profile declares provider: opencode, project declares provider: openai.
+	// Nearest layer (profile) wins.
+	loader, _ := buildLayers(t, `
+name: coder
+system_prompt: SYSTEM.md
+provider: opencode
+`, "provider: openai\n", "")
+	got, err := loader.Resolve("coder")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if got.Provider != "opencode" {
+		t.Errorf("Provider = %q, want %q (profile wins over project)", got.Provider, "opencode")
+	}
+}

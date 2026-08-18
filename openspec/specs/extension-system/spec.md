@@ -84,7 +84,7 @@ The system MUST define a `HookContext` interface exposing `Messages() []Message`
 
 ### Requirement: REQ-EXT-5 — Compiled-In Registration
 
-Extensions MUST be registered via Go `init()` patterns in their own packages. The `extensions.Register(ext)` function MUST add the extension to a package-level slice. Registration MUST be deterministic and happen before any `LoadAll` call.
+Extensions MUST register via Go `init()` using `extensions.Register(ext)`. The system MUST also support `extensions.RegisterDynamic(ext)` for filesystem-discovered extensions. Both MUST complete before `LoadAll`. Registration MUST be deterministic and happen before any `LoadAll` call.
 
 #### Scenario: Extension self-registers via init
 
@@ -98,9 +98,15 @@ Extensions MUST be registered via Go `init()` patterns in their own packages. Th
 - WHEN LoadAll is called
 - THEN it returns successfully with zero extensions loaded
 
+#### Scenario: Dynamic extension registered
+
+- GIVEN a dynamically discovered extension
+- WHEN RegisterDynamic(ext) called before LoadAll
+- THEN included in LoadAll
+
 ### Requirement: REQ-EXT-6 — Extension Lifecycle
 
-Extensions MUST follow the lifecycle: discover → Init (in registration order) → active → Shutdown (in reverse registration order). If any Init fails, previously-initialized extensions MUST receive Shutdown in reverse order and LoadAll MUST return the error.
+Extensions follow: discover → Init (in registration order) → active → Shutdown (in reverse registration order). If any Init fails, previously-initialized extensions MUST receive Shutdown in reverse order and LoadAll MUST return the error. Dynamic extensions follow the same lifecycle as compiled-in extensions.
 
 #### Scenario: Normal lifecycle with three extensions
 
@@ -117,3 +123,15 @@ Extensions MUST follow the lifecycle: discover → Init (in registration order) 
 - AND B.Init failed
 - AND A.Shutdown is called (reverse order of successful inits)
 - AND LoadAll returns B's error
+
+#### Scenario: Mixed extensions coexist
+
+- GIVEN compiled-in A and dynamic B
+- WHEN LoadAll processes both
+- THEN both active simultaneously
+
+#### Scenario: Init failure with mixed extensions
+
+- GIVEN compiled-in A and dynamic B where B.Init fails
+- WHEN LoadAll processes them
+- THEN A.Shutdown called; error returned

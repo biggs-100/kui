@@ -10,6 +10,8 @@ import (
 // (empty string / false) when no flags are provided, preserving existing
 // behavior (REQ-CLI-10).
 type Options struct {
+	// Provider selects the model backend (openai, opencode, etc.).
+	Provider string
 	// Model overrides the resolved model from the REQ-CLI-4 chain.
 	Model string
 	// Tools is a comma-separated list of tool names to include (empty = all).
@@ -39,6 +41,7 @@ type Options struct {
 // stringFlags maps long flag names to whether they take a value argument.
 // Boolean flags are handled separately via boolFlags.
 var stringFlags = map[string]bool{
+	"provider":      true,  // --provider <value>
 	"model":         true,  // --model <value>
 	"tools":         true,  // --tools <value>
 	"exclude-tools": true,  // --exclude-tools <value>
@@ -51,7 +54,7 @@ var stringFlags = map[string]bool{
 var shortMap = map[string]string{
 	"m":  "model",
 	"a":  "", // approve (bool)
-	"p":  "", // print (bool)
+	"p":  "provider", // -p is --provider (reassigned from --print)
 	"t":  "tools",
 	"xt": "exclude-tools",
 	"nt": "", // no-tools (bool)
@@ -107,8 +110,6 @@ func parseFlags(args []string) (Options, []string, error) {
 				switch name {
 				case "a":
 					opts.Approve = true
-				case "p":
-					opts.Print = true
 				case "ne":
 					opts.NoExtensions = true
 				case "ns":
@@ -225,6 +226,8 @@ func parseFlagArg(arg string) (name, value string, hasEq bool) {
 // setStringOption assigns a value to the appropriate Options string field.
 func setStringOption(opts *Options, name, value string) {
 	switch name {
+	case "provider":
+		opts.Provider = value
 	case "model":
 		opts.Model = value
 	case "tools":

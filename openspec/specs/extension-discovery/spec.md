@@ -8,7 +8,7 @@ Extension discovery manages the compiled-in registration of extensions, their in
 
 ### Requirement: REQ-DISCOVERY-1 — Startup Discovery
 
-Extensions MUST be discovered at startup via a compiled-in registry populated by `init()` functions. Discovery MUST complete before any `LoadAll` call. The discovery mechanism MUST be deterministic — the order extensions appear reflects the Go import graph.
+Extensions MUST be discovered via compiled-in registry AND filesystem scanning. Discovery MUST complete before `LoadAll` call. The compiled-in registry is populated by `init()` functions; filesystem scanning checks global (`~/.config/kui/extensions/`) and project-level (`.kui/extensions/`) directories. Project extensions MUST override global on name collision.
 
 #### Scenario: Extensions discovered from imported packages
 
@@ -19,13 +19,19 @@ Extensions MUST be discovered at startup via a compiled-in registry populated by
 #### Scenario: No extensions imported
 
 - GIVEN no extension packages imported in main.go
-- WHEN discovery completes
+- When discovery completes
 - Then the registry is empty
 - AND LoadAll succeeds with zero extensions
 
+#### Scenario: Filesystem extensions discovered
+
+- GIVEN extensions in global and project directories
+- WHEN discovery completes
+- THEN added to registry; project overrides global
+
 ### Requirement: REQ-DISCOVERY-2 — Register Function
 
-`extensions.Register(ext Extension)` MUST append the extension to a package-level slice. Register MUST NOT be called after LoadAll has started. Calling Register with a nil extension MUST panic or return an error (fail-fast).
+`extensions.Register(ext Extension)` MUST append the extension to a package-level slice. `extensions.RegisterDynamic(ext)` MUST follow the same contract for filesystem-discovered extensions. Register MUST NOT be called after LoadAll has started. Calling Register with a nil extension MUST panic or return an error (fail-fast).
 
 #### Scenario: Register adds extension to list
 
@@ -38,6 +44,12 @@ Extensions MUST be discovered at startup via a compiled-in registry populated by
 - GIVEN a nil Extension value
 - When extensions.Register(nil) is called
 - Then the call panics with a clear message
+
+#### Scenario: RegisterDynamic adds runtime extension
+
+- GIVEN valid dynamic extension
+- WHEN RegisterDynamic(ext) called before LoadAll
+- THEN ext in list alongside compiled-in
 
 ### Requirement: REQ-DISCOVERY-3 — LoadAll Initialization
 

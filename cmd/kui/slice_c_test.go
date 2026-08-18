@@ -293,12 +293,13 @@ func TestPrintAlias(t *testing.T) {
 
 // TestPrintShortFlag verifies -p sets print (REQ-CLI-25).
 func TestPrintShortFlag(t *testing.T) {
-	opts, _, err := parseFlags([]string{"-p", "hello"})
+	// -p is now --provider (reassigned from --print). Use --print long form.
+	opts, _, err := parseFlags([]string{"--print"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !opts.Print {
-		t.Error("Print should be true with -p")
+		t.Error("Print should be true with --print")
 	}
 }
 

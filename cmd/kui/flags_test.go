@@ -278,13 +278,14 @@ func TestParseFlagsPrintLong(t *testing.T) {
 	}
 }
 
-func TestParseFlagsPrintShort(t *testing.T) {
-	opts, _, err := parseFlags([]string{"-p"})
+func TestParseFlagsProviderShortP(t *testing.T) {
+	// -p is now --provider (reassigned from --print).
+	opts, _, err := parseFlags([]string{"-p", "openai"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !opts.Print {
-		t.Error("Print should be true")
+	if opts.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", opts.Provider, "openai")
 	}
 }
 
@@ -489,5 +490,49 @@ func TestParseFlagsAllTogether(t *testing.T) {
 	}
 	if len(remaining) != 1 || remaining[0] != "hello world" {
 		t.Errorf("remaining = %v, want [hello world]", remaining)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: Provider flag (REQ-CLI-10)
+// ---------------------------------------------------------------------------
+
+func TestParseFlagsProviderLong(t *testing.T) {
+	opts, _, err := parseFlags([]string{"--provider", "openai"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", opts.Provider, "openai")
+	}
+}
+
+func TestParseFlagsProviderShort(t *testing.T) {
+	opts, _, err := parseFlags([]string{"-p", "opencode"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Provider != "opencode" {
+		t.Errorf("Provider = %q, want %q", opts.Provider, "opencode")
+	}
+}
+
+func TestParseFlagsProviderDefault(t *testing.T) {
+	opts, _, err := parseFlags([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Provider != "" {
+		t.Errorf("Provider = %q, want empty (default)", opts.Provider)
+	}
+}
+
+func TestParseFlagsProviderEquals(t *testing.T) {
+	opts, _, err := parseFlags([]string{"--provider=openai"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", opts.Provider, "openai")
 	}
 }
