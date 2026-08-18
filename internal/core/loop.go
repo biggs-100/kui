@@ -50,6 +50,11 @@ type Agent struct {
 	// history is prepended (the default single-prompt behavior).
 	History []Message
 
+	// Compactor is an optional session compactor. When set, the loop
+	// automatically compresses messages that exceed the context window budget
+	// before each provider request. Nil disables auto-compaction.
+	Compactor *Compactor
+
 	// lastMessages holds the accumulated message sequence from the most recent
 	// Run call, accessible via Messages() for session persistence.
 	lastMessages []Message
@@ -90,6 +95,15 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			// Apply any message mutations from the hook handlers.
 			if hookCtx != nil {
 				messages = hookCtx.Messages()
+			}
+		}
+
+		// Auto-compaction: if messages exceed the context window budget,
+		// compress old messages before sending to the provider. This runs
+		// on every iteration so long conversations stay within limits.
+		if a.Compactor != nil && a.Compactor.NeedsCompaction(messages) {
+			if compacted, err := a.Compactor.Compact(ctx, messages); err == nil {
+				messages = compacted
 			}
 		}
 

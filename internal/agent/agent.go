@@ -24,6 +24,7 @@ type Agent struct {
 	followUp      *PendingMessageQueue
 	maxIterations int
 	compactor     *core.Compactor // optional; nil disables compaction
+	observer      core.Observer   // optional; nil disables event delivery
 }
 
 // NewAgent builds the wrapper over the profile manager, the skills index, the
@@ -53,13 +54,11 @@ func NewAgent(manager *Manager, skillsIndex *skills.Index, provider core.Provide
 func (a *Agent) Run(ctx context.Context, prompt string, history []core.Message) (string, []core.Message, error) {
 	// Session compaction: if history exceeds the context window budget,
 	// summarize old messages via the provider before the loop starts.
-	if a.compactor != nil && len(history) > 0 {
-		compacted, err := a.compactor.Compact(ctx, history)
-		if err == nil {
-			history = compacted
-		}
-		// On error, use original history — the loop will fail with a
-		// provider context error if it truly overflows.
+	compactor := a.compactor
+	if compactor == nil && a.provider != nil {
+		// Auto-create compactor if not explicitly set — enables auto-compaction
+		// for all runs without requiring session resume.
+		compactor = core.NewCompactor(a.provider)
 	}
 
 	loop := &core.Agent{
@@ -71,6 +70,8 @@ func (a *Agent) Run(ctx context.Context, prompt string, history []core.Message) 
 		Profiles:      a.manager,
 		Hooks:         a.hooks,
 		History:       history,
+		Compactor:     compactor,
+		Observer:      a.observer,
 	}
 	if ruleset := a.manager.Ruleset(); ruleset != nil {
 		loop.Permissions = ruleset
@@ -156,4 +157,10 @@ func (a *Agent) SetHooks(h *core.HookRegistry) {
 // provider. Pass nil to disable compaction.
 func (a *Agent) SetCompactor(c *core.Compactor) {
 	a.compactor = c
+}
+
+// SetObserver sets the observer that receives turn, tool, and usage events.
+// The observer is forwarded to the core.Agent on each Run. Pass nil to disable.
+func (a *Agent) SetObserver(obs core.Observer) {
+	a.observer = obs
 }

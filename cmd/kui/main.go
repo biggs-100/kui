@@ -584,6 +584,12 @@ func runPrompt(root string, opts Options, args []string) int {
 
 	ag := agent.NewAgent(manager, skillsIdx, client, maxIterations)
 
+	// --verbose: attach cache stats observer for automatic cache hit reporting.
+	if opts.Verbose {
+		cacheObs := core.NewCacheStatsObserver(os.Stderr)
+		ag.SetObserver(cacheObs)
+	}
+
 	// Resolve model for verbose logging and JSON output (REQ-CLI-4, REQ-CLI-11).
 	resolvedModel := resolveWithOverride(opts.Model, st, loader, activeName)
 
