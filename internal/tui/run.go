@@ -149,6 +149,13 @@ func Run(ctx context.Context, w Wiring) error {
 
 	ag := agent.NewAgent(manager, skillsIndex, provider, w.MaxIter)
 
+	// Step 3b: Enable session compaction when resuming a session with history.
+	// The compactor summarizes old messages via the provider when history
+	// exceeds the context window budget.
+	if w.Session != nil && len(w.Session.Messages) > 0 {
+		ag.SetCompactor(core.NewCompactor(provider))
+	}
+
 	// Step 4: Discover profiles for the controller.
 	names, err := loader.Discover()
 	if err != nil {

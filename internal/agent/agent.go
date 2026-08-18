@@ -23,6 +23,7 @@ type Agent struct {
 	steering      *PendingMessageQueue
 	followUp      *PendingMessageQueue
 	maxIterations int
+	compactor     *core.Compactor // optional; nil disables compaction
 }
 
 // NewAgent builds the wrapper over the profile manager, the skills index, the
@@ -50,6 +51,17 @@ func NewAgent(manager *Manager, skillsIndex *skills.Index, provider core.Provide
 // *Ruleset to the interface field would defeat the loop's nil-safe port
 // contract (a typed nil inside an interface is non-nil).
 func (a *Agent) Run(ctx context.Context, prompt string, history []core.Message) (string, []core.Message, error) {
+	// Session compaction: if history exceeds the context window budget,
+	// summarize old messages via the provider before the loop starts.
+	if a.compactor != nil && len(history) > 0 {
+		compacted, err := a.compactor.Compact(ctx, history)
+		if err == nil {
+			history = compacted
+		}
+		// On error, use original history — the loop will fail with a
+		// provider context error if it truly overflows.
+	}
+
 	loop := &core.Agent{
 		Provider:      a.provider,
 		Tools:         a.manager.Registry(),
@@ -137,4 +149,11 @@ func (a *Agent) SetProvider(p core.Provider) {
 // hooks fire (REQ-RELOAD-20).
 func (a *Agent) SetHooks(h *core.HookRegistry) {
 	a.hooks = h
+}
+
+// SetCompactor enables session compaction for subsequent runs. When set, Run
+// compresses history that exceeds the context window before sending to the
+// provider. Pass nil to disable compaction.
+func (a *Agent) SetCompactor(c *core.Compactor) {
+	a.compactor = c
 }
