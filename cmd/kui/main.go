@@ -45,7 +45,9 @@ const usage = `kui [--] PROMPT...
 Runs the agent loop once and prints the final answer to stdout.
 
 Subcommands:
-  kui tui                          start the interactive TUI
+  kui tui [--resume <id>]         start the interactive TUI
+  kui session list                list saved sessions
+  kui session resume <id>         start TUI with a restored session
   kui profile list                 list profiles, marking the active one
   kui profile switch <name> [-- PROMPT...]
                                    activate <name> for the session; with --,
@@ -62,6 +64,7 @@ Flags:
   --no-extensions, -ne             skip extension loading
   --no-skills, -ns                 skip skill index building
   --no-session                     (no-op, reserved for future use)
+  --resume <id>                    restore session when starting TUI
   --verbose                        enable debug output to stderr
   --mode <text|json>               output format (default: text)
   --approve, -a                    bypass all permission checks
@@ -92,6 +95,13 @@ profile subcommands:
   thinking <name> <level>
                        set and persist a per-profile thinking level
                        (off, low, medium, high)
+`
+
+const sessionUsage = `kui session SUBCOMMAND
+
+session subcommands:
+  list                 list saved sessions with metadata
+  resume <id>          start TUI with a restored session
 `
 
 // skillsIndex is a type alias for the skills index returned by buildSkillsIndex.
@@ -131,6 +141,11 @@ func run(args []string) int {
 	// The profile subcommand group handles its own usage.
 	if args[0] == "profile" {
 		return runProfile(root, args[1:])
+	}
+
+	// The session subcommand group manages session persistence.
+	if args[0] == "session" {
+		return runSession(root, args[1:])
 	}
 
 	// The tui subcommand starts the interactive TUI (REQ-CLI-5).
@@ -361,6 +376,95 @@ func profileThinking(st *store.Store, loader *profile.Loader, args []string) int
 	return 0
 }
 
+// runSession dispatches the session management subcommands.
+func runSession(root string, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, sessionUsage)
+		return 2
+	}
+
+	switch args[0] {
+	case "list":
+		return runSessionList()
+	case "resume":
+		if len(args) < 2 {
+			fmt.Fprint(os.Stderr, sessionUsage)
+			return 2
+		}
+		return runSessionResume(root, args[1])
+	default:
+		fmt.Fprintf(os.Stderr, "kui: unknown session subcommand %q\n", args[0])
+		fmt.Fprint(os.Stderr, sessionUsage)
+		return 2
+	}
+}
+
+// runSessionList lists all saved sessions with metadata.
+func runSessionList() int {
+	sessionStore := store.NewSessionStore(configRoot())
+	metas, err := sessionStore.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 1
+	}
+
+	if len(metas) == 0 {
+		fmt.Fprintln(os.Stdout, "No sessions found.")
+		return 0
+	}
+
+	fmt.Fprintf(os.Stdout, "%-40s %-12s %s\n", "ID", "PROFILE", "CREATED")
+	fmt.Fprintf(os.Stdout, "%-40s %-12s %s\n", "----------------------------------------", "------------", "--------------------------")
+	for _, m := range metas {
+		fmt.Fprintf(os.Stdout, "%-40s %-12s %s\n", m.ID, m.Profile, m.CreatedAt)
+	}
+	return 0
+}
+
+// runSessionResume loads a session and starts the TUI with its history injected.
+func runSessionResume(root, id string) int {
+	sessionStore := store.NewSessionStore(configRoot())
+	session, err := sessionStore.Load(id)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 1
+	}
+
+	// Start TUI with the restored session history.
+	return runTUIWithHistory(root, session)
+}
+
+// runTUIWithHistory starts the TUI with a pre-loaded session history.
+func runTUIWithHistory(root string, session *core.Session) int {
+	cfgRoot := configRoot()
+	st := store.New(cfgRoot)
+	loader := profile.NewLoader(filepath.Join(cfgRoot, "profiles"), root, cfgRoot)
+
+	// Resolve provider: flag → profile → env → default "openai" (REQ-SEL-2).
+	activeName, _ := st.Active()
+	profileProvider := ""
+	if resolved, err := loader.Resolve(activeName); err == nil {
+		profileProvider = resolved.Provider
+	}
+	providerName := resolveProvider("", profileProvider)
+
+	wiring := tui.Wiring{
+		ProfileRoot: filepath.Join(cfgRoot, "profiles"),
+		ProjectDir:  root,
+		ConfigRoot:  cfgRoot,
+		Client: func() (core.Provider, error) {
+			return createProvider(providerName)
+		},
+		MaxIter: maxIterations,
+	}
+
+	if err := tui.RunWithHistory(context.Background(), wiring, session); err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 // runPrompt runs one agent session (REQ-CLI-1). It wires the profile runtime
 // at session start: the active profile (from .kui/active) is activated so its
 // tool subset, permissions, and model apply from the first request; the
@@ -524,7 +628,7 @@ func runPrompt(root string, opts Options, args []string) int {
 		log.Printf("kui: thinking=%s\n", thinkingLevel)
 	}
 
-	answer, err := ag.Run(ctx, strings.Join(args, " "))
+	answer, _, err := ag.Run(ctx, strings.Join(args, " "), nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
 		return 1
@@ -640,6 +744,17 @@ func runTUI(root string, opts Options) int {
 			return createProvider(providerName)
 		},
 		MaxIter: maxIterations,
+	}
+
+	// --resume: load session history before starting TUI.
+	if opts.Resume != "" {
+		sessionStore := store.NewSessionStore(cfgRoot)
+		session, err := sessionStore.Load(opts.Resume)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "kui: resume session: %v\n", err)
+			return 1
+		}
+		wiring.Session = session
 	}
 
 	if err := tui.Run(context.Background(), wiring); err != nil {

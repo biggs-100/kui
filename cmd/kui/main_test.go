@@ -850,3 +850,136 @@ func TestCLIProfileThinkingInvalidLevel(t *testing.T) {
 		t.Errorf("stderr = %q, want it to mention the invalid level", stderr)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Session Subcommand Tests (Phase 5)
+// ---------------------------------------------------------------------------
+
+// writeSessionFile creates a session JSON file under .kui/sessions/ for testing.
+func writeSessionFile(t *testing.T, home, id, profile string) {
+	t.Helper()
+	sessionsDir := filepath.Join(home, ".kui", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	sessionJSON := fmt.Sprintf(`{"meta":{"id":"%s","profile":"%s","created_at":"2025-01-01T00:00:00Z"},"messages":[{"role":"user","content":"hello"}]}`, id, profile)
+	if err := os.WriteFile(filepath.Join(sessionsDir, id+".json"), []byte(sessionJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+// TestCLISessionNoSubcommand verifies that `kui session` without a subcommand
+// prints usage and exits 2.
+func TestCLISessionNoSubcommand(t *testing.T) {
+	home := t.TempDir()
+
+	_, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "session")
+
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "session") {
+		t.Errorf("stderr = %q, want it to mention session usage", stderr)
+	}
+}
+
+// TestCLISessionListEmpty verifies that `kui session list` with no saved
+// sessions prints "No sessions found" and exits zero.
+func TestCLISessionListEmpty(t *testing.T) {
+	home := t.TempDir()
+
+	stdout, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "session", "list")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "No sessions found") {
+		t.Errorf("stdout = %q, want it to say 'No sessions found'", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
+// TestCLISessionListWithSessions verifies that `kui session list` shows
+// saved sessions with their metadata.
+func TestCLISessionListWithSessions(t *testing.T) {
+	home := t.TempDir()
+	writeSessionFile(t, home, "coder-2025-01-01-0000-abcd", "coder")
+	writeSessionFile(t, home, "writer-2025-01-02-0000-ef01", "writer")
+
+	stdout, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "session", "list")
+
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "coder-2025-01-01-0000-abcd") {
+		t.Errorf("stdout = %q, want it to contain the coder session", stdout)
+	}
+	if !strings.Contains(stdout, "writer-2025-01-02-0000-ef01") {
+		t.Errorf("stdout = %q, want it to contain the writer session", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
+// TestCLISessionResumeMissingID verifies that `kui session resume` without an
+// ID prints usage and exits 2.
+func TestCLISessionResumeMissingID(t *testing.T) {
+	home := t.TempDir()
+
+	_, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "session", "resume")
+
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "session") {
+		t.Errorf("stderr = %q, want it to mention session usage", stderr)
+	}
+}
+
+// TestCLISessionResumeNotFound verifies that `kui session resume <id>` with
+// a nonexistent ID prints an error and exits non-zero.
+func TestCLISessionResumeNotFound(t *testing.T) {
+	home := t.TempDir()
+
+	_, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "session", "resume", "nonexistent-id")
+
+	if code == 0 {
+		t.Error("exit code = 0, want non-zero for a missing session")
+	}
+	if !strings.Contains(stderr, "nonexistent") {
+		t.Errorf("stderr = %q, want it to mention the missing session ID", stderr)
+	}
+}
+
+// TestCLISessionUnknownSubcommand verifies that `kui session foo` prints an
+// error and exits 2.
+func TestCLISessionUnknownSubcommand(t *testing.T) {
+	home := t.TempDir()
+
+	_, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "session", "foo")
+
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "unknown") {
+		t.Errorf("stderr = %q, want it to say 'unknown'", stderr)
+	}
+}
+
+// TestCLITUIResumeFlag verifies that `kui tui --resume nonexistent` fails
+// with an error about the missing session (before starting TUI).
+func TestCLITUIResumeFlag(t *testing.T) {
+	home := t.TempDir()
+
+	_, stderr, code := runCLI(t, map[string]string{"KUI_HOME": home}, "tui", "--resume", "nonexistent-id")
+
+	if code == 0 {
+		t.Error("exit code = 0, want non-zero for --resume with missing session")
+	}
+	if !strings.Contains(stderr, "nonexistent") {
+		t.Errorf("stderr = %q, want it to mention the missing session", stderr)
+	}
+}

@@ -36,6 +36,8 @@ type Options struct {
 	Print bool
 	// Thinking selects the reasoning effort level: off, low, medium, high.
 	Thinking string
+	// Resume specifies a session ID to restore when starting the TUI.
+	Resume string
 }
 
 // stringFlags maps long flag names to whether they take a value argument.
@@ -47,6 +49,7 @@ var stringFlags = map[string]bool{
 	"exclude-tools": true,  // --exclude-tools <value>
 	"mode":          true,  // --mode <value>
 	"thinking":      true,  // --thinking <value>
+	"resume":        true,  // --resume <session-id>
 }
 
 // shortMap maps single-character short flags to their long equivalents.
@@ -238,5 +241,7 @@ func setStringOption(opts *Options, name, value string) {
 		opts.Mode = value
 	case "thinking":
 		opts.Thinking = value
+	case "resume":
+		opts.Resume = value
 	}
 }

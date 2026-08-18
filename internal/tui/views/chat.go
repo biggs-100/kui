@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/biggs-100/kui/internal/core"
 )
 
 // Message represents a single conversation entry: user prompt or assistant
@@ -58,6 +59,30 @@ func (m *ChatModel) AppendChunk(delta string) {
 // SetError records a stream error for display (REQ-TUI-CHAT-2).
 func (m *ChatModel) SetError(msg string) {
 	m.lastError = msg
+}
+
+// LoadHistory populates the chat view with messages from a restored session.
+// Core messages are mapped to view messages for rendering. System and tool
+// messages are skipped since they are internal to the agent loop.
+func (m *ChatModel) LoadHistory(msgs []core.Message) {
+	m.messages = nil
+	m.lastError = ""
+	for _, msg := range msgs {
+		switch msg.Role {
+		case core.RoleUser:
+			m.messages = append(m.messages, Message{
+				Role:    "user",
+				Content: msg.Content,
+			})
+		case core.RoleAssistant:
+			if msg.Content != "" {
+				m.messages = append(m.messages, Message{
+					Role:    "assistant",
+					Content: msg.Content,
+				})
+			}
+		}
+	}
 }
 
 // Messages returns the current message slice (for testing and inspection).
