@@ -348,6 +348,11 @@ func (a *Agent) runStreamingTurn(ctx context.Context, sp StreamingProvider, mess
 			break
 		}
 
+		// Cache stats: emit usage when available (includes cached_tokens).
+		if chunk.Usage != nil {
+			emitUsage(a.Observer, *chunk.Usage)
+		}
+
 		// REQ-LOOP-9: forward text deltas to the observer. emitTextDelta
 		// is nil-safe and handles StreamingObserver type assertion.
 		if chunk.TextDelta != "" {

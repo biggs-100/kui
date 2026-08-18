@@ -11,6 +11,13 @@ type Observer interface {
 	OnToolResult(callID, result string)
 }
 
+// UsageObserver is an optional extension that receives token usage stats
+// after each provider response. When implemented by an Observer, the loop
+// calls OnUsage to report cache hits and token consumption.
+type UsageObserver interface {
+	OnUsage(usage Usage)
+}
+
 // emitObserver calls the given function on the observer, recovering from any
 // panic so that a misbehaving observer can never crash the loop (REQ-LOOP-7).
 // When obs is nil the call is a no-op.
@@ -40,4 +47,11 @@ func emitToolCall(obs Observer, call ToolCall) {
 // emitToolResult notifies the observer that a tool has finished executing.
 func emitToolResult(obs Observer, callID, result string) {
 	emitObserver(obs, func() { obs.OnToolResult(callID, result) })
+}
+
+// emitUsage notifies the observer of token usage stats (including cache hits).
+func emitUsage(obs Observer, usage Usage) {
+	if uo, ok := obs.(UsageObserver); ok {
+		emitObserver(obs, func() { uo.OnUsage(usage) })
+	}
 }

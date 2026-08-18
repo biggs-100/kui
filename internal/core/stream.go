@@ -25,6 +25,7 @@ type Usage struct {
 	InputTokens  int
 	OutputTokens int
 	TotalTokens  int
+	CachedTokens int // tokens read from provider prompt cache (0 when unavailable)
 }
 
 // IsTerminal returns true if this chunk signals the end of the stream
