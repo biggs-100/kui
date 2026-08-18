@@ -37,6 +37,9 @@ type Wiring struct {
 	Client func() (core.Provider, error)
 	// MaxIter is the loop iteration budget. Zero defaults to 10.
 	MaxIter int
+	// Session is an optional pre-loaded session to restore. When set,
+	// the TUI starts with the session's history injected.
+	Session *core.Session
 }
 
 // SetModeler is the interface for providers that support model switching.
@@ -172,7 +175,13 @@ func Run(ctx context.Context, w Wiring) error {
 	// Step 6b: Wire session store for persistence.
 	sessionStore := store.NewSessionStore(w.ConfigRoot)
 	ctrl.SetSessionStore(sessionStore)
-	if active, err := st.Active(); err == nil && active != "" {
+	if w.Session != nil {
+		// Restore session: use the existing ID and load history.
+		ctrl.SetSessionID(w.Session.Meta.ID)
+		ctrl.mu.Lock()
+		ctrl.messages = w.Session.Messages
+		ctrl.mu.Unlock()
+	} else if active, err := st.Active(); err == nil && active != "" {
 		ctrl.SetSessionID(store.GenerateSessionID(active))
 	}
 
@@ -201,6 +210,13 @@ func Run(ctx context.Context, w Wiring) error {
 	// Step 10: Run the Bubble Tea program (blocks until quit).
 	_, err = pgm.Run()
 	return err
+}
+
+// RunWithHistory is a convenience wrapper that calls Run with a pre-loaded
+// session for history injection.
+func RunWithHistory(ctx context.Context, w Wiring, session *core.Session) error {
+	w.Session = session
+	return Run(ctx, w)
 }
 
 // pumpEvents reads events from the controller and sends them to the Bubble
