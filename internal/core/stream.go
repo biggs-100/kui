@@ -22,10 +22,11 @@ type ToolCallDelta struct {
 
 // Usage reports token consumption for a streaming response.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
-	TotalTokens  int
-	CachedTokens int // tokens read from provider prompt cache (0 when unavailable)
+	InputTokens      int
+	OutputTokens     int
+	TotalTokens      int
+	CachedTokens     int // tokens read from provider prompt cache
+	CacheWriteTokens int // tokens written to provider prompt cache
 }
 
 // IsTerminal returns true if this chunk signals the end of the stream

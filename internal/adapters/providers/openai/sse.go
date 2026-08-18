@@ -102,7 +102,8 @@ type streamUsage struct {
 
 // promptTokensDetails contains cache information from OpenAI usage.
 type promptTokensDetails struct {
-	CachedTokens int `json:"cached_tokens"`
+	CachedTokens    int `json:"cached_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // parseSSEChunk unmarshals a single SSE data payload into a StreamChunk.
@@ -117,15 +118,18 @@ func parseSSEChunk(data string) (core.StreamChunk, bool) {
 	// Usage chunk (no choices)
 	if resp.Usage != nil && len(resp.Choices) == 0 {
 		cached := 0
+		cacheWrite := 0
 		if resp.Usage.PromptTokensDetails != nil {
 			cached = resp.Usage.PromptTokensDetails.CachedTokens
+			cacheWrite = resp.Usage.PromptTokensDetails.CacheWriteTokens
 		}
 		return core.StreamChunk{
 			Usage: &core.Usage{
-				InputTokens:  resp.Usage.PromptTokens,
-				OutputTokens: resp.Usage.CompletionTokens,
-				TotalTokens:  resp.Usage.TotalTokens,
-				CachedTokens: cached,
+				InputTokens:      resp.Usage.PromptTokens,
+				OutputTokens:     resp.Usage.CompletionTokens,
+				TotalTokens:      resp.Usage.TotalTokens,
+				CachedTokens:     cached,
+				CacheWriteTokens: cacheWrite,
 			},
 		}, true
 	}
