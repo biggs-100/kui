@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/biggs-100/kui/internal/tui/views"
 )
 
@@ -20,6 +21,7 @@ type App struct {
 	header views.HeaderModel
 	chat   views.ChatModel
 	tool   views.ToolModel
+	styles *theme.Styles
 
 	width  int
 	height int
@@ -30,8 +32,20 @@ type App struct {
 // NewApp creates an App wrapping the given Controller. The Controller must be
 // created before the App so that profile names and runner are available.
 func NewApp(ctrl *Controller) *App {
+	return NewAppWithTheme(ctrl, "")
+}
+
+// NewAppWithTheme creates an App with a specific theme name.
+// If name is empty, the default theme is used.
+func NewAppWithTheme(ctrl *Controller, themeName string) *App {
+	t := theme.Load(themeName)
+	styles := theme.NewStyles(t)
+
 	return &App{
-		ctrl: ctrl,
+		ctrl:   ctrl,
+		styles: styles,
+		chat:   views.NewChatModel(styles),
+		tool:   views.NewToolModel(styles),
 	}
 }
 
@@ -273,7 +287,7 @@ func (a *App) rebuildViews() {
 			break
 		}
 	}
-	a.header = views.NewHeaderModel(profiles, active)
+	a.header = views.NewHeaderModel(profiles, active, a.styles)
 }
 
 // chat returns the chat model for inspection.

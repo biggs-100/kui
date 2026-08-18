@@ -134,12 +134,14 @@ func Run(ctx context.Context, w Wiring) error {
 
 	profileDir := ""
 	var skillsURLs []string
+	themeName := ""
 	if activeName, err := st.Active(); err == nil && activeName != "" {
 		profileDir = filepath.Join(w.ConfigRoot, "profiles", activeName)
 		// REQ-RS-13: classify profile skills entries — URLs become remote
 		// registries, directory names stay local (REQ-RS-14).
 		if resolved, err := loader.Resolve(activeName); err == nil {
 			_, skillsURLs = skills.ClassifySkillsPaths(resolved.Skills)
+			themeName = resolved.Theme
 		}
 	}
 	skillsIndex, err := skills.NewIndex(w.ConfigRoot, w.ProjectDir, profileDir, skillsURLs...)
@@ -193,7 +195,7 @@ func Run(ctx context.Context, w Wiring) error {
 	}
 
 	// Step 7: Build the Bubble Tea app.
-	app := NewApp(ctrl)
+	app := NewAppWithTheme(ctrl, themeName)
 
 	// Step 8: Start the controller event pump goroutine. It reads from
 	// the controller's Events channel and sends events to the Bubble Tea

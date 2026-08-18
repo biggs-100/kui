@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/tui/theme"
 )
 
 // Message represents a single conversation entry: user prompt or assistant
@@ -25,11 +25,14 @@ type ChatModel struct {
 	messages  []Message
 	lastError string
 	status    string // REQ-RELOAD-12: neutral status line
+	styles    *theme.Styles
 }
 
 // NewChatModel creates an empty ChatModel.
-func NewChatModel() ChatModel {
-	return ChatModel{}
+func NewChatModel(styles *theme.Styles) ChatModel {
+	return ChatModel{
+		styles: styles,
+	}
 }
 
 // AppendMessage adds a completed message to the conversation.
@@ -105,31 +108,10 @@ func (m ChatModel) Status() string {
 	return m.status
 }
 
-var (
-	userRoleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("39"))
-
-	assistantRoleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("244"))
-
-	profileStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Faint(true)
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
-
-	emptyHintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Faint(true)
-)
-
 // Render produces the full chat view string.
 func (m ChatModel) Render() string {
 	if len(m.messages) == 0 {
-		return emptyHintStyle.Render("start a conversation...")
+		return m.styles.EmptyHint.Render("start a conversation...")
 	}
 
 	var parts []string
@@ -137,15 +119,15 @@ func (m ChatModel) Render() string {
 		var line strings.Builder
 
 		if msg.Role == "user" {
-			line.WriteString(userRoleStyle.Render("you"))
+			line.WriteString(m.styles.UserRole.Render("you"))
 		} else {
-			line.WriteString(assistantRoleStyle.Render("assistant"))
+			line.WriteString(m.styles.AssistantRole.Render("assistant"))
 		}
 
 		// REQ-TUI-CHAT-3: show profile and model context per prompt
 		if msg.Profile != "" {
 			line.WriteString(" ")
-			line.WriteString(profileStyle.Render(fmt.Sprintf("(%s/%s)", msg.Profile, msg.Model)))
+			line.WriteString(m.styles.Profile.Render(fmt.Sprintf("(%s/%s)", msg.Profile, msg.Model)))
 		}
 
 		line.WriteString("\n")
@@ -155,11 +137,11 @@ func (m ChatModel) Render() string {
 	}
 
 	if m.lastError != "" {
-		parts = append(parts, errorStyle.Render("error: "+m.lastError))
+		parts = append(parts, m.styles.Error.Render("error: "+m.lastError))
 	}
 
 	if m.status != "" {
-		parts = append(parts, emptyHintStyle.Render(m.status))
+		parts = append(parts, m.styles.EmptyHint.Render(m.status))
 	}
 
 	return strings.Join(parts, "\n\n")

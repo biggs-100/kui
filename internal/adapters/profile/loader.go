@@ -25,6 +25,7 @@ type Config struct {
 	Tools         []string            `yaml:"tools"`
 	Skills        []string            `yaml:"skills"`
 	Thinking      string              `yaml:"thinking"`
+	Theme         string              `yaml:"theme"`
 	Permissions   []Rule              `yaml:"permissions"`
 	Orchestration *OrchestrationConfig `yaml:"orchestration"`
 }
@@ -67,6 +68,7 @@ type Profile struct {
 	Tools        []string
 	Skills       []string
 	Thinking     string
+	Theme        string
 	Permissions  []Rule
 }
 
@@ -227,6 +229,9 @@ func resolve(name, profileDir, projectDir, globalDir string, config, project, gl
 		}
 		if p.Thinking == "" {
 			p.Thinking = layer.config.Thinking
+		}
+		if p.Theme == "" {
+			p.Theme = layer.config.Theme
 		}
 	}
 	// Permissions concatenate farthest-first so the profile layer is last

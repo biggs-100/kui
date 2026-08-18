@@ -10,7 +10,7 @@ import (
 )
 
 func TestChatMessageListGrowsOnChunk(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "Hello", "coder", "gpt-4")
 	m.AppendChunk("Hi there!")
 
@@ -24,7 +24,7 @@ func TestChatMessageListGrowsOnChunk(t *testing.T) {
 }
 
 func TestChatEmptyInputIgnored(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	// Render with no messages — should not panic and should not contain user content
 	got := m.Render()
 	if strings.Contains(got, "user") {
@@ -33,7 +33,7 @@ func TestChatEmptyInputIgnored(t *testing.T) {
 }
 
 func TestChatStreamError(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "Hello", "coder", "gpt-4")
 	m.SetError("provider timeout")
 
@@ -47,7 +47,7 @@ func TestChatStreamError(t *testing.T) {
 }
 
 func TestChatGoldenDefault(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "What is 2+2?", "coder", "gpt-4")
 	m.AppendChunk("4")
 	got := m.Render()
@@ -73,7 +73,7 @@ func TestChatGoldenDefault(t *testing.T) {
 }
 
 func TestChatGoldenError(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "Hello", "coder", "gpt-4")
 	m.SetError("stream failed")
 	got := m.Render()
@@ -99,7 +99,7 @@ func TestChatGoldenError(t *testing.T) {
 }
 
 func TestChatGoldenEmpty(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	got := m.Render()
 
 	golden := filepath.Join("testdata", "chat_empty.txt")
@@ -123,7 +123,7 @@ func TestChatGoldenEmpty(t *testing.T) {
 }
 
 func TestChatMultipleChunksGrowMessage(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "Explain Go", "coder", "gpt-4")
 	m.AppendChunk("Go is ")
 	m.AppendChunk("a language.")
@@ -134,7 +134,7 @@ func TestChatMultipleChunksGrowMessage(t *testing.T) {
 }
 
 func TestChatPerPromptContextStability(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "First", "coder", "gpt-4")
 	m.AppendChunk("Answer 1")
 	m.AppendMessage("user", "Second", "writer", "gpt-3.5")
@@ -150,7 +150,7 @@ func TestChatPerPromptContextStability(t *testing.T) {
 }
 
 func TestChatLoadHistory(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	msgs := []core.Message{
 		{Role: core.RoleUser, Content: "question"},
 		{Role: core.RoleAssistant, Content: "answer"},
@@ -180,7 +180,7 @@ func TestChatLoadHistory(t *testing.T) {
 }
 
 func TestChatLoadHistoryClearsPrevious(t *testing.T) {
-	m := NewChatModel()
+	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "old message", "coder", "gpt-4")
 
 	m.LoadHistory([]core.Message{

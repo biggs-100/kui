@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"github.com/biggs-100/kui/internal/tui/theme"
 )
 
 // ToolEvent represents a single tool invocation lifecycle: a call and
@@ -21,13 +21,15 @@ type ToolEvent struct {
 type ToolModel struct {
 	events []ToolEvent
 	// index by callID for fast result lookup
-	byID map[string]int
+	byID   map[string]int
+	styles *theme.Styles
 }
 
 // NewToolModel creates an empty ToolModel.
-func NewToolModel() ToolModel {
+func NewToolModel(styles *theme.Styles) ToolModel {
 	return ToolModel{
-		byID: make(map[string]int),
+		byID:   make(map[string]int),
+		styles: styles,
 	}
 }
 
@@ -49,40 +51,23 @@ func (m *ToolModel) AppendResult(callID, result string) {
 	}
 }
 
-var (
-	toolNameStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("39"))
-
-	toolResultStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("244"))
-
-	toolPendingStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("214")).
-				Faint(true)
-
-	toolEmptyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Faint(true)
-)
-
 // Render produces the full tool view string (REQ-TUI-TOOL-1/2).
 func (m ToolModel) Render() string {
 	if len(m.events) == 0 {
-		return toolEmptyStyle.Render("no tool calls")
+		return m.styles.ToolEmpty.Render("no tool calls")
 	}
 
 	var parts []string
 	for _, ev := range m.events {
 		var line strings.Builder
-		line.WriteString(toolNameStyle.Render(ev.Name))
+		line.WriteString(m.styles.ToolName.Render(ev.Name))
 
 		if ev.Result != "" {
 			line.WriteString(" → ")
-			line.WriteString(toolResultStyle.Render(ev.Result))
+			line.WriteString(m.styles.ToolResult.Render(ev.Result))
 		} else {
 			line.WriteString(" ")
-			line.WriteString(toolPendingStyle.Render(fmt.Sprintf("(pending %s)", ev.CallID)))
+			line.WriteString(m.styles.ToolPending.Render(fmt.Sprintf("(pending %s)", ev.CallID)))
 		}
 
 		parts = append(parts, line.String())

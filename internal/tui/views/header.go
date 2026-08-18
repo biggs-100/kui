@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"github.com/biggs-100/kui/internal/tui/theme"
 )
 
 // HeaderModel renders the profile tab bar. It shows one tab per profile
@@ -13,33 +13,19 @@ import (
 type HeaderModel struct {
 	profiles []string
 	active   int
+	styles   *theme.Styles
 }
 
 // NewHeaderModel creates a HeaderModel with the given profile names and
 // active index. An empty or nil profiles slice triggers the no-profiles
 // fallback (REQ-TUI-PROF-4).
-func NewHeaderModel(profiles []string, active int) HeaderModel {
+func NewHeaderModel(profiles []string, active int, styles *theme.Styles) HeaderModel {
 	return HeaderModel{
 		profiles: profiles,
 		active:   active,
+		styles:   styles,
 	}
 }
-
-var (
-	activeTabStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			Background(lipgloss.Color("236")).
-			Padding(0, 1)
-
-	inactiveTabStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("241")).
-				Padding(0, 1)
-
-	hintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Faint(true)
-)
 
 // Render produces the full header string. When profiles are present, each
 // profile is rendered as a tab; the active one uses bold styling
@@ -47,16 +33,16 @@ var (
 // (REQ-TUI-PROF-4).
 func (m HeaderModel) Render() string {
 	if len(m.profiles) == 0 {
-		return hintStyle.Render("no profiles available")
+		return m.styles.Hint.Render("no profiles available")
 	}
 
 	var parts []string
 	for i, p := range m.profiles {
 		label := fmt.Sprintf(" %s ", p)
 		if i == m.active {
-			parts = append(parts, activeTabStyle.Render(label))
+			parts = append(parts, m.styles.ActiveTab.Render(label))
 		} else {
-			parts = append(parts, inactiveTabStyle.Render(label))
+			parts = append(parts, m.styles.InactiveTab.Render(label))
 		}
 	}
 	return strings.Join(parts, " ")

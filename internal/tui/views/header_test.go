@@ -11,7 +11,7 @@ import (
 var update = flag.Bool("update", false, "update golden files")
 
 func TestHeaderTwoTabsActive(t *testing.T) {
-	m := NewHeaderModel([]string{"coder", "writer"}, 0)
+	m := NewHeaderModel([]string{"coder", "writer"}, 0, testStyles())
 	got := m.Render()
 
 	golden := filepath.Join("testdata", "header_two_tabs_active.txt")
@@ -35,7 +35,7 @@ func TestHeaderTwoTabsActive(t *testing.T) {
 }
 
 func TestHeaderNoProfiles(t *testing.T) {
-	m := NewHeaderModel(nil, 0)
+	m := NewHeaderModel(nil, 0, testStyles())
 	got := m.Render()
 
 	golden := filepath.Join("testdata", "header_no_profiles.txt")
@@ -59,7 +59,7 @@ func TestHeaderNoProfiles(t *testing.T) {
 }
 
 func TestHeaderActiveMarkedSecond(t *testing.T) {
-	m := NewHeaderModel([]string{"coder", "writer"}, 1)
+	m := NewHeaderModel([]string{"coder", "writer"}, 1, testStyles())
 	got := m.Render()
 
 	golden := filepath.Join("testdata", "header_second_active.txt")
@@ -83,7 +83,7 @@ func TestHeaderActiveMarkedSecond(t *testing.T) {
 }
 
 func TestHeaderContainsProfileNames(t *testing.T) {
-	m := NewHeaderModel([]string{"coder", "writer"}, 0)
+	m := NewHeaderModel([]string{"coder", "writer"}, 0, testStyles())
 	got := m.Render()
 	if !strings.Contains(got, "coder") {
 		t.Error("header should contain 'coder'")
@@ -94,7 +94,7 @@ func TestHeaderContainsProfileNames(t *testing.T) {
 }
 
 func TestHeaderNoProfilesContainsHint(t *testing.T) {
-	m := NewHeaderModel(nil, 0)
+	m := NewHeaderModel(nil, 0, testStyles())
 	got := m.Render()
 	// The hint text should be present when no profiles are provided
 	if strings.TrimSpace(got) == "" {

@@ -8,7 +8,7 @@ import (
 )
 
 func TestToolCallsRender(t *testing.T) {
-	m := NewToolModel()
+	m := NewToolModel(testStyles())
 	m.AppendCall("call-1", "read_file")
 	m.AppendResult("call-1", "file contents here")
 	got := m.Render()
@@ -22,7 +22,7 @@ func TestToolCallsRender(t *testing.T) {
 }
 
 func TestToolNilObserverEmptyList(t *testing.T) {
-	m := NewToolModel()
+	m := NewToolModel(testStyles())
 	got := m.Render()
 	// When no tool events are present, render should not be empty —
 	// it should show an empty state hint
@@ -32,7 +32,7 @@ func TestToolNilObserverEmptyList(t *testing.T) {
 }
 
 func TestToolGoldenCallAndResult(t *testing.T) {
-	m := NewToolModel()
+	m := NewToolModel(testStyles())
 	m.AppendCall("c1", "read_file")
 	m.AppendResult("c1", "contents")
 	got := m.Render()
@@ -58,7 +58,7 @@ func TestToolGoldenCallAndResult(t *testing.T) {
 }
 
 func TestToolGoldenEmpty(t *testing.T) {
-	m := NewToolModel()
+	m := NewToolModel(testStyles())
 	got := m.Render()
 
 	golden := filepath.Join("testdata", "tool_empty.txt")
@@ -82,7 +82,7 @@ func TestToolGoldenEmpty(t *testing.T) {
 }
 
 func TestToolMultipleCalls(t *testing.T) {
-	m := NewToolModel()
+	m := NewToolModel(testStyles())
 	m.AppendCall("c1", "read_file")
 	m.AppendCall("c2", "write_file")
 	m.AppendResult("c1", "done reading")
@@ -104,7 +104,7 @@ func TestToolMultipleCalls(t *testing.T) {
 }
 
 func TestToolPendingCall(t *testing.T) {
-	m := NewToolModel()
+	m := NewToolModel(testStyles())
 	m.AppendCall("c1", "bash_exec")
 	got := m.Render()
 
