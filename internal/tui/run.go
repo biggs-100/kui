@@ -169,6 +169,13 @@ func Run(ctx context.Context, w Wiring) error {
 		ctrl.SetModeler = sm
 	}
 
+	// Step 6b: Wire session store for persistence.
+	sessionStore := store.NewSessionStore(w.ConfigRoot)
+	ctrl.SetSessionStore(sessionStore)
+	if active, err := st.Active(); err == nil && active != "" {
+		ctrl.SetSessionID(store.GenerateSessionID(active))
+	}
+
 	// Step 7: Build the Bubble Tea app.
 	app := NewApp(ctrl)
 

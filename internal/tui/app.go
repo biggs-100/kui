@@ -122,7 +122,8 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		runes := msg.Runes
 		if len(runes) == 1 {
 			r := runes[0]
-			if r == 'q' {
+			if r == 'q' && a.input == "" {
+				_ = a.ctrl.SaveSession()
 				a.quitting = true
 				return a, tea.Quit
 			}
@@ -137,6 +138,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyCtrlC:
+		_ = a.ctrl.SaveSession()
 		a.quitting = true
 		return a, tea.Quit
 	}
@@ -148,15 +150,70 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // of the runtime; /help shows available commands; unknown commands show an
 // error hint (REQ-RELOAD-11).
 func (a *App) handleCommand(text string) (tea.Model, tea.Cmd) {
-	switch text {
+	parts := strings.SplitN(text, " ", 2)
+	cmd := parts[0]
+
+	switch cmd {
 	case "/reload":
 		a.ctrl.Reload()
+	case "/sessions":
+		a.handleSessionsCommand()
+	case "/resume":
+		if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+			a.chat.SetStatus("usage: /resume <session-id>")
+		} else {
+			a.handleResumeCommand(strings.TrimSpace(parts[1]))
+		}
+	case "/quit", "/exit":
+		_ = a.ctrl.SaveSession()
+		a.quitting = true
+		return a, tea.Quit
 	case "/help":
-		a.chat.SetStatus("commands: /reload, /help")
+		a.chat.SetStatus("commands: /sessions, /resume <id>, /reload, /quit, /exit, /help")
 	default:
 		a.chat.SetStatus("unknown command: " + text + " (try /help)")
 	}
 	return a, nil
+}
+
+// handleSessionsCommand lists all saved sessions in the chat view.
+func (a *App) handleSessionsCommand() {
+	store := a.ctrl.SessionStore()
+	if store == nil {
+		a.chat.SetStatus("session persistence not configured")
+		return
+	}
+
+	metas, err := store.List()
+	if err != nil {
+		a.chat.SetStatus("error listing sessions: " + err.Error())
+		return
+	}
+
+	if len(metas) == 0 {
+		a.chat.SetStatus("no saved sessions")
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("saved sessions:\n")
+	for _, m := range metas {
+		b.WriteString(fmt.Sprintf("  %s  profile=%s  %s\n", m.ID, m.Profile, m.CreatedAt))
+	}
+	a.chat.SetStatus(b.String())
+}
+
+// handleResumeCommand loads a session and injects its history into the controller.
+func (a *App) handleResumeCommand(id string) {
+	msgs, err := a.ctrl.LoadSession(id)
+	if err != nil {
+		a.chat.SetStatus("error loading session: " + err.Error())
+		return
+	}
+
+	// Populate the chat view with loaded history for rendering.
+	a.chat.LoadHistory(msgs)
+	a.chat.SetStatus("session " + id + " restored (" + fmt.Sprintf("%d", len(msgs)) + " messages)")
 }
 
 // View renders the three-region layout: header (profile tabs), chat

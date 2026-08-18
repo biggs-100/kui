@@ -586,6 +586,181 @@ func TestControllerStreamError(t *testing.T) {
 		t.Fatalf("received %d streamChunkMsg before error, want 1", len(chunks))
 	}
 	if chunks[0].delta != "partial" {
-		t.Errorf("chunk[0].delta = %q, want %q", chunks[0].delta, "partial")
+		t.Errorf("chunks[0].delta = %q, want %q", chunks[0].delta, "partial")
+	}
+}
+
+// --- Session Persistence Tests (Phase 4) ---
+
+// fakeSessionStore implements core.SessionStore for testing.
+type fakeSessionStore struct {
+	sessions map[string]*core.Session
+}
+
+func newFakeSessionStore() *fakeSessionStore {
+	return &fakeSessionStore{sessions: make(map[string]*core.Session)}
+}
+
+func (s *fakeSessionStore) Save(session *core.Session) error {
+	s.sessions[session.Meta.ID] = session
+	return nil
+}
+
+func (s *fakeSessionStore) Load(id string) (*core.Session, error) {
+	sess, ok := s.sessions[id]
+	if !ok {
+		return nil, fmt.Errorf("session %q not found", id)
+	}
+	return sess, nil
+}
+
+func (s *fakeSessionStore) List() ([]core.SessionMeta, error) {
+	var metas []core.SessionMeta
+	for _, sess := range s.sessions {
+		metas = append(metas, sess.Meta)
+	}
+	return metas, nil
+}
+
+func (s *fakeSessionStore) Delete(id string) error {
+	delete(s.sessions, id)
+	return nil
+}
+
+func TestControllerSetSessionStoreAndID(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	store := newFakeSessionStore()
+
+	c.SetSessionStore(store)
+	c.SetSessionID("test-session-1")
+
+	if c.SessionStore() != store {
+		t.Error("SessionStore() did not return the set store")
+	}
+	if c.SessionID() != "test-session-1" {
+		t.Errorf("SessionID() = %q, want %q", c.SessionID(), "test-session-1")
+	}
+}
+
+func TestControllerSaveSession(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	store := newFakeSessionStore()
+	c.SetSessionStore(store)
+	c.SetSessionID("save-test")
+
+	// Simulate accumulated messages
+	c.mu.Lock()
+	c.messages = []core.Message{
+		{Role: core.RoleUser, Content: "hello"},
+		{Role: core.RoleAssistant, Content: "hi"},
+	}
+	c.mu.Unlock()
+
+	if err := c.SaveSession(); err != nil {
+		t.Fatalf("SaveSession() error = %v", err)
+	}
+
+	sess, err := store.Load("save-test")
+	if err != nil {
+		t.Fatalf("store.Load() error = %v", err)
+	}
+	if len(sess.Messages) != 2 {
+		t.Errorf("saved session has %d messages, want 2", len(sess.Messages))
+	}
+	if sess.Meta.Profile != "coder" {
+		t.Errorf("saved session profile = %q, want %q", sess.Meta.Profile, "coder")
+	}
+}
+
+func TestControllerSaveSessionNoopWithoutStore(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	// No store configured — SaveSession should be a no-op.
+	if err := c.SaveSession(); err != nil {
+		t.Fatalf("SaveSession() with no store returned error: %v", err)
+	}
+}
+
+func TestControllerLoadSession(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	store := newFakeSessionStore()
+	c.SetSessionStore(store)
+
+	// Pre-populate a session
+	_ = store.Save(&core.Session{
+		Meta:     core.NewSessionMeta("load-test", "coder"),
+		Messages: []core.Message{
+			{Role: core.RoleUser, Content: "question"},
+			{Role: core.RoleAssistant, Content: "answer"},
+		},
+	})
+
+	msgs, err := c.LoadSession("load-test")
+	if err != nil {
+		t.Fatalf("LoadSession() error = %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("LoadSession() returned %d messages, want 2", len(msgs))
+	}
+	if msgs[0].Content != "question" {
+		t.Errorf("loaded message[0].Content = %q, want %q", msgs[0].Content, "question")
+	}
+	if c.SessionID() != "load-test" {
+		t.Errorf("SessionID() = %q, want %q after LoadSession", c.SessionID(), "load-test")
+	}
+}
+
+func TestControllerLoadSessionNotFound(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	store := newFakeSessionStore()
+	c.SetSessionStore(store)
+
+	_, err := c.LoadSession("nonexistent")
+	if err == nil {
+		t.Fatal("LoadSession() for nonexistent session should return error")
+	}
+}
+
+func TestControllerAutoSaveAfterSubmit(t *testing.T) {
+	// Verify that SubmitPrompt triggers auto-save after the run completes.
+	store := newFakeSessionStore()
+	queue := &stubQueue{}
+	runner := &fakeRunner{
+		agent: &core.Agent{
+			Provider:      &stubProvider{response: "saved answer"},
+			Tools:         core.NewRegistry(),
+			MaxIterations: 1,
+		},
+		steering: queue,
+	}
+	c := NewController([]string{"coder"}, runner, func(name string) string {
+		return "gpt-4o-mini"
+	})
+	c.SetSessionStore(store)
+	c.SetSessionID("auto-save-test")
+
+	c.SubmitPrompt("hello")
+	events := collectEvents(c.Events(), 500*time.Millisecond)
+
+	// Wait for streamDoneMsg
+	found := false
+	for _, e := range events {
+		if _, ok := e.(streamDoneMsg); ok {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected streamDoneMsg after auto-save submit")
+	}
+
+	// Give auto-save goroutine time to complete
+	time.Sleep(100 * time.Millisecond)
+
+	sess, err := store.Load("auto-save-test")
+	if err != nil {
+		t.Fatalf("auto-save did not persist session: %v", err)
+	}
+	if len(sess.Messages) == 0 {
+		t.Error("auto-saved session has no messages")
 	}
 }

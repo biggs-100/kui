@@ -279,3 +279,148 @@ func TestAppStreamDoneMsgWithErrorSetsErrorState(t *testing.T) {
 	}
 	_ = a
 }
+
+// --- Slash Command Tests (Phase 4: Session Lifecycle) ---
+
+func TestAppSessionsCommandNoStore(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type /sessions and submit
+	for _, r := range "/sessions" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := msg.(*App)
+
+	if a.chat.Status() == "" {
+		t.Error("/sessions with no store should set a status message")
+	}
+}
+
+func TestAppSessionsCommandWithStore(t *testing.T) {
+	store := newFakeSessionStore()
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetSessionStore(store)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type /sessions and submit
+	for _, r := range "/sessions" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := msg.(*App)
+
+	if a.chat.Status() == "" {
+		t.Error("/sessions with empty store should set a status message")
+	}
+}
+
+func TestAppResumeCommandNoID(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type /resume (no ID) and submit
+	for _, r := range "/resume" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := msg.(*App)
+
+	if a.chat.Status() == "" {
+		t.Error("/resume with no ID should set a usage status message")
+	}
+}
+
+func TestAppResumeCommandWithSession(t *testing.T) {
+	store := newFakeSessionStore()
+	_ = store.Save(&core.Session{
+		Meta:     core.NewSessionMeta("test-123", "coder"),
+		Messages: []core.Message{
+			{Role: core.RoleUser, Content: "hello"},
+			{Role: core.RoleAssistant, Content: "hi there"},
+		},
+	})
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetSessionStore(store)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type /resume test-123 and submit
+	for _, r := range "/resume test-123" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := msg.(*App)
+
+	if a.chat.Status() == "" {
+		t.Error("/resume with valid session should set a status message")
+	}
+}
+
+func TestAppQuitCommandSavesSession(t *testing.T) {
+	store := newFakeSessionStore()
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetSessionStore(store)
+	c.SetSessionID("quit-save-test")
+	c.mu.Lock()
+	c.messages = []core.Message{{Role: core.RoleUser, Content: "test"}}
+	c.mu.Unlock()
+
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type /quit and submit
+	for _, r := range "/quit" {
+		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	msg, cmd := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_ = msg
+
+	if cmd == nil {
+		t.Fatal("/quit should return tea.Quit command")
+	}
+	if !app.quitting {
+		t.Error("/quit should set quitting flag")
+	}
+
+	// Verify session was saved
+	sess, err := store.Load("quit-save-test")
+	if err != nil {
+		t.Fatalf("/quit did not save session: %v", err)
+	}
+	if len(sess.Messages) == 0 {
+		t.Error("saved session should have messages")
+	}
+}
+
+func TestAppCtrlCSavesSession(t *testing.T) {
+	store := newFakeSessionStore()
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetSessionStore(store)
+	c.SetSessionID("ctrlc-save-test")
+	c.mu.Lock()
+	c.messages = []core.Message{{Role: core.RoleUser, Content: "test"}}
+	c.mu.Unlock()
+
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_ = cmd
+
+	if !app.quitting {
+		t.Error("Ctrl+C should set quitting flag")
+	}
+
+	sess, err := store.Load("ctrlc-save-test")
+	if err != nil {
+		t.Fatalf("Ctrl+C did not save session: %v", err)
+	}
+	if len(sess.Messages) == 0 {
+		t.Error("saved session should have messages")
+	}
+}

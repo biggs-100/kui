@@ -63,17 +63,17 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: TUI Session Lifecycle
 
-- [ ] 4.1 Add `sessionStore core.SessionStore` and `sessionID string` fields to `Controller` struct
-- [ ] 4.2 Add `SetSessionStore(store)` and `SetSessionID(id)` methods to Controller
-- [ ] 4.3 In `SubmitPrompt()`, after run completes: call `sessionStore.Save()` with updated messages (auto-save after response)
-- [ ] 4.4 Add `SaveSession()` method — save current session to store, update index
-- [ ] 4.5 Add `LoadSession(id)` method — load session, return `[]core.Message` for history injection
-- [ ] 4.6 In `app.go` `handleKey()`: intercept Ctrl+C and `/quit`/`/exit` — call `ctrl.SaveSession()` before `tea.Quit`
-- [ ] 4.7 Add `/sessions` command handler in `app.go` — call `sessionStore.List()`, render formatted table to chat view
-- [ ] 4.8 Add `/resume <id>` command handler in `app.go` — call `ctrl.LoadSession(id)`, inject history, update session ID
-- [ ] 4.9 Add `LoadHistory([]views.Message)` method to `views.ChatModel` — populate messages from session for rendering
-- [ ] 4.10 Update `internal/tui/run.go` `Run()` to create `FileSessionStore`, wire into controller
-- [ ] 4.11 REFACTOR: Verify `go test ./internal/tui/...` pass
+- [x] 4.1 Add `sessionStore core.SessionStore` and `sessionID string` fields to `Controller` struct
+- [x] 4.2 Add `SetSessionStore(store)` and `SetSessionID(id)` methods to Controller
+- [x] 4.3 In `SubmitPrompt()`, after run completes: call `sessionStore.Save()` with updated messages (auto-save after response)
+- [x] 4.4 Add `SaveSession()` method — save current session to store, update index
+- [x] 4.5 Add `LoadSession(id)` method — load session, return `[]core.Message` for history injection
+- [x] 4.6 In `app.go` `handleKey()`: intercept Ctrl+C and `/quit`/`/exit` — call `ctrl.SaveSession()` before `tea.Quit`
+- [x] 4.7 Add `/sessions` command handler in `app.go` — call `sessionStore.List()`, render formatted table to chat view
+- [x] 4.8 Add `/resume <id>` command handler in `app.go` — call `ctrl.LoadSession(id)`, inject history, update session ID
+- [x] 4.9 Add `LoadHistory([]views.Message)` method to `views.ChatModel` — populate messages from session for rendering
+- [x] 4.10 Update `internal/tui/run.go` `Run()` to create `FileSessionStore`, wire into controller
+- [x] 4.11 REFACTOR: Verify `go test ./internal/tui/...` pass
 
 ## Phase 5: CLI Subcommands
 

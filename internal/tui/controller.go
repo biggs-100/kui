@@ -51,6 +51,12 @@ type Controller struct {
 	SetModeler SetModeler
 	reloader   Reloader // REQ-RELOAD-14
 
+	// Session persistence: the controller optionally holds a session store
+	// and tracks the active session ID for auto-save and resume.
+	sessionStore core.SessionStore
+	sessionID    string
+	messages     []core.Message // accumulated messages for current session
+
 	// Run tracking (REQ-RELOAD-13): guards cancel-and-wait for /reload.
 	running bool
 	cancel  context.CancelFunc
@@ -136,6 +142,7 @@ func (c *Controller) SubmitPrompt(text string) {
 	resolver := c.resolver
 	profile := c.profiles[c.active]
 	sm := c.SetModeler
+	history := c.messages
 	c.mu.Unlock()
 
 	if runner == nil || resolver == nil {
@@ -159,7 +166,7 @@ func (c *Controller) SubmitPrompt(text string) {
 	// D7: detect StreamingProvider for real-time token streaming.
 	if sp, ok := runner.Provider().(core.StreamingProvider); ok {
 		go func() {
-			c.runStreamingPrompt(sp, text)
+			c.runStreamingPrompt(sp, text, history)
 			c.finishRun(done)
 		}()
 		return
@@ -168,7 +175,7 @@ func (c *Controller) SubmitPrompt(text string) {
 	// Fallback: synchronous run via agent.Run.
 	go func() {
 		defer c.finishRun(done)
-		_, _, err := runner.Run(ctx, text, nil)
+		_, msgs, err := runner.Run(ctx, text, history)
 		if err != nil {
 			if ctx.Err() != nil {
 				return // REQ-RELOAD-8: suppress cancel error display
@@ -176,6 +183,11 @@ func (c *Controller) SubmitPrompt(text string) {
 			c.emit(streamDoneMsg{err: err})
 			return
 		}
+		// Store accumulated messages for session persistence.
+		c.mu.Lock()
+		c.messages = msgs
+		c.mu.Unlock()
+		c.autoSave()
 		c.emit(streamDoneMsg{})
 	}()
 }
@@ -192,26 +204,60 @@ func (c *Controller) finishRun(done chan struct{}) {
 
 // runStreamingPrompt consumes a StreamChat channel and emits streamChunkMsg
 // for each TextDelta, then streamDoneMsg on completion or error. It runs in
-// a goroutine (D4).
-func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string) {
-	stream, err := sp.StreamChat(context.Background(), []core.Message{
-		{Role: core.RoleUser, Content: text},
-	}, nil)
+// a goroutine (D4). History is prepended before the user prompt for session
+// context.
+func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string, history []core.Message) {
+	msgs := make([]core.Message, 0, len(history)+1)
+	msgs = append(msgs, history...)
+	msgs = append(msgs, core.Message{Role: core.RoleUser, Content: text})
+
+	stream, err := sp.StreamChat(context.Background(), msgs, nil)
 	if err != nil {
 		c.emit(streamDoneMsg{err: err})
 		return
 	}
 
+	var answer string
 	for chunk := range stream {
 		if chunk.Error != nil {
 			c.emit(streamDoneMsg{err: chunk.Error})
 			return
 		}
 		if chunk.TextDelta != "" {
+			answer += chunk.TextDelta
 			c.emit(streamChunkMsg{delta: chunk.TextDelta})
 		}
 	}
+
+	// Store messages for session persistence.
+	if answer != "" {
+		c.mu.Lock()
+		c.messages = append(msgs, core.Message{Role: core.RoleAssistant, Content: answer})
+		c.mu.Unlock()
+		c.autoSave()
+	}
 	c.emit(streamDoneMsg{})
+}
+
+// autoSave persists the current session if a store and session ID are configured.
+// It is called after each successful prompt response.
+func (c *Controller) autoSave() {
+	c.mu.Lock()
+	store := c.sessionStore
+	id := c.sessionID
+	profile := c.profiles[c.active]
+	msgs := c.messages
+	c.mu.Unlock()
+
+	if store == nil || id == "" || len(msgs) == 0 {
+		return
+	}
+
+	session := &core.Session{
+		Meta:     core.NewSessionMeta(id, profile),
+		Messages: msgs,
+	}
+	_ = store.Save(session) // auto-save errors are non-fatal
 }
 
 // Events returns a read-only channel of controller events. The caller
@@ -283,6 +329,80 @@ func (c *Controller) SetReloader(r Reloader) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.reloader = r
+}
+
+// SetSessionStore attaches a session store for auto-save and resume support.
+func (c *Controller) SetSessionStore(store core.SessionStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sessionStore = store
+}
+
+// SetSessionID sets the active session ID for persistence.
+func (c *Controller) SetSessionID(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sessionID = id
+}
+
+// SessionID returns the current session ID.
+func (c *Controller) SessionID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessionID
+}
+
+// SessionStore returns the attached session store, or nil if not configured.
+func (c *Controller) SessionStore() core.SessionStore {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessionStore
+}
+
+// SaveSession persists the current session to the store. It is a no-op when
+// no session store is configured or when no messages exist. The session ID
+// and profile are captured from the controller state.
+func (c *Controller) SaveSession() error {
+	c.mu.Lock()
+	store := c.sessionStore
+	id := c.sessionID
+	profile := c.profiles[c.active]
+	msgs := c.messages
+	c.mu.Unlock()
+
+	if store == nil || id == "" || len(msgs) == 0 {
+		return nil
+	}
+
+	session := &core.Session{
+		Meta:     core.NewSessionMeta(id, profile),
+		Messages: msgs,
+	}
+	return store.Save(session)
+}
+
+// LoadSession loads a session by ID from the store and returns its messages
+// for history injection. Returns nil and no error when no store is configured.
+func (c *Controller) LoadSession(id string) ([]core.Message, error) {
+	c.mu.Lock()
+	store := c.sessionStore
+	c.mu.Unlock()
+
+	if store == nil {
+		return nil, nil
+	}
+
+	session, err := store.Load(id)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mu.Lock()
+	c.sessionID = id
+	c.messages = session.Messages
+	c.mu.Unlock()
+
+	return session.Messages, nil
 }
 
 // ReloadProfiles replaces the profile list, preserving the active profile

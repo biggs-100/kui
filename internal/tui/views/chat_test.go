@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/biggs-100/kui/internal/core"
 )
 
 func TestChatMessageListGrowsOnChunk(t *testing.T) {
@@ -144,5 +146,51 @@ func TestChatPerPromptContextStability(t *testing.T) {
 	}
 	if !strings.Contains(got, "writer") {
 		t.Error("second message should show writer profile")
+	}
+}
+
+func TestChatLoadHistory(t *testing.T) {
+	m := NewChatModel()
+	msgs := []core.Message{
+		{Role: core.RoleUser, Content: "question"},
+		{Role: core.RoleAssistant, Content: "answer"},
+		{Role: core.RoleSystem, Content: "system prompt"}, // should be skipped
+		{Role: core.RoleUser, Content: "follow-up"},
+	}
+	m.LoadHistory(msgs)
+
+	if len(m.Messages()) != 3 {
+		t.Fatalf("LoadHistory produced %d messages, want 3 (system skipped)", len(m.Messages()))
+	}
+	if m.Messages()[0].Role != "user" || m.Messages()[0].Content != "question" {
+		t.Errorf("message[0] = %+v, want user 'question'", m.Messages()[0])
+	}
+	if m.Messages()[1].Role != "assistant" || m.Messages()[1].Content != "answer" {
+		t.Errorf("message[1] = %+v, want assistant 'answer'", m.Messages()[1])
+	}
+	if m.Messages()[2].Role != "user" || m.Messages()[2].Content != "follow-up" {
+		t.Errorf("message[2] = %+v, want user 'follow-up'", m.Messages()[2])
+	}
+
+	// Verify it renders
+	got := m.Render()
+	if !strings.Contains(got, "question") || !strings.Contains(got, "answer") {
+		t.Error("rendered output should contain loaded history messages")
+	}
+}
+
+func TestChatLoadHistoryClearsPrevious(t *testing.T) {
+	m := NewChatModel()
+	m.AppendMessage("user", "old message", "coder", "gpt-4")
+
+	m.LoadHistory([]core.Message{
+		{Role: core.RoleUser, Content: "new question"},
+	})
+
+	if len(m.Messages()) != 1 {
+		t.Fatalf("LoadHistory should clear previous messages, got %d", len(m.Messages()))
+	}
+	if m.Messages()[0].Content != "new question" {
+		t.Errorf("message[0].Content = %q, want %q", m.Messages()[0].Content, "new question")
 	}
 }
