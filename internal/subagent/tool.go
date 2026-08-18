@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Tool implements core.Tool for the subagent_run command.
@@ -15,6 +16,7 @@ type Tool struct {
 	kuiBinary string
 	cwd       string
 	policy    Policy
+	manager   *BackgroundManager
 }
 
 // NewTool creates a subagent_run tool.
@@ -26,7 +28,23 @@ func NewTool(kuiBinary, cwd string, policy Policy) *Tool {
 		kuiBinary: kuiBinary,
 		cwd:       cwd,
 		policy:    policy,
+		manager:   NewBackgroundManager(MaxConcurrentBackground),
 	}
+}
+
+// NewToolWithManager creates a subagent_run tool with a custom background manager.
+func NewToolWithManager(kuiBinary, cwd string, policy Policy, manager *BackgroundManager) *Tool {
+	return &Tool{
+		kuiBinary: kuiBinary,
+		cwd:       cwd,
+		policy:    policy,
+		manager:   manager,
+	}
+}
+
+// Manager returns the background manager for external access.
+func (t *Tool) Manager() *BackgroundManager {
+	return t.manager
 }
 
 // Name returns the tool name.
@@ -70,7 +88,17 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (string, error
 		return "", fmt.Errorf("subagent_run: task is required")
 	}
 
-	// Build command args.
+	// Background mode: launch async and return immediately.
+	if input.Mode == "background" {
+		return t.executeBackground(input)
+	}
+
+	// Default: foreground mode.
+	return t.executeForeground(ctx, input)
+}
+
+// executeForeground runs the sub-agent synchronously.
+func (t *Tool) executeForeground(ctx context.Context, input RunRequest) (string, error) {
 	cmdArgs := []string{"--"}
 	if input.Context != "" {
 		cmdArgs = append(cmdArgs, input.Context+"\n\n"+input.Task)
@@ -81,7 +109,6 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (string, error
 	cmd := exec.CommandContext(ctx, t.kuiBinary, cmdArgs...)
 	cmd.Dir = t.cwd
 
-	// Capture output.
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -97,7 +124,6 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (string, error
 		}
 	}
 
-	// Format result.
 	var result strings.Builder
 	if stdout.Len() > 0 {
 		result.WriteString(stdout.String())
@@ -111,6 +137,44 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (string, error
 	}
 
 	return result.String(), nil
+}
+
+// executeBackground launches the sub-agent asynchronously.
+func (t *Tool) executeBackground(input RunRequest) (string, error) {
+	if !t.manager.CanLaunch() {
+		return "", fmt.Errorf("subagent_run: at capacity (%d/%d background tasks)",
+			t.manager.ActiveCount(), MaxConcurrentBackground)
+	}
+
+	// Generate task ID.
+	id := fmt.Sprintf("bg-%d", time.Now().UnixNano())
+
+	// Launch in background.
+	err := t.manager.Launch(id, input.Task, func(ctx context.Context) (string, error) {
+		cmdArgs := []string{"--"}
+		if input.Context != "" {
+			cmdArgs = append(cmdArgs, input.Context+"\n\n"+input.Task)
+		} else {
+			cmdArgs = append(cmdArgs, input.Task)
+		}
+
+		cmd := exec.CommandContext(ctx, t.kuiBinary, cmdArgs...)
+		cmd.Dir = t.cwd
+
+		var stdout strings.Builder
+		cmd.Stdout = &stdout
+
+		if err := cmd.Run(); err != nil {
+			return "", err
+		}
+		return stdout.String(), nil
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("subagent_run: %w", err)
+	}
+
+	return fmt.Sprintf("background task %s launched (task: %s)", id, truncateStr(input.Task, 50)), nil
 }
 
 // FindKuiBinary locates the kui binary. It checks:
@@ -142,4 +206,12 @@ func FindKuiBinary() string {
 	}
 
 	return "kui" // fallback — will fail if not in PATH
+}
+
+// truncateStr cuts a string to maxLen characters, appending "..." if truncated.
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
