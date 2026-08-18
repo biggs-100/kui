@@ -55,6 +55,11 @@ type Agent struct {
 	// before each provider request. Nil disables auto-compaction.
 	Compactor *Compactor
 
+	// Builder is an optional cache-aware request builder. When set, the loop
+	// reorders messages for optimal prompt caching after compaction.
+	// Nil disables cache-aware ordering.
+	Builder *CacheAwareRequestBuilder
+
 	// lastMessages holds the accumulated message sequence from the most recent
 	// Run call, accessible via Messages() for session persistence.
 	lastMessages []Message
@@ -105,6 +110,18 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			if compacted, err := a.Compactor.Compact(ctx, messages); err == nil {
 				messages = compacted
 			}
+		}
+
+		// Cache-aware request building: reorder messages for optimal prompt
+		// caching. Protected messages (system prompts, profile markers) go
+		// first, followed by compacted history, then the current turn.
+		// Nil builder disables reordering.
+		// NOTE: Compact() classifies internally but only returns []Message,
+		// so we re-classify here to feed BuildRequest's three-slice API.
+		if a.Builder != nil && len(messages) > 0 {
+			protected, compacted := ClassifyMessages(messages)
+			currentTurn := messages[len(messages)-1:]
+			messages = a.Builder.BuildRequest(protected, compacted, currentTurn)
 		}
 
 		// REQ-LOOP-8: detect StreamingProvider via type assertion. If the
@@ -176,7 +193,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 			// block tool execution via Block(). If blocked, skip execution
 			// and return a blocked-tool result to the provider.
 			var (
-				blocked    bool
+				blocked     bool
 				blockReason string
 			)
 			if a.Hooks.HasHooks("before_tool_execution") {
