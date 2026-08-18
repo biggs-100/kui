@@ -20,6 +20,7 @@ const profileFileName = "profile.yaml"
 type Config struct {
 	Name         string   `yaml:"name"`
 	Model        string   `yaml:"model"`
+	Provider     string   `yaml:"provider"`
 	SystemPrompt string   `yaml:"system_prompt"`
 	Tools        []string `yaml:"tools"`
 	Skills       []string `yaml:"skills"`
@@ -41,6 +42,7 @@ type Rule struct {
 type Profile struct {
 	Name         string
 	Model        string
+	Provider     string
 	SystemPrompt string // absolute path to the SYSTEM.md body
 	Tools        []string
 	Skills       []string
@@ -186,6 +188,9 @@ func resolve(name, profileDir, projectDir, globalDir string, config, project, gl
 		}
 		if p.Model == "" {
 			p.Model = layer.config.Model
+		}
+		if p.Provider == "" {
+			p.Provider = layer.config.Provider
 		}
 		if p.SystemPrompt == "" && layer.config.SystemPrompt != "" {
 			ref := layer.config.SystemPrompt

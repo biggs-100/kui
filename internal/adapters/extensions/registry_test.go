@@ -16,18 +16,28 @@ type mockExtension struct {
 	shutdownErr    error
 	initCalled     bool
 	shutdownCalled bool
+	initSeq        int // assigned during Init for ordering assertions
 }
+
+var seqCounter int // global sequence counter for ordering
 
 func (m *mockExtension) Name() string { return m.name }
 
 func (m *mockExtension) Init(_ core.ExtensionAPI) error {
 	m.initCalled = true
+	seqCounter++
+	m.initSeq = seqCounter
 	return m.initErr
 }
 
 func (m *mockExtension) Shutdown() error {
 	m.shutdownCalled = true
 	return m.shutdownErr
+}
+
+// initOrderBefore returns true if this extension was initialized before other.
+func (m *mockExtension) initOrderBefore(other *mockExtension) bool {
+	return m.initSeq > 0 && other.initSeq > 0 && m.initSeq < other.initSeq
 }
 
 // mockAPI is a no-op ExtensionAPI used by LoadAll in tests.
@@ -40,7 +50,9 @@ func (m *mockAPI) RegisterCommand(_ core.Command) error                 { return
 // reset clears all package-level state between tests.
 func reset() {
 	global = nil
+	dynamic = nil
 	loaded = nil
+	seqCounter = 0
 }
 
 // --- tests ---
@@ -263,6 +275,186 @@ func TestLoadAllEmptyRegistry(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// --- dynamic extension tests ---
+
+func TestRegisterDynamicAppends(t *testing.T) {
+	reset()
+	ext := &mockExtension{name: "dyn-alpha"}
+	RegisterDynamic(ext)
+
+	if len(dynamic) != 1 {
+		t.Fatalf("expected 1 registered dynamic extension, got %d", len(dynamic))
+	}
+	if dynamic[0] != ext {
+		t.Fatal("registered dynamic extension pointer does not match")
+	}
+}
+
+func TestRegisterDynamicMultiple(t *testing.T) {
+	reset()
+	a := &mockExtension{name: "dynA"}
+	b := &mockExtension{name: "dynB"}
+	RegisterDynamic(a)
+	RegisterDynamic(b)
+
+	if len(dynamic) != 2 {
+		t.Fatalf("expected 2 registered dynamic extensions, got %d", len(dynamic))
+	}
+	if dynamic[0] != a || dynamic[1] != b {
+		t.Fatal("dynamic extensions not in registration order")
+	}
+}
+
+func TestRegisterDynamicNilPanics(t *testing.T) {
+	reset()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for nil dynamic extension, did not panic")
+		}
+	}()
+	RegisterDynamic(nil)
+}
+
+func TestLoadAllProcessesGlobalThenDynamic(t *testing.T) {
+	reset()
+	g1 := &mockExtension{name: "global-1"}
+	g2 := &mockExtension{name: "global-2"}
+	d1 := &mockExtension{name: "dyn-1"}
+	d2 := &mockExtension{name: "dyn-2"}
+	Register(g1)
+	Register(g2)
+	RegisterDynamic(d1)
+	RegisterDynamic(d2)
+
+	api := &mockAPI{}
+	if err := LoadAll(api); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !g1.initCalled || !g2.initCalled || !d1.initCalled || !d2.initCalled {
+		t.Fatal("not all extensions (global + dynamic) were initialized")
+	}
+
+	// Verify ordering: global inits before dynamic inits.
+	if !g1.initOrderBefore(g2) {
+		t.Fatal("global-1 should init before global-2")
+	}
+	if !g2.initOrderBefore(d1) {
+		t.Fatal("global-2 should init before dyn-1")
+	}
+	if !d1.initOrderBefore(d2) {
+		t.Fatal("dyn-1 should init before dyn-2")
+	}
+}
+
+func TestLoadAllDynamicOnly(t *testing.T) {
+	reset()
+	d1 := &mockExtension{name: "dyn-only-1"}
+	d2 := &mockExtension{name: "dyn-only-2"}
+	RegisterDynamic(d1)
+	RegisterDynamic(d2)
+
+	api := &mockAPI{}
+	if err := LoadAll(api); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !d1.initCalled || !d2.initCalled {
+		t.Fatal("not all dynamic extensions were initialized")
+	}
+}
+
+func TestLoadAllRollbackOnDynamicFailure(t *testing.T) {
+	reset()
+	g1 := &mockExtension{name: "global-1"}
+	d1 := &mockExtension{name: "dyn-1"}
+	d2 := &mockExtension{name: "dyn-2", initErr: errors.New("dyn-2 init failed")}
+	d3 := &mockExtension{name: "dyn-3"}
+	Register(g1)
+	RegisterDynamic(d1)
+	RegisterDynamic(d2)
+	RegisterDynamic(d3)
+
+	api := &mockAPI{}
+	err := LoadAll(api)
+	if err == nil {
+		t.Fatal("expected error from LoadAll, got nil")
+	}
+	if err.Error() != "dyn-2 init failed" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// g1 and d1 were initialized before the failure — both should be shut down.
+	if !g1.initCalled {
+		t.Fatal("global-1.Init should have been called")
+	}
+	if !g1.shutdownCalled {
+		t.Fatal("global-1 should have been shut down during rollback")
+	}
+	if !d1.initCalled {
+		t.Fatal("dyn-1.Init should have been called")
+	}
+	if !d1.shutdownCalled {
+		t.Fatal("dyn-1 should have been shut down during rollback")
+	}
+
+	// d2 failed, should NOT be shut down.
+	if d2.shutdownCalled {
+		t.Fatal("dyn-2 should not be shut down (its Init failed)")
+	}
+	// d3 was never reached.
+	if d3.initCalled {
+		t.Fatal("dyn-3.Init should not have been called")
+	}
+}
+
+func TestShutdownAllProcessesDynamicInReverseOrder(t *testing.T) {
+	reset()
+	g1 := &mockExtension{name: "global-1"}
+	d1 := &mockExtension{name: "dyn-1"}
+	d2 := &mockExtension{name: "dyn-2"}
+	Register(g1)
+	RegisterDynamic(d1)
+	RegisterDynamic(d2)
+
+	api := &mockAPI{}
+	if err := LoadAll(api); err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+
+	if err := ShutdownAll(); err != nil {
+		t.Fatalf("ShutdownAll: %v", err)
+	}
+
+	// Shutdown order: dyn-2, dyn-1, global-1 (reverse of init order).
+	if !d2.shutdownCalled {
+		t.Fatal("dyn-2.Shutdown should have been called")
+	}
+	if !d1.shutdownCalled {
+		t.Fatal("dyn-1.Shutdown should have been called")
+	}
+	if !g1.shutdownCalled {
+		t.Fatal("global-1.Shutdown should have been called")
+	}
+}
+
+func TestLoadAllEmptyDynamicRegistry(t *testing.T) {
+	reset()
+	// Only global, no dynamic — should still work.
+	g1 := &mockExtension{name: "global-only"}
+	Register(g1)
+
+	api := &mockAPI{}
+	if err := LoadAll(api); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !g1.initCalled {
+		t.Fatal("global extension was not initialized")
+	}
+}
+
+// --- helpers ---
 
 // containsSubstring is a simple helper to avoid importing strings.
 func containsSubstring(s, sub string) bool {

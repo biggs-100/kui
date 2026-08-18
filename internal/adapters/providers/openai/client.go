@@ -64,6 +64,27 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
+// NewClientWithConfig creates a client from explicit configuration rather than
+// reading environment variables. It is used by provider adapters (e.g. opencode)
+// that resolve env vars externally and pass the values in.
+func NewClientWithConfig(apiKey, baseURL, model string) (*Client, error) {
+	if apiKey == "" {
+		return nil, errors.New("OPENAI_API_KEY is not set: export OPENAI_API_KEY before running kui")
+	}
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+	if model == "" {
+		model = defaultModel
+	}
+	return &Client{
+		apiKey:  apiKey,
+		baseURL: baseURL,
+		model:   model,
+		http:    &http.Client{Timeout: requestTimeout},
+	}, nil
+}
+
 // SetModel reconfigures the model used by subsequent requests (D17,
 // REQ-CLI-4). It is additive: construction behavior is unchanged, and every
 // later request carries the new model field so the provider is reconfigured
@@ -78,6 +99,12 @@ func (c *Client) SetModel(model string) {
 // low, medium, high — validation is done at the CLI layer before calling this.
 func (c *Client) SetThinking(level string) {
 	c.thinkingLevel = level
+}
+
+// SupportsThinking reports whether this provider supports reasoning effort
+// configuration. The OpenAI provider supports thinking (REQ-THINK-13).
+func (c *Client) SupportsThinking() bool {
+	return true
 }
 
 // thinkingEffort returns a pointer to the thinking level string for inclusion

@@ -17,7 +17,7 @@ import (
 	"github.com/biggs-100/kui/internal/adapters/extensions"
 	"github.com/biggs-100/kui/internal/adapters/permissions"
 	"github.com/biggs-100/kui/internal/adapters/profile"
-	"github.com/biggs-100/kui/internal/adapters/providers/openai"
+	"github.com/biggs-100/kui/internal/adapters/providers"
 	"github.com/biggs-100/kui/internal/adapters/skills"
 	"github.com/biggs-100/kui/internal/adapters/store"
 	"github.com/biggs-100/kui/internal/adapters/tools"
@@ -54,6 +54,7 @@ Subcommands:
   kui profile model <name> <model> set and persist a per-profile model
 
 Flags:
+  --provider, -p <provider>        select provider: openai (default), opencode
   --model, -m <model>              override the resolved model (highest priority)
   --tools <list>                   comma-separated tool names to include
   --exclude-tools <list>           comma-separated tool names to exclude
@@ -64,15 +65,18 @@ Flags:
   --verbose                        enable debug output to stderr
   --mode <text|json>               output format (default: text)
   --approve, -a                    bypass all permission checks
-  --print, -p                      alias for non-interactive one-shot
+  --print                          write the answer to stdout regardless of mode
   --thinking <off|low|medium|high>  reasoning effort level (default: off)
 
 Use "kui -- PROMPT..." to run a prompt that starts with "profile" or a dash.
 
 Environment:
-  OPENAI_API_KEY   required; API key for the chat-completions endpoint
+  OPENAI_API_KEY   required; API key for the OpenAI chat-completions endpoint
   OPENAI_BASE_URL  optional; defaults to https://api.openai.com/v1
   OPENAI_MODEL     optional; defaults to gpt-4o-mini
+  OPENCODE_API_KEY required for --provider opencode; API key for OpenCode
+  OPENCODE_BASE_URL optional; defaults to https://opencode.ai/zen/go/v1
+  KUI_PROVIDER     optional; default provider when --provider not specified
   KUI_HOME         optional; config directory override (defaults to the
                    platform user config directory)
 `
@@ -377,15 +381,30 @@ func runPrompt(root string, opts Options, args []string) int {
 		fmt.Fprintf(os.Stderr, "kui: WARNING: --approve bypasses all permission checks\n")
 	}
 
-	client, err := openai.NewClient()
+	cfgRoot := configRoot()
+	st := store.New(cfgRoot)
+	loader := profile.NewLoader(filepath.Join(cfgRoot, "profiles"), root, cfgRoot)
+
+	// Resolve provider: flag → profile → env → default "openai" (REQ-SEL-2).
+	activeName, err := st.Active()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
+		return 1
+	}
+	profileProvider := ""
+	if resolved, err := loader.Resolve(activeName); err == nil {
+		profileProvider = resolved.Provider
+	}
+	providerName := resolveProvider(opts.Provider, profileProvider)
+
+	client, err := createProvider(providerName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
 		return 1
 	}
 
-	cfgRoot := configRoot()
-	st := store.New(cfgRoot)
-	loader := profile.NewLoader(filepath.Join(cfgRoot, "profiles"), root, cfgRoot)
+	// Thinking degradation: warn if thinking is configured but provider doesn't support it (REQ-THINK-13).
+	providers.WarnThinkingDegradation(providerName, client, resolveThinkingLevel(opts.Thinking, loader, activeName), os.Stderr)
 
 	full := core.NewRegistry()
 	for _, tool := range tools.Default(root, 0) {
@@ -436,12 +455,6 @@ func runPrompt(root string, opts Options, args []string) int {
 		manager.SetRuleset(permissions.NewPermissive())
 	}
 
-	activeName, err := st.Active()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
-		return 1
-	}
-
 	profileDir := ""
 	var skillsURLs []string
 	if activeName != "" {
@@ -471,9 +484,11 @@ func runPrompt(root string, opts Options, args []string) int {
 	resolvedModel := resolveWithOverride(opts.Model, st, loader, activeName)
 
 	if activeName != "" {
-		client.SetModel(resolvedModel)
+		if sm, ok := client.(interface{ SetModel(string) }); ok {
+			sm.SetModel(resolvedModel)
+		}
 		if opts.Verbose {
-			log.Printf("kui: model=%s profile=%s\n", resolvedModel, activeName)
+			log.Printf("kui: model=%s profile=%s provider=%s\n", resolvedModel, activeName, providerName)
 		}
 
 		// D18 session-start activation: apply the switch up front so the tool
@@ -495,12 +510,16 @@ func runPrompt(root string, opts Options, args []string) int {
 
 	// When no profile is active, the --model flag still applies (REQ-CLI-11).
 	if activeName == "" {
-		client.SetModel(resolveWithOverride(opts.Model, st, loader, ""))
+		if sm, ok := client.(interface{ SetModel(string) }); ok {
+			sm.SetModel(resolveWithOverride(opts.Model, st, loader, ""))
+		}
 	}
 
 	// Resolve thinking level: flag > profile > "off" (D1-D3).
 	thinkingLevel := resolveThinkingLevel(opts.Thinking, loader, activeName)
-	client.SetThinking(thinkingLevel)
+	if st, ok := client.(interface{ SetThinking(string) }); ok {
+		st.SetThinking(thinkingLevel)
+	}
 	if opts.Verbose {
 		log.Printf("kui: thinking=%s\n", thinkingLevel)
 	}
@@ -584,17 +603,41 @@ func resolveModel(st *store.Store, loader *profile.Loader, name string) string {
 	return defaultModel
 }
 
+// resolveProvider applies the layered resolution chain for provider selection:
+// --provider flag (highest priority) → profile.yaml provider → KUI_PROVIDER
+// env → default "openai" (REQ-SEL-2).
+func resolveProvider(flagProvider, profileProvider string) string {
+	return providers.ResolveProvider(flagProvider, profileProvider)
+}
+
+// createProvider uses the registry to construct a provider from the resolved
+// name and environment variables (REQ-SEL-3 fail-fast API key validation).
+func createProvider(name string) (core.Provider, error) {
+	return providers.CreateProvider(providers.NewDefaultRegistry(), name)
+}
+
 // runTUI starts the interactive TUI (REQ-CLI-5). It validates the provider
 // before starting — if startup fails, it prints an actionable error to
 // stderr and exits non-zero without rendering the TUI (REQ-TUI-APP-1).
 func runTUI(root string, opts Options) int {
 	cfgRoot := configRoot()
+	st := store.New(cfgRoot)
+	loader := profile.NewLoader(filepath.Join(cfgRoot, "profiles"), root, cfgRoot)
+
+	// Resolve provider: flag → profile → env → default "openai" (REQ-SEL-2).
+	activeName, _ := st.Active()
+	profileProvider := ""
+	if resolved, err := loader.Resolve(activeName); err == nil {
+		profileProvider = resolved.Provider
+	}
+	providerName := resolveProvider(opts.Provider, profileProvider)
+
 	wiring := tui.Wiring{
 		ProfileRoot: filepath.Join(cfgRoot, "profiles"),
 		ProjectDir:  root,
 		ConfigRoot:  cfgRoot,
 		Client: func() (core.Provider, error) {
-			return openai.NewClient()
+			return createProvider(providerName)
 		},
 		MaxIter: maxIterations,
 	}

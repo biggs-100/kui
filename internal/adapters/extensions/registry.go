@@ -14,6 +14,10 @@ import (
 // The order reflects the Go import graph — deterministic per binary build.
 var global []core.Extension
 
+// dynamic holds extensions registered at runtime from discovered extension
+// manifests (Phase 4). They are initialized after all global extensions.
+var dynamic []core.Extension
+
 // loaded holds extensions that have been successfully initialized by LoadAll.
 // ShutdownAll processes this slice in reverse order (REQ-DISCOVERY-4).
 var loaded []core.Extension
@@ -27,22 +31,37 @@ func Register(ext core.Extension) {
 	global = append(global, ext)
 }
 
-// LoadAll initializes every registered extension in registration order by
-// calling Init(api) on each (REQ-DISCOVERY-3). If any Init returns an error,
-// LoadAll stops, calls Shutdown on all previously-initialized extensions in
-// reverse order (rollback), and returns the error.
+// RegisterDynamic appends ext to the dynamic registry. Dynamic extensions are
+// initialized after all global extensions during LoadAll. Calling
+// RegisterDynamic with a nil extension panics to fail fast.
+func RegisterDynamic(ext core.Extension) {
+	if ext == nil {
+		panic("extensions: RegisterDynamic called with nil extension")
+	}
+	dynamic = append(dynamic, ext)
+}
+
+// LoadAll initializes every registered extension in registration order —
+// global extensions first, then dynamic extensions — by calling Init(api) on
+// each (REQ-DISCOVERY-3). If any Init returns an error, LoadAll stops, calls
+// Shutdown on all previously-initialized extensions in reverse order (rollback),
+// and returns the error.
 func LoadAll(api core.ExtensionAPI) error {
-	for i, ext := range global {
+	all := make([]core.Extension, 0, len(global)+len(dynamic))
+	all = append(all, global...)
+	all = append(all, dynamic...)
+
+	for i, ext := range all {
 		if err := ext.Init(api); err != nil {
 			// Rollback: shutdown previously-initialized extensions reverse-order.
 			for j := i - 1; j >= 0; j-- {
-				_ = global[j].Shutdown()
+				_ = all[j].Shutdown()
 			}
 			return err
 		}
 	}
-	loaded = make([]core.Extension, len(global))
-	copy(loaded, global)
+	loaded = make([]core.Extension, len(all))
+	copy(loaded, all)
 	return nil
 }
 

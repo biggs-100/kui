@@ -20,6 +20,7 @@ import (
 	"github.com/biggs-100/kui/internal/adapters/tools"
 	"github.com/biggs-100/kui/internal/agent"
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/extensions/dynamic"
 	"github.com/biggs-100/kui/internal/mcp"
 )
 
@@ -41,6 +42,8 @@ type Config struct {
 	Client func() (core.Provider, error)
 	// MaxIter is the loop iteration budget. Zero defaults to 10.
 	MaxIter int
+	// ProviderName is the resolved provider name for logging and capability checks.
+	ProviderName string
 }
 
 // Runtime is a fully assembled runtime snapshot (D1). Reload re-uses the same
@@ -56,6 +59,7 @@ type Runtime struct {
 	Full     *core.Registry
 	MCP      *mcp.MCPManager
 	Hooks    *core.HookRegistry
+	Dynamic  *dynamic.Manager
 	Profiles []string
 
 	cfg Config // retained so Reload can re-run the build from disk
@@ -121,8 +125,8 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 
-	// Step 5: registry (builtin tools + MCP tools) + hooks + extension LoadAll.
-	full, mgr, hooks, err := buildComponents(ctx, cfg)
+	// Step 5: registry (builtin tools + MCP tools) + hooks + dynamic extensions + extension LoadAll.
+	full, mgr, hooks, dynMgr, err := buildComponents(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +146,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		Full:     full,
 		MCP:      mgr,
 		Hooks:    hooks,
+		Dynamic:  dynMgr,
 		Profiles: names,
 		cfg:      cfg,
 	}
@@ -153,6 +158,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	activeName, err := st.Active()
 	if err != nil {
 		_ = extensions.ShutdownAll()
+		if dynMgr != nil {
+			_ = dynMgr.ShutdownAll()
+		}
 		if mgr != nil {
 			mgr.Shutdown()
 		}
@@ -161,6 +169,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if activeName != "" {
 		if _, err := manager.ApplySwitch(ctx, activeName); err != nil {
 			_ = extensions.ShutdownAll()
+			if dynMgr != nil {
+				_ = dynMgr.ShutdownAll()
+			}
 			if mgr != nil {
 				mgr.Shutdown()
 			}
@@ -197,15 +208,16 @@ func buildSkillsIndex(cfg Config, loader *profile.Loader, st *store.Store) (*ski
 }
 
 // buildComponents builds a fresh full tool registry (builtin + MCP tools),
-// connects the MCP manager (when configured), creates the hook registry, and
-// runs extensions.LoadAll against the concrete ExtensionAPI so compiled-in
-// extensions become active (REQ-RELOAD-16/17). A LoadAll error fails the
-// build; any MCP manager created is shut down before returning.
-func buildComponents(ctx context.Context, cfg Config) (*core.Registry, *mcp.MCPManager, *core.HookRegistry, error) {
+// connects the MCP manager (when configured), creates the hook registry,
+// loads dynamic extensions from extensions.yaml, and runs extensions.LoadAll
+// against the concrete ExtensionAPI so compiled-in extensions become active
+// (REQ-RELOAD-16/17). A LoadAll error fails the build; any MCP manager
+// created is shut down before returning.
+func buildComponents(ctx context.Context, cfg Config) (*core.Registry, *mcp.MCPManager, *core.HookRegistry, *dynamic.Manager, error) {
 	full := core.NewRegistry()
 	for _, tool := range tools.Default(cfg.ProjectDir, 0) {
 		if err := full.Register(tool); err != nil {
-			return nil, nil, nil, fmt.Errorf("register tool: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("register tool: %w", err)
 		}
 	}
 
@@ -227,14 +239,30 @@ func buildComponents(ctx context.Context, cfg Config) (*core.Registry, *mcp.MCPM
 		}
 	}
 
-	hooks := core.NewHookRegistry()
-	if err := extensions.LoadAll(&extAPI{registry: full, hooks: hooks}); err != nil {
+	// Dynamic extension discovery: load extensions.yaml from global and
+	// project config roots, create a manager, and let it discover + load
+	// extensions from configured paths. Dynamic extensions register their
+	// tools through the same ExtensionAPI used by compiled-in extensions.
+	api := &extAPI{registry: full, hooks: core.NewHookRegistry()}
+	dynMgr, err := loadDynamicExtensions(ctx, cfg, api)
+	if err != nil {
 		if mgr != nil {
 			mgr.Shutdown()
 		}
-		return nil, nil, nil, fmt.Errorf("load extensions: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("load dynamic extensions: %w", err)
 	}
-	return full, mgr, hooks, nil
+
+	// Compiled-in extensions via init() self-registration (REQ-DISCOVERY-1).
+	if err := extensions.LoadAll(api); err != nil {
+		if mgr != nil {
+			mgr.Shutdown()
+		}
+		if dynMgr != nil {
+			_ = dynMgr.ShutdownAll()
+		}
+		return nil, nil, nil, nil, fmt.Errorf("load extensions: %w", err)
+	}
+	return full, mgr, api.hooks, dynMgr, nil
 }
 
 // ReloadResult carries the outcome of a Reload call (REQ-RELOAD-3).
@@ -260,6 +288,9 @@ func (r *Runtime) Reload(ctx context.Context) ReloadResult {
 
 	// Teardown (D3 steps 1-3).
 	_ = extensions.ShutdownAll()
+	if r.Dynamic != nil {
+		_ = r.Dynamic.ShutdownAll()
+	}
 	if r.MCP != nil {
 		r.MCP.Shutdown()
 	}
@@ -293,7 +324,7 @@ func (r *Runtime) Reload(ctx context.Context) ReloadResult {
 	}
 
 	// D3 step 7: rebuild full registry (builtin + MCP + extensions).
-	full, mgr, hooks, err := buildComponents(ctx, r.cfg)
+	full, mgr, hooks, dynMgr, err := buildComponents(ctx, r.cfg)
 	if err != nil {
 		r.Provider = oldProvider
 		return ReloadResult{Err: fmt.Errorf("rebuild components: %w", err)}
@@ -306,6 +337,7 @@ func (r *Runtime) Reload(ctx context.Context) ReloadResult {
 	r.Full = full
 	r.MCP = mgr
 	r.Hooks = hooks
+	r.Dynamic = dynMgr
 	r.Agent.SetProvider(provider)
 	r.Agent.SetSkills(skillsIndex)
 	r.Agent.SetHooks(hooks)
@@ -324,7 +356,8 @@ func (r *Runtime) Reload(ctx context.Context) ReloadResult {
 	}
 }
 
-// Close tears down MCP and extensions (REQ-RELOAD-5). It is idempotent.
+// Close tears down MCP, dynamic extensions, and compiled-in extensions
+// (REQ-RELOAD-5). It is idempotent.
 func (r *Runtime) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -336,6 +369,9 @@ func (r *Runtime) Close() error {
 
 	if r.MCP != nil {
 		r.MCP.Shutdown()
+	}
+	if r.Dynamic != nil {
+		_ = r.Dynamic.ShutdownAll()
 	}
 	return extensions.ShutdownAll()
 }
@@ -350,4 +386,30 @@ func seedSteering(ag *agent.Agent) {
 	if sys := ag.SystemMessages(); len(sys) > 0 {
 		ag.Steering().Enqueue(core.PendingMessage{Content: sys[0].Content})
 	}
+}
+
+// loadDynamicExtensions reads extensions.yaml from global and project config
+// roots, creates a dynamic.Manager, and calls LoadAll to discover and load
+// extensions from configured paths. Returns the manager for lifecycle
+// management (shutdown/reload). When no extensions.yaml exists or no paths
+// are configured, returns a nil manager and no error.
+func loadDynamicExtensions(ctx context.Context, cfg Config, api core.ExtensionAPI) (*dynamic.Manager, error) {
+	globalPath := filepath.Join(cfg.ConfigRoot, "extensions.yaml")
+	projectPath := filepath.Join(cfg.ProjectDir, ".kui", "extensions.yaml")
+
+	dynCfg, err := dynamic.LoadConfigs(globalPath, projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("load dynamic extensions config: %w", err)
+	}
+
+	// No paths configured — nothing to do.
+	if len(dynCfg.Paths) == 0 {
+		return nil, nil
+	}
+
+	mgr := dynamic.NewManager(dynCfg)
+	if err := mgr.LoadAll(ctx, api); err != nil {
+		return nil, fmt.Errorf("dynamic manager load: %w", err)
+	}
+	return mgr, nil
 }
