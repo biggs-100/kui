@@ -34,21 +34,21 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: FileSessionStore Adapter
 
-- [ ] 2.1 RED: Write `internal/adapters/store/session_test.go` — `TestSaveCreatesFile`: save session, assert `.kui/sessions/{id}.json` exists
-- [ ] 2.2 GREEN: Create `internal/adapters/store/session.go` — `FileSessionStore` struct, `NewSessionStore(root)`, `Save()` with atomic write (temp + rename)
-- [ ] 2.3 RED: `TestSaveUpdatesIndex`: save session, assert `index.json` contains metadata entry
-- [ ] 2.4 GREEN: Implement `updateIndex()` helper — read/merge/write `index.json`
-- [ ] 2.5 RED: `TestLoadReturnsFullSession`: save then load, assert messages and metadata match
-- [ ] 2.6 GREEN: Implement `Load(id)` — read JSON, unmarshal to `Session`
-- [ ] 2.7 RED: `TestListReturnsMetadata`: save 3 sessions, `List()` returns 3 `SessionMeta` entries sorted by `created_at` desc
-- [ ] 2.8 GREEN: Implement `List()` — read index file, return metadata slice
-- [ ] 2.9 RED: `TestDeleteRemovesFileAndIndex`: save then delete, assert file and index entry gone
-- [ ] 2.10 GREEN: Implement `Delete(id)` — remove file, update index
-- [ ] 2.11 RED: `TestIndexRebuiltOnDrift`: delete index file, call `List()`, assert index rebuilt from session files
-- [ ] 2.12 GREEN: Add index rebuild logic in `List()` when index is missing/corrupted
-- [ ] 2.13 RED: `TestHumanFriendlyID`: call `GenerateSessionID("coder")`, assert format `coder-YYYY-MM-DD-HHMM`
-- [ ] 2.14 GREEN: Implement `GenerateSessionID(profile)` — timestamp-based with 4-char hex suffix for collisions
-- [ ] 2.15 REFACTOR: Verify `go vet ./internal/adapters/store/...` and `go test ./internal/adapters/store/...` pass
+- [x] 2.1 RED: Write `internal/adapters/store/session_test.go` — `TestSaveCreatesFile`: save session, assert `.kui/sessions/{id}.json` exists
+- [x] 2.2 GREEN: Create `internal/adapters/store/session.go` — `FileSessionStore` struct, `NewSessionStore(root)`, `Save()` with atomic write (temp + rename)
+- [x] 2.3 RED: `TestSaveUpdatesIndex`: save session, assert `index.json` contains metadata entry
+- [x] 2.4 GREEN: Implement `updateIndex()` helper — read/merge/write `index.json`
+- [x] 2.5 RED: `TestLoadReturnsFullSession`: save then load, assert messages and metadata match
+- [x] 2.6 GREEN: Implement `Load(id)` — read JSON, unmarshal to `Session`
+- [x] 2.7 RED: `TestListReturnsMetadata`: save 3 sessions, `List()` returns 3 `SessionMeta` entries sorted by `created_at` desc
+- [x] 2.8 GREEN: Implement `List()` — read index file, return metadata slice
+- [x] 2.9 RED: `TestDeleteRemovesFileAndIndex`: save then delete, assert file and index entry gone
+- [x] 2.10 GREEN: Implement `Delete(id)` — remove file, update index
+- [x] 2.11 RED: `TestIndexRebuiltOnDrift`: delete index file, call `List()`, assert index rebuilt from session files
+- [x] 2.12 GREEN: Add index rebuild logic in `List()` when index is missing/corrupted
+- [x] 2.13 RED: `TestHumanFriendlyID`: call `GenerateSessionID("coder")`, assert format `coder-YYYY-MM-DD-HHMM`
+- [x] 2.14 GREEN: Implement `GenerateSessionID(profile)` — timestamp-based with 4-char hex suffix for collisions
+- [x] 2.15 REFACTOR: Verify `go vet ./internal/adapters/store/...` and `go test ./internal/adapters/store/...` pass
 
 ## Phase 3: Agent History Integration
 
