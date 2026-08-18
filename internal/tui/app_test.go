@@ -15,8 +15,8 @@ type fakeAppRunner struct {
 	response string
 }
 
-func (r *fakeAppRunner) Run(_ context.Context, prompt string) (string, error) {
-	return r.response, nil
+func (r *fakeAppRunner) Run(_ context.Context, prompt string, _ []core.Message) (string, []core.Message, error) {
+	return r.response, nil, nil
 }
 
 func (r *fakeAppRunner) Steering() core.PendingQueue {

@@ -135,7 +135,7 @@ func TestRunWiresSteeringAndReturnsAnswer(t *testing.T) {
 	agent := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
 	agent.Steering().Enqueue(core.PendingMessage{Content: "steering note"})
 
-	answer, err := agent.Run(context.Background(), "hello")
+	answer, _, err := agent.Run(context.Background(), "hello", nil)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestRunEmptySteeringReturnsSingleAnswer(t *testing.T) {
 	index := newTestSkills(t, map[string]string{})
 	agent := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
 
-	answer, err := agent.Run(context.Background(), "hello")
+	answer, _, err := agent.Run(context.Background(), "hello", nil)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestSetProviderReplacesProvider(t *testing.T) {
 	if got := agent.Provider(); got != second {
 		t.Fatalf("Provider() = %T, want the new provider", got)
 	}
-	answer, err := agent.Run(context.Background(), "hello")
+	answer, _, err := agent.Run(context.Background(), "hello", nil)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestSetHooksReplacesRegistry(t *testing.T) {
 	})
 	agent.SetHooks(newHooks)
 
-	if _, err := agent.Run(context.Background(), "hello"); err != nil {
+	if _, _, err := agent.Run(context.Background(), "hello", nil); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if !fired {
@@ -276,7 +276,7 @@ func TestSetHooksNilIsSafe(t *testing.T) {
 	agent := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
 
 	agent.SetHooks(nil)
-	answer, err := agent.Run(context.Background(), "hello")
+	answer, _, err := agent.Run(context.Background(), "hello", nil)
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -285,5 +285,101 @@ func TestSetHooksNilIsSafe(t *testing.T) {
 	}
 	if len(provider.calls) != 1 {
 		t.Errorf("provider received %d calls, want 1", len(provider.calls))
+	}
+}
+
+// --- Session Persistence (Phase 3: History Integration) ---
+
+func TestRunAcceptsHistory(t *testing.T) {
+	// Task 3.1 RED: Verify that []core.Message history is prepended to the
+	// provider call. The provider should see history messages before the
+	// current user prompt.
+	provider := &fakeProvider{responses: [][]core.Message{
+		{{Role: core.RoleAssistant, Content: "response"}},
+	}}
+	index := newTestSkills(t, map[string]string{})
+	ag := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
+
+	history := []core.Message{
+		{Role: core.RoleUser, Content: "old question"},
+		{Role: core.RoleAssistant, Content: "old answer"},
+	}
+
+	_, _, err := ag.Run(context.Background(), "new question", history)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	// The provider should have received 1 call with history prepended.
+	if len(provider.calls) != 1 {
+		t.Fatalf("provider received %d calls, want 1", len(provider.calls))
+	}
+
+	call := provider.calls[0]
+	// Expected: history[0], history[1], new user prompt
+	if len(call) != 3 {
+		t.Fatalf("provider received %d messages, want 3 (2 history + 1 prompt)", len(call))
+	}
+	if call[0].Role != core.RoleUser || call[0].Content != "old question" {
+		t.Errorf("call[0] = %+v, want RoleUser 'old question'", call[0])
+	}
+	if call[1].Role != core.RoleAssistant || call[1].Content != "old answer" {
+		t.Errorf("call[1] = %+v, want RoleAssistant 'old answer'", call[1])
+	}
+	if call[2].Role != core.RoleUser || call[2].Content != "new question" {
+		t.Errorf("call[2] = %+v, want RoleUser 'new question'", call[2])
+	}
+}
+
+func TestRunReturnsFinalMessages(t *testing.T) {
+	// Task 3.3 RED: Verify that Run returns the accumulated messages slice
+	// including user prompt, assistant response, and tool results.
+	provider := &fakeProvider{responses: [][]core.Message{
+		{{Role: core.RoleAssistant, Content: "done"}},
+	}}
+	index := newTestSkills(t, map[string]string{})
+	ag := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
+
+	answer, messages, err := ag.Run(context.Background(), "hello", nil)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "done" {
+		t.Errorf("Run() answer = %q, want %q", answer, "done")
+	}
+
+	// Messages should include: user prompt + assistant response
+	if len(messages) != 2 {
+		t.Fatalf("Run() returned %d messages, want 2 (user + assistant)", len(messages))
+	}
+	if messages[0].Role != core.RoleUser || messages[0].Content != "hello" {
+		t.Errorf("messages[0] = %+v, want RoleUser 'hello'", messages[0])
+	}
+	if messages[1].Role != core.RoleAssistant || messages[1].Content != "done" {
+		t.Errorf("messages[1] = %+v, want RoleAssistant 'done'", messages[1])
+	}
+}
+
+func TestRunEmptyHistoryNoPrepend(t *testing.T) {
+	// Task 3.2: nil history should produce identical behavior to old Run.
+	provider := &fakeProvider{responses: [][]core.Message{
+		{{Role: core.RoleAssistant, Content: "ok"}},
+	}}
+	index := newTestSkills(t, map[string]string{})
+	ag := NewAgent(newTestManager(t, "name: coder\n", "", "bash"), index, provider, 4)
+
+	answer, _, err := ag.Run(context.Background(), "hello", nil)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if answer != "ok" {
+		t.Errorf("Run() = %q, want %q", answer, "ok")
+	}
+	// Provider should see only the user prompt (no history prepended).
+	if len(provider.calls) != 1 {
+		t.Fatalf("provider received %d calls, want 1", len(provider.calls))
+	}
+	if len(provider.calls[0]) != 1 {
+		t.Errorf("provider received %d messages, want 1 (no history)", len(provider.calls[0]))
 	}
 }

@@ -16,7 +16,7 @@ import (
 // Provider exposes the underlying core.Provider so the controller can detect
 // StreamingProvider via type assertion for real-time token streaming (D7, D8).
 type Runner interface {
-	Run(ctx context.Context, prompt string) (string, error)
+	Run(ctx context.Context, prompt string, history []core.Message) (string, []core.Message, error)
 	Steering() core.PendingQueue
 	Provider() core.Provider
 }
@@ -168,7 +168,7 @@ func (c *Controller) SubmitPrompt(text string) {
 	// Fallback: synchronous run via agent.Run.
 	go func() {
 		defer c.finishRun(done)
-		_, err := runner.Run(ctx, text)
+		_, _, err := runner.Run(ctx, text, nil)
 		if err != nil {
 			if ctx.Err() != nil {
 				return // REQ-RELOAD-8: suppress cancel error display

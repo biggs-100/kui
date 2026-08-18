@@ -54,8 +54,8 @@ type agentRunner struct {
 	agent *agent.Agent
 }
 
-func (r *agentRunner) Run(ctx context.Context, prompt string) (string, error) {
-	return r.agent.Run(ctx, prompt)
+func (r *agentRunner) Run(ctx context.Context, prompt string, history []core.Message) (string, []core.Message, error) {
+	return r.agent.Run(ctx, prompt, history)
 }
 
 func (r *agentRunner) Steering() core.PendingQueue {

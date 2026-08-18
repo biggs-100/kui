@@ -19,8 +19,10 @@ type fakeRunner struct {
 	steering core.PendingQueue
 }
 
-func (r *fakeRunner) Run(ctx context.Context, prompt string) (string, error) {
-	return r.agent.Run(ctx, prompt)
+func (r *fakeRunner) Run(ctx context.Context, prompt string, history []core.Message) (string, []core.Message, error) {
+	r.agent.History = history
+	answer, err := r.agent.Run(ctx, prompt)
+	return answer, r.agent.Messages(), err
 }
 
 func (r *fakeRunner) Steering() core.PendingQueue {
@@ -433,8 +435,8 @@ type streamingRunner struct {
 	steering core.PendingQueue
 }
 
-func (r *streamingRunner) Run(_ context.Context, _ string) (string, error) {
-	return "", fmt.Errorf("Run should not be called when streaming")
+func (r *streamingRunner) Run(_ context.Context, _ string, _ []core.Message) (string, []core.Message, error) {
+	return "", nil, fmt.Errorf("Run should not be called when streaming")
 }
 
 func (r *streamingRunner) Steering() core.PendingQueue {

@@ -524,7 +524,7 @@ func runPrompt(root string, opts Options, args []string) int {
 		log.Printf("kui: thinking=%s\n", thinkingLevel)
 	}
 
-	answer, err := ag.Run(ctx, strings.Join(args, " "))
+	answer, _, err := ag.Run(ctx, strings.Join(args, " "), nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
 		return 1

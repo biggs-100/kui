@@ -43,6 +43,16 @@ type Agent struct {
 	// When non-nil, hooks fire at defined lifecycle points with mutable context.
 	// When nil, all hook checks are skipped at zero cost (D7).
 	Hooks *HookRegistry
+
+	// History is an optional message history prepended before the user prompt
+	// when Run executes. This enables session resume: prior conversation turns
+	// are injected so the provider has full context. Nil or empty means no
+	// history is prepended (the default single-prompt behavior).
+	History []Message
+
+	// lastMessages holds the accumulated message sequence from the most recent
+	// Run call, accessible via Messages() for session persistence.
+	lastMessages []Message
 }
 
 // Run executes one single-session loop from the user prompt to a final
@@ -58,7 +68,9 @@ type Agent struct {
 // changing the termination contract, and follow-up continuations still count
 // against MaxIterations (REQ-QUEUE-1..3).
 func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
-	messages := []Message{{Role: RoleUser, Content: prompt}}
+	messages := make([]Message, 0, len(a.History)+1)
+	messages = append(messages, a.History...)
+	messages = append(messages, Message{Role: RoleUser, Content: prompt})
 
 	for range a.MaxIterations {
 		emitTurnStart(a.Observer)
@@ -126,6 +138,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 				}
 			}
 			emitTurnEnd(a.Observer)
+			a.lastMessages = messages
 			return lastContent(response), nil
 		}
 
@@ -211,7 +224,16 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 		emitTurnEnd(a.Observer)
 	}
 
+	a.lastMessages = messages
 	return "", &IterationLimitError{Max: a.MaxIterations}
+}
+
+// Messages returns the accumulated message sequence from the most recent Run
+// call. This enables session persistence: the caller can capture the full
+// conversation history (including history, prompt, responses, and tool calls)
+// for storage. Returns nil if Run has not been called yet.
+func (a *Agent) Messages() []Message {
+	return a.lastMessages
 }
 
 // applySteering folds the drained steering messages into the conversation

@@ -42,12 +42,14 @@ func NewAgent(manager *Manager, skillsIndex *skills.Index, provider core.Provide
 
 // Run executes one session through the core loop, wiring the manager's active
 // registry and ruleset and the agent's queues as the steering and follow-up
-// ports (D14, D19). It returns the provider's final answer.
+// ports (D14, D19). History is prepended before the user prompt to enable
+// session resume. It returns the provider's final answer and the accumulated
+// message sequence for session persistence.
 //
 // Permissions is wired only when the manager holds a ruleset: assigning a nil
 // *Ruleset to the interface field would defeat the loop's nil-safe port
 // contract (a typed nil inside an interface is non-nil).
-func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
+func (a *Agent) Run(ctx context.Context, prompt string, history []core.Message) (string, []core.Message, error) {
 	loop := &core.Agent{
 		Provider:      a.provider,
 		Tools:         a.manager.Registry(),
@@ -56,11 +58,13 @@ func (a *Agent) Run(ctx context.Context, prompt string) (string, error) {
 		FollowUp:      a.followUp,
 		Profiles:      a.manager,
 		Hooks:         a.hooks,
+		History:       history,
 	}
 	if ruleset := a.manager.Ruleset(); ruleset != nil {
 		loop.Permissions = ruleset
 	}
-	return loop.Run(ctx, prompt)
+	answer, err := loop.Run(ctx, prompt)
+	return answer, loop.Messages(), err
 }
 
 // SystemMessages seeds the session with the available skills from the index —

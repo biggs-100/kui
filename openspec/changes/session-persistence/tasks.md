@@ -52,14 +52,14 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Agent History Integration
 
-- [ ] 3.1 RED: Write `internal/agent/agent_test.go` — `TestRunAcceptsHistory`: mock provider, verify `[]core.Message` history is prepended to provider call
-- [ ] 3.2 GREEN: Change `agent.Agent.Run()` signature to `Run(ctx, prompt, history []core.Message) (string, []core.Message, error)` — prepend history to messages, return final `[]core.Message`
-- [ ] 3.3 RED: `TestRunReturnsFinalMessages`: mock provider with tool call, assert returned messages include user prompt, assistant response, tool result
-- [ ] 3.4 GREEN: Ensure `Run()` returns accumulated `messages` slice (not just last content)
-- [ ] 3.5 Update `internal/tui/run.go` `agentRunner.Run()` to match new signature — pass empty history, discard returned messages
-- [ ] 3.6 Update `internal/tui/controller.go` `Runner` interface: `Run(ctx, prompt string) (string, error)` → `Run(ctx, prompt string, history []core.Message) (string, []core.Message, error)`
-- [ ] 3.7 Update `SubmitPrompt()` to pass session history to runner, capture returned messages
-- [ ] 3.8 REFACTOR: Verify `go vet ./...` and `go test ./internal/core/... ./internal/agent/... ./internal/tui/...` pass
+- [x] 3.1 RED: Write `internal/agent/agent_test.go` — `TestRunAcceptsHistory`: mock provider, verify `[]core.Message` history is prepended to provider call
+- [x] 3.2 GREEN: Change `agent.Agent.Run()` signature to `Run(ctx, prompt, history []core.Message) (string, []core.Message, error)` — prepend history to messages, return final `[]core.Message`
+- [x] 3.3 RED: `TestRunReturnsFinalMessages`: mock provider with tool call, assert returned messages include user prompt, assistant response, tool result
+- [x] 3.4 GREEN: Ensure `Run()` returns accumulated `messages` slice (not just last content)
+- [x] 3.5 Update `internal/tui/run.go` `agentRunner.Run()` to match new signature — pass empty history, discard returned messages
+- [x] 3.6 Update `internal/tui/controller.go` `Runner` interface: `Run(ctx, prompt string) (string, error)` → `Run(ctx, prompt string, history []core.Message) (string, []core.Message, error)`
+- [x] 3.7 Update `SubmitPrompt()` to pass session history to runner, capture returned messages
+- [x] 3.8 REFACTOR: Verify `go vet ./...` and `go test ./internal/core/... ./internal/agent/... ./internal/tui/...` pass
 
 ## Phase 4: TUI Session Lifecycle
 
