@@ -18,14 +18,34 @@ const profileFileName = "profile.yaml"
 
 // Config is one layer's profile.yaml content (REQ-PROFILE-1).
 type Config struct {
-	Name         string   `yaml:"name"`
-	Model        string   `yaml:"model"`
-	Provider     string   `yaml:"provider"`
-	SystemPrompt string   `yaml:"system_prompt"`
-	Tools        []string `yaml:"tools"`
-	Skills       []string `yaml:"skills"`
-	Thinking     string   `yaml:"thinking"`
-	Permissions  []Rule   `yaml:"permissions"`
+	Name          string              `yaml:"name"`
+	Model         string              `yaml:"model"`
+	Provider      string              `yaml:"provider"`
+	SystemPrompt  string              `yaml:"system_prompt"`
+	Tools         []string            `yaml:"tools"`
+	Skills        []string            `yaml:"skills"`
+	Thinking      string              `yaml:"thinking"`
+	Permissions   []Rule              `yaml:"permissions"`
+	Orchestration *OrchestrationConfig `yaml:"orchestration"`
+}
+
+// OrchestrationConfig holds orchestration-related configuration.
+type OrchestrationConfig struct {
+	Delegation *DelegationConfig `yaml:"delegation"`
+	Gatekeeper *GatekeeperConfig `yaml:"gatekeeper"`
+}
+
+// DelegationConfig defines delegation rules thresholds.
+type DelegationConfig struct {
+	ExploreThreshold int  `yaml:"explore_threshold"`
+	WriteThreshold   int  `yaml:"write_threshold"`
+	ContextRule      bool `yaml:"context_rule"`
+}
+
+// GatekeeperConfig defines gatekeeper settings.
+type GatekeeperConfig struct {
+	Enabled    bool `yaml:"enabled"`
+	MaxRetries int  `yaml:"max_retries"`
 }
 
 // Rule is one permission entry declared in profile.yaml (D15). Action is one
