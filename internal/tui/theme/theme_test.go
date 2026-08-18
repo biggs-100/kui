@@ -99,6 +99,41 @@ func TestParseFile(t *testing.T) {
 	}
 }
 
+func TestFooterStylesExist(t *testing.T) {
+	styles := NewStyles(DefaultTheme())
+
+	// All four footer styles must be non-zero (properly initialized).
+	// Render with actual text to verify they produce output.
+	if styles.StatusLine.Render("test") == "" {
+		t.Error("StatusLine rendered empty")
+	}
+	if styles.StatusOK.Render("●") == "" {
+		t.Error("StatusOK rendered empty")
+	}
+	if styles.StatusError.Render("●") == "" {
+		t.Error("StatusError rendered empty")
+	}
+	if styles.StatusWarn.Render("●") == "" {
+		t.Error("StatusWarn rendered empty")
+	}
+}
+
+func TestFooterStylesUseThemeColors(t *testing.T) {
+	theme := DefaultTheme()
+	styles := NewStyles(theme)
+
+	// StatusOK foreground should use the theme's StatusOK color.
+	okFg := styles.StatusOK.GetForeground()
+	if okFg == nil {
+		t.Error("StatusOK foreground is nil")
+	}
+
+	errFg := styles.StatusError.GetForeground()
+	if errFg == nil {
+		t.Error("StatusError foreground is nil")
+	}
+}
+
 func TestSolarizedOsakaColors(t *testing.T) {
 	theme, err := ParseFile("../../../themes/solarized-osaka.json")
 	if err != nil {

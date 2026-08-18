@@ -22,6 +22,12 @@ type Styles struct {
 	ToolResult     lipgloss.Style
 	ToolPending    lipgloss.Style
 	ToolEmpty      lipgloss.Style
+
+	// Status bar (footer)
+	StatusLine   lipgloss.Style
+	StatusOK     lipgloss.Style
+	StatusError  lipgloss.Style
+	StatusWarn   lipgloss.Style
 }
 
 // NewStyles creates a Styles from a Theme.
@@ -77,5 +83,19 @@ func NewStyles(t *Theme) *Styles {
 		ToolEmpty: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.TextMuted)).
 			Faint(true),
+
+		// Status bar (footer)
+		StatusLine: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.FG)).
+			Background(lipgloss.Color(t.BGStatusline)),
+
+		StatusOK: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.StatusOK)),
+
+		StatusError: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.StatusError)),
+
+		StatusWarn: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.StatusWarn)),
 	}
 }

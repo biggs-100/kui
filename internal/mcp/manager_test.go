@@ -199,6 +199,87 @@ func TestManagerToolsReturnsDiscoveredTools(t *testing.T) {
 	}
 }
 
+func TestMCPManagerStatus(t *testing.T) {
+	cfg := &Config{
+		Servers: map[string]ServerConfig{
+			"github": {
+				Type:    "local",
+				Command: []string{"echo"},
+			},
+			"slack": {
+				Type:    "local",
+				Command: []string{"echo"},
+			},
+		},
+	}
+
+	factory := mockClientFactory([]MCPToolDef{})
+	manager := NewMCPManagerWithFactory(cfg, factory)
+	ctx := context.Background()
+
+	// Before connecting: 0 connected, 0 failed
+	connected, failed := manager.Status()
+	if connected != 0 || failed != 0 {
+		t.Errorf("Status() before connect = (%d, %d), want (0, 0)", connected, failed)
+	}
+
+	// Connect all
+	_ = manager.ConnectAll(ctx)
+
+	// After connecting: 2 connected, 0 failed
+	connected, failed = manager.Status()
+	if connected != 2 {
+		t.Errorf("Status() connected = %d, want 2", connected)
+	}
+	if failed != 0 {
+		t.Errorf("Status() failed = %d, want 0", failed)
+	}
+
+	// Shutdown
+	manager.Shutdown()
+
+	// After shutdown: 0 connected, 0 failed
+	connected, failed = manager.Status()
+	if connected != 0 || failed != 0 {
+		t.Errorf("Status() after shutdown = (%d, %d), want (0, 0)", connected, failed)
+	}
+}
+
+func TestMCPManagerStatusPartialFailure(t *testing.T) {
+	cfg := &Config{
+		Servers: map[string]ServerConfig{
+			"good": {
+				Type:    "local",
+				Command: []string{"echo"},
+			},
+			"bad": {
+				Type:    "local",
+				Command: []string{"nonexistent-command-12345"},
+			},
+		},
+	}
+
+	factory := func(ctx context.Context, name string, cfg ServerConfig) (*Client, error) {
+		if name == "bad" {
+			return nil, fmt.Errorf("command not found")
+		}
+		return newMockClientWithTools([]MCPToolDef{})
+	}
+
+	manager := NewMCPManagerWithFactory(cfg, factory)
+	ctx := context.Background()
+
+	_ = manager.ConnectAll(ctx)
+
+	connected, failed := manager.Status()
+	if connected != 1 {
+		t.Errorf("Status() connected = %d, want 1", connected)
+	}
+	if failed != 1 {
+		t.Errorf("Status() failed = %d, want 1", failed)
+	}
+}
+
 func TestManagerToolsPrefixedWithServerName(t *testing.T) {
 	cfg := &Config{
 		Servers: map[string]ServerConfig{

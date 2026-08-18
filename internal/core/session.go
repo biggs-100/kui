@@ -5,9 +5,14 @@ import "time"
 // SessionMeta holds lightweight metadata about a persisted session,
 // stored in the index file for fast listing without loading full messages.
 type SessionMeta struct {
-	ID        string `json:"id"`
-	Profile   string `json:"profile"`
-	CreatedAt string `json:"created_at"`
+	ID           string `json:"id"`
+	Profile      string `json:"profile"`
+	Name         string `json:"name,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Summary      string `json:"summary,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
+	MessageCount int    `json:"message_count,omitempty"`
 }
 
 // Session is a full conversation turn history with its metadata.
@@ -33,6 +38,9 @@ type SessionStore interface {
 
 	// Delete removes a session by ID (file + index entry).
 	Delete(id string) error
+
+	// Rename sets a custom name on a session (updates file + index).
+	Rename(id string, name string) error
 }
 
 // NewSessionMeta creates a SessionMeta with the current UTC timestamp.

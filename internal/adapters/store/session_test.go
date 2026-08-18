@@ -446,6 +446,104 @@ func TestSaveOverwritesExisting(t *testing.T) {
 	}
 }
 
+// TestSessionStoreRename covers task 2.1: renaming a session updates the
+// name in both the file and the index.
+func TestSessionStoreRename(t *testing.T) {
+	root := t.TempDir()
+	ss := NewSessionStore(root)
+
+	sess := &core.Session{
+		Meta: core.SessionMeta{
+			ID:        "rename-001",
+			Profile:   "coder",
+			CreatedAt: "2026-01-01T00:00:00Z",
+		},
+		Messages: []core.Message{
+			{Role: core.RoleUser, Content: "hello"},
+		},
+	}
+
+	if err := ss.Save(sess); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	// Rename
+	if err := ss.Rename("rename-001", "My Renamed Session"); err != nil {
+		t.Fatalf("Rename returned error: %v", err)
+	}
+
+	// Verify name in loaded session
+	loaded, err := ss.Load("rename-001")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.Meta.Name != "My Renamed Session" {
+		t.Errorf("loaded Meta.Name = %q, want %q", loaded.Meta.Name, "My Renamed Session")
+	}
+
+	// Verify name in index
+	list, err := ss.List()
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	found := false
+	for _, m := range list {
+		if m.ID == "rename-001" {
+			found = true
+			if m.Name != "My Renamed Session" {
+				t.Errorf("index Name = %q, want %q", m.Name, "My Renamed Session")
+			}
+		}
+	}
+	if !found {
+		t.Error("renamed session not found in index")
+	}
+}
+
+// TestSessionStoreRenameNotFound covers task 2.3: renaming a non-existent
+// session returns an error.
+func TestSessionStoreRenameNotFound(t *testing.T) {
+	root := t.TempDir()
+	ss := NewSessionStore(root)
+
+	err := ss.Rename("ghost", "does not exist")
+	if err == nil {
+		t.Fatal("Rename for non-existent session should return error, got nil")
+	}
+}
+
+// TestSavePreservesUpdatedAt covers that saving a session preserves the
+// UpdatedAt field when already set, and leaves it empty when not.
+func TestSavePreservesUpdatedAt(t *testing.T) {
+	root := t.TempDir()
+	ss := NewSessionStore(root)
+
+	sess := &core.Session{
+		Meta: core.SessionMeta{
+			ID:        "updated-001",
+			Profile:   "coder",
+			CreatedAt: "2026-01-01T00:00:00Z",
+		},
+		Messages: []core.Message{
+			{Role: core.RoleUser, Content: "hello"},
+		},
+	}
+
+	if err := ss.Save(sess); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	loaded, err := ss.Load("updated-001")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	// UpdatedAt should be empty since Save doesn't auto-populate it
+	if loaded.Meta.UpdatedAt != "" {
+		t.Errorf("UpdatedAt should be empty on first save, got %q", loaded.Meta.UpdatedAt)
+	}
+}
+
 // TestMessageRoundTripThroughStore covers end-to-end: messages with ToolCall
 // survive a full save→load cycle through the file store.
 func TestMessageRoundTripThroughStore(t *testing.T) {

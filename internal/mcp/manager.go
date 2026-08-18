@@ -24,6 +24,7 @@ type MCPManager struct {
 	clients      map[string]*Client
 	tools        []core.Tool
 	clientFactory ClientFactory
+	failedCount  int
 	mu           sync.Mutex
 }
 
@@ -65,12 +66,18 @@ func (m *MCPManager) ConnectAll(ctx context.Context) error {
 			client, err := m.clientFactory(ctx, name, srv)
 			if err != nil {
 				log.Printf("mcp manager: failed to start server %q: %v", name, err)
+				mu.Lock()
+				m.failedCount++
+				mu.Unlock()
 				return
 			}
 
 			if err := client.Initialize(ctx); err != nil {
 				log.Printf("mcp manager: failed to initialize server %q: %v", name, err)
 				client.Close()
+				mu.Lock()
+				m.failedCount++
+				mu.Unlock()
 				return
 			}
 
@@ -101,6 +108,13 @@ func (m *MCPManager) ConnectAll(ctx context.Context) error {
 	return nil
 }
 
+// Status returns the count of connected and failed MCP servers.
+func (m *MCPManager) Status() (connected, failed int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.clients), m.failedCount
+}
+
 // Shutdown stops all connected servers and cleans up resources.
 // It is idempotent per REQ-MCP-13.
 func (m *MCPManager) Shutdown() {
@@ -113,6 +127,7 @@ func (m *MCPManager) Shutdown() {
 		delete(m.clients, name)
 	}
 
+	m.failedCount = 0
 	m.tools = nil
 }
 

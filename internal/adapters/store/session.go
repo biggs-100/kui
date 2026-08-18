@@ -46,6 +46,23 @@ func NewSessionStore(root string) *FileSessionStore {
 	return &FileSessionStore{root: root}
 }
 
+// Rename sets a custom name on a session. It loads the session, updates the
+// Name field in both the session file and the metadata index.
+func (s *FileSessionStore) Rename(id string, name string) error {
+	sess, err := s.Load(id)
+	if err != nil {
+		return err
+	}
+
+	sess.Meta.Name = name
+	sess.Meta.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	if err := s.Save(sess); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Save persists a session atomically: write to a temp file, then rename.
 // It also updates the metadata index.
 func (s *FileSessionStore) Save(session *core.Session) error {
@@ -106,9 +123,18 @@ func (s *FileSessionStore) List() ([]core.SessionMeta, error) {
 		}
 	}
 
-	// Sort newest first by CreatedAt (lexicographic works for RFC3339).
+	// Sort newest first by UpdatedAt (lexicographic works for RFC3339).
+	// Falls back to CreatedAt when UpdatedAt is empty.
 	sort.Slice(metas, func(i, j int) bool {
-		return metas[i].CreatedAt > metas[j].CreatedAt
+		iKey := metas[i].UpdatedAt
+		if iKey == "" {
+			iKey = metas[i].CreatedAt
+		}
+		jKey := metas[j].UpdatedAt
+		if jKey == "" {
+			jKey = metas[j].CreatedAt
+		}
+		return iKey > jKey
 	})
 
 	return metas, nil

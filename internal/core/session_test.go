@@ -90,6 +90,86 @@ func TestSessionStoreInterface(t *testing.T) {
 	}
 }
 
+// TestSessionMetaExtended verifies the extended SessionMeta fields
+// (Name, Model, Summary, UpdatedAt, MessageCount) survive JSON round-trip.
+func TestSessionMetaExtended(t *testing.T) {
+	original := SessionMeta{
+		ID:           "test-ext-001",
+		Profile:      "coder",
+		Name:         "My Session",
+		Model:        "gpt-4o",
+		Summary:      "What is Go generics?",
+		CreatedAt:    "2026-01-01T00:00:00Z",
+		UpdatedAt:    "2026-01-01T01:00:00Z",
+		MessageCount: 4,
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded SessionMeta
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.Name != original.Name {
+		t.Errorf("Name = %q, want %q", decoded.Name, original.Name)
+	}
+	if decoded.Model != original.Model {
+		t.Errorf("Model = %q, want %q", decoded.Model, original.Model)
+	}
+	if decoded.Summary != original.Summary {
+		t.Errorf("Summary = %q, want %q", decoded.Summary, original.Summary)
+	}
+	if decoded.UpdatedAt != original.UpdatedAt {
+		t.Errorf("UpdatedAt = %q, want %q", decoded.UpdatedAt, original.UpdatedAt)
+	}
+	if decoded.MessageCount != original.MessageCount {
+		t.Errorf("MessageCount = %d, want %d", decoded.MessageCount, original.MessageCount)
+	}
+}
+
+// TestNewSessionMetaDefaults verifies that NewSessionMeta produces a meta
+// with zero-value fields that serialize cleanly (no errors, no surprises).
+func TestNewSessionMetaDefaults(t *testing.T) {
+	meta := NewSessionMeta("test-id", "coder")
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded SessionMeta
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.ID != "test-id" {
+		t.Errorf("ID = %q, want %q", decoded.ID, "test-id")
+	}
+	if decoded.Profile != "coder" {
+		t.Errorf("Profile = %q, want %q", decoded.Profile, "coder")
+	}
+	// New fields should be zero-value on default construction
+	if decoded.Name != "" {
+		t.Errorf("Name should be empty on default, got %q", decoded.Name)
+	}
+	if decoded.Model != "" {
+		t.Errorf("Model should be empty on default, got %q", decoded.Model)
+	}
+	if decoded.Summary != "" {
+		t.Errorf("Summary should be empty on default, got %q", decoded.Summary)
+	}
+	if decoded.UpdatedAt != "" {
+		t.Errorf("UpdatedAt should be empty on default, got %q", decoded.UpdatedAt)
+	}
+	if decoded.MessageCount != 0 {
+		t.Errorf("MessageCount should be 0 on default, got %d", decoded.MessageCount)
+	}
+}
+
 // TestMessageJSONToolResultRoundTrip verifies tool-result messages (role=tool)
 // round-trip correctly, including the ToolCallID link back to the call.
 func TestMessageJSONToolResultRoundTrip(t *testing.T) {

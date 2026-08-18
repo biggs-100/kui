@@ -347,6 +347,64 @@ func TestNilObserverWithRunnerNoObserver(t *testing.T) {
 
 // --- Channel Overflow Drop (D3 select-default) ---
 
+func TestTrackUsage(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetModelName("gpt-4")
+	usage := core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150}
+	c.TrackUsage(usage)
+
+	if c.TotalTokens() != 150 {
+		t.Errorf("TotalTokens() = %d, want 150", c.TotalTokens())
+	}
+	if c.Cost() <= 0 {
+		t.Error("Cost() should be > 0 after tracking usage")
+	}
+}
+
+func TestTrackUsageMultiple(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.TrackUsage(core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150})
+	c.TrackUsage(core.Usage{InputTokens: 200, OutputTokens: 100, TotalTokens: 300})
+
+	if c.TotalTokens() != 450 {
+		t.Errorf("TotalTokens() = %d, want 450", c.TotalTokens())
+	}
+}
+
+func TestTrackUsageUnknownModel(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetModelName("unknown-model")
+	c.TrackUsage(core.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 150})
+
+	// Unknown model should have zero cost
+	if c.Cost() != 0 {
+		t.Errorf("Cost() for unknown model = %f, want 0", c.Cost())
+	}
+}
+
+func TestSetModelName(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetModelName("gpt-4")
+	if c.ModelName() != "gpt-4" {
+		t.Errorf("ModelName() = %q, want %q", c.ModelName(), "gpt-4")
+	}
+}
+
+func TestTrackUsageGPT4(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetModelName("gpt-4")
+	c.TrackUsage(core.Usage{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500})
+
+	// gpt-4: $30/1M input, $60/1M output
+	// cost = 1000*30/1e6 + 500*60/1e6 = 0.03 + 0.03 = 0.06
+	cost := c.Cost()
+	if cost < 0.05 || cost > 0.07 {
+		t.Errorf("Cost() = %f, want ~0.06", cost)
+	}
+}
+
+// --- Channel Overflow Drop (D3 select-default) ---
+
 func TestEmitDropsOnFullChannel(t *testing.T) {
 	c := NewController([]string{"a"}, nil, nil)
 	// Drain the pre-allocated buffer by filling it
@@ -590,6 +648,95 @@ func TestControllerStreamError(t *testing.T) {
 	}
 }
 
+// --- Undo/Redo Tests (Phase 3) ---
+
+func TestUndoStack(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	// Start with 2 messages and push undo point
+	c.mu.Lock()
+	c.messages = []core.Message{
+		{Role: core.RoleUser, Content: "hello"},
+		{Role: core.RoleAssistant, Content: "hi there"},
+	}
+	c.mu.Unlock()
+
+	// Push undo point at 2 messages
+	c.PushUndo()
+
+	// Add 2 more messages (simulating a new turn)
+	c.mu.Lock()
+	c.messages = append(c.messages,
+		core.Message{Role: core.RoleUser, Content: "question"},
+		core.Message{Role: core.RoleAssistant, Content: "answer"},
+	)
+	c.mu.Unlock()
+
+	// Now there are 4 messages, undo should restore to 2
+	if !c.Undo() {
+		t.Fatal("Undo should return true when stack is non-empty")
+	}
+
+	c.mu.Lock()
+	n := len(c.messages)
+	c.mu.Unlock()
+	if n != 2 {
+		t.Errorf("after Undo, messages len = %d, want 2", n)
+	}
+
+	// Redo should restore to 4
+	if !c.Redo() {
+		t.Fatal("Redo should return true when stack is non-empty")
+	}
+
+	c.mu.Lock()
+	n = len(c.messages)
+	c.mu.Unlock()
+	if n != 4 {
+		t.Errorf("after Redo, messages len = %d, want 4", n)
+	}
+}
+
+func TestUndoEmptyStack(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.mu.Lock()
+	c.messages = []core.Message{
+		{Role: core.RoleUser, Content: "hello"},
+	}
+	c.mu.Unlock()
+
+	// Undo on empty stack should return false and not panic
+	if c.Undo() {
+		t.Error("Undo on empty stack should return false")
+	}
+
+	c.mu.Lock()
+	n := len(c.messages)
+	c.mu.Unlock()
+	if n != 1 {
+		t.Errorf("Undo on empty stack should not change messages, len = %d, want 1", n)
+	}
+}
+
+func TestRedoClearsOnNewPush(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.mu.Lock()
+	c.messages = []core.Message{
+		{Role: core.RoleUser, Content: "hello"},
+		{Role: core.RoleAssistant, Content: "hi"},
+	}
+	c.mu.Unlock()
+
+	// Push undo, undo, then push new undo point — redo should be cleared
+	c.PushUndo()
+	c.Undo()
+	c.PushUndo()
+
+	// Redo should fail (redo stack was cleared)
+	if c.Redo() {
+		t.Error("Redo should return false after new push clears redo stack")
+	}
+}
+
 // --- Session Persistence Tests (Phase 4) ---
 
 // fakeSessionStore implements core.SessionStore for testing.
@@ -624,6 +771,15 @@ func (s *fakeSessionStore) List() ([]core.SessionMeta, error) {
 
 func (s *fakeSessionStore) Delete(id string) error {
 	delete(s.sessions, id)
+	return nil
+}
+
+func (s *fakeSessionStore) Rename(id string, name string) error {
+	sess, ok := s.sessions[id]
+	if !ok {
+		return fmt.Errorf("session %q not found", id)
+	}
+	sess.Meta.Name = name
 	return nil
 }
 

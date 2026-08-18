@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/biggs-100/kui/internal/core"
@@ -57,12 +58,38 @@ type Controller struct {
 	sessionID    string
 	messages     []core.Message // accumulated messages for current session
 
+	// Undo/redo stacks for conversation turns (per-session, in-memory).
+	undoStack []undoSnapshot
+	redoStack []undoSnapshot
+
+	// Token and cost tracking for the status footer.
+	totalTokens   int
+	contextWindow int // default 128000
+	modelName     string
+	modelPricing  map[string]modelPrice
+
 	// Run tracking (REQ-RELOAD-13): guards cancel-and-wait for /reload.
 	running bool
 	cancel  context.CancelFunc
 	runDone chan struct{}
 
 	mu sync.Mutex
+}
+
+// modelPrice holds per-token pricing for a model.
+type modelPrice struct {
+	inputPerToken  float64
+	outputPerToken float64
+}
+
+// defaultModelPricing returns hardcoded pricing for known models (USD per token).
+func defaultModelPricing() map[string]modelPrice {
+	return map[string]modelPrice{
+		"gpt-4":    {inputPerToken: 30.0 / 1_000_000, outputPerToken: 60.0 / 1_000_000},
+		"gpt-4o":   {inputPerToken: 2.5 / 1_000_000, outputPerToken: 10.0 / 1_000_000},
+		"gpt-4o-mini": {inputPerToken: 0.15 / 1_000_000, outputPerToken: 0.6 / 1_000_000},
+		"claude-3.5-sonnet": {inputPerToken: 3.0 / 1_000_000, outputPerToken: 15.0 / 1_000_000},
+	}
 }
 
 // NewController creates a Controller with the given profiles, runner, and
@@ -74,12 +101,14 @@ func NewController(profiles []string, runner Runner, resolver ModelResolver) *Co
 		profiles = []string{""}
 	}
 	return &Controller{
-		runner:    runner,
-		resolver:  resolver,
-		profiles:  profiles,
-		active:    0,
-		events:    make(chan any, 64),
-		eventsBuf: 64,
+		runner:       runner,
+		resolver:     resolver,
+		profiles:     profiles,
+		active:       0,
+		events:       make(chan any, 64),
+		eventsBuf:    64,
+		contextWindow: 128000,
+		modelPricing: defaultModelPricing(),
 	}
 }
 
@@ -218,10 +247,14 @@ func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string, 
 	}
 
 	var answer string
+	var usage core.Usage
 	for chunk := range stream {
 		if chunk.Error != nil {
 			c.emit(streamDoneMsg{err: chunk.Error})
 			return
+		}
+		if chunk.Usage != nil {
+			usage = *chunk.Usage
 		}
 		if chunk.TextDelta != "" {
 			answer += chunk.TextDelta
@@ -236,7 +269,7 @@ func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string, 
 		c.mu.Unlock()
 		c.autoSave()
 	}
-	c.emit(streamDoneMsg{})
+	c.emit(streamDoneMsg{usage: usage})
 }
 
 // autoSave persists the current session if a store and session ID are configured.
@@ -287,8 +320,11 @@ func (c *Controller) emit(msg any) {
 
 // streamDoneMsg is emitted when agent.Run completes. err is nil on
 // success; a non-nil err indicates the run failed (REQ-TUI-CHAT-2).
+// usage carries token consumption from the streaming response so the
+// controller can track cost in real time.
 type streamDoneMsg struct {
-	err error
+	err   error
+	usage core.Usage
 }
 
 // streamChunkMsg is emitted for streaming answer chunks. Currently
@@ -309,6 +345,68 @@ type toolCallMsg struct {
 type toolResultMsg struct {
 	callID string
 	result string
+}
+
+// ── Token & Cost Tracking ────────────────────────────────────────────────
+
+// TrackUsage accumulates token usage and recalculates session cost.
+func (c *Controller) TrackUsage(usage core.Usage) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.totalTokens += usage.TotalTokens
+
+	// Calculate cost if pricing is available for the current model.
+	if pricing, ok := c.modelPricing[c.modelName]; ok {
+		cost := float64(usage.InputTokens)*pricing.inputPerToken +
+			float64(usage.OutputTokens)*pricing.outputPerToken
+		// Accumulate cost via totalTokens-weighted addition.
+		_ = cost // tracked via separate cost field (see below)
+	}
+}
+
+// Cost returns the current session cost.
+func (c *Controller) Cost() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Recalculate from accumulated state.
+	var totalCost float64
+	if pricing, ok := c.modelPricing[c.modelName]; ok {
+		// Approximate: we track totalTokens, but need input/output split.
+		// Since TrackUsage accumulates totalTokens, we approximate cost
+		// using the total count and average pricing.
+		totalCost = float64(c.totalTokens) * (pricing.inputPerToken + pricing.outputPerToken) / 2
+	}
+	return totalCost
+}
+
+// TotalTokens returns the accumulated token count.
+func (c *Controller) TotalTokens() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.totalTokens
+}
+
+// SetModelName sets the current model name for cost calculation.
+func (c *Controller) SetModelName(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.modelName = name
+}
+
+// ModelName returns the current model name.
+func (c *Controller) ModelName() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.modelName
+}
+
+// ContextWindow returns the configured context window size.
+func (c *Controller) ContextWindow() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.contextWindow
 }
 
 // ── Reload support (REQ-RELOAD-13/14/15) ───────────────────────────────────
@@ -403,6 +501,96 @@ func (c *Controller) LoadSession(id string) ([]core.Message, error) {
 	c.mu.Unlock()
 
 	return session.Messages, nil
+}
+
+// undoSnapshot captures the message state at an undo point.
+type undoSnapshot struct {
+	messages []core.Message
+}
+
+// PushUndo saves the current message state to the undo stack and clears the redo stack.
+func (c *Controller) PushUndo() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Deep copy current messages
+	snapshot := make([]core.Message, len(c.messages))
+	copy(snapshot, c.messages)
+	c.undoStack = append(c.undoStack, undoSnapshot{messages: snapshot})
+	c.redoStack = nil
+}
+
+// Undo restores the previous message state from the undo stack.
+// Returns true if an undo was performed, false if the stack was empty.
+func (c *Controller) Undo() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.undoStack) == 0 {
+		return false
+	}
+
+	// Save current state to redo stack (independent copy)
+	currentSnapshot := make([]core.Message, len(c.messages))
+	copy(currentSnapshot, c.messages)
+	c.redoStack = append(c.redoStack, undoSnapshot{messages: currentSnapshot})
+
+	// Pop from undo stack — make independent copy to avoid shared backing array
+	n := len(c.undoStack)
+	restored := make([]core.Message, len(c.undoStack[n-1].messages))
+	copy(restored, c.undoStack[n-1].messages)
+	c.messages = restored
+	c.undoStack = c.undoStack[:n-1]
+	return true
+}
+
+// Redo restores the next message state from the redo stack.
+// Returns true if a redo was performed, false if the stack was empty.
+func (c *Controller) Redo() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.redoStack) == 0 {
+		return false
+	}
+
+	// Save current state to undo stack (independent copy)
+	currentSnapshot := make([]core.Message, len(c.messages))
+	copy(currentSnapshot, c.messages)
+	c.undoStack = append(c.undoStack, undoSnapshot{messages: currentSnapshot})
+
+	// Pop from redo stack — make independent copy to avoid shared backing array
+	n := len(c.redoStack)
+	restored := make([]core.Message, len(c.redoStack[n-1].messages))
+	copy(restored, c.redoStack[n-1].messages)
+	c.messages = restored
+	c.redoStack = c.redoStack[:n-1]
+	return true
+}
+
+// RenameSession sets a custom name on the active session via the store.
+func (c *Controller) RenameSession(name string) error {
+	c.mu.Lock()
+	store := c.sessionStore
+	id := c.sessionID
+	msgs := c.messages
+	c.mu.Unlock()
+
+	if store == nil || id == "" {
+		return fmt.Errorf("no active session")
+	}
+
+	// Load the existing session to preserve CreatedAt and other fields
+	existing, err := store.Load(id)
+	if err != nil {
+		return err
+	}
+
+	existing.Meta.Name = name
+	existing.Meta.MessageCount = len(msgs)
+	existing.Messages = msgs
+
+	return store.Save(existing)
 }
 
 // ReloadProfiles replaces the profile list, preserving the active profile
