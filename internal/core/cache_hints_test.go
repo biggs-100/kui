@@ -38,9 +38,9 @@ func TestEstimateCacheHit(t *testing.T) {
 	b := NewCacheAwareRequestBuilder()
 	b.SetSystemPrompt("You are a helpful assistant with very long instructions.") // ~15 tokens
 	b.SetHistory([]Message{
-		{Role: RoleUser, Content: "hello"},  // ~1 token
+		{Role: RoleUser, Content: "hello"},   // ~1 token
 		{Role: RoleAssistant, Content: "hi"}, // ~1 token
-		{Role: RoleUser, Content: "test"},   // ~1 token
+		{Role: RoleUser, Content: "test"},    // ~1 token
 	})
 	b.SetCurrentTurn([]Message{
 		{Role: RoleUser, Content: "question"}, // ~1 token
@@ -100,8 +100,8 @@ func TestIsCacheableRole(t *testing.T) {
 
 func TestCountCacheableTokens(t *testing.T) {
 	messages := []Message{
-		{Role: RoleSystem, Content: "system prompt"},    // ~4 tokens
-		{Role: RoleUser, Content: "user message"},       // ~3 tokens (not cacheable)
+		{Role: RoleSystem, Content: "system prompt"},         // ~4 tokens
+		{Role: RoleUser, Content: "user message"},            // ~3 tokens (not cacheable)
 		{Role: RoleAssistant, Content: "assistant response"}, // ~3 tokens (cacheable)
 	}
 
@@ -133,5 +133,89 @@ func TestBuildCacheKey(t *testing.T) {
 	key = BuildCacheKey("", "", "")
 	if key != "" {
 		t.Errorf("BuildCacheKey(empty) = %q, want empty", key)
+	}
+}
+
+// --- Phase 3: Builder Integration Tests ---
+
+func TestBuildRequestAssemblesCacheOptimalOrder(t *testing.T) {
+	b := NewCacheAwareRequestBuilder()
+
+	protected := []Message{
+		{Role: RoleSystem, Content: "system prompt"},
+	}
+	compacted := []Message{
+		{Role: RoleUser, Content: "old question"},
+		{Role: RoleAssistant, Content: "old answer"},
+	}
+	currentTurn := []Message{
+		{Role: RoleUser, Content: "new question"},
+	}
+
+	result := b.BuildRequest(protected, compacted, currentTurn)
+
+	// Must be: protected → compacted → currentTurn
+	if len(result) != 4 {
+		t.Fatalf("BuildRequest() returned %d messages, want 4", len(result))
+	}
+	if result[0].Role != RoleSystem || result[0].Content != "system prompt" {
+		t.Errorf("result[0] = %q/%q, want system/system prompt", result[0].Role, result[0].Content)
+	}
+	if result[1].Content != "old question" {
+		t.Errorf("result[1].Content = %q, want first compacted", result[1].Content)
+	}
+	if result[2].Content != "old answer" {
+		t.Errorf("result[2].Content = %q, want second compacted", result[2].Content)
+	}
+	if result[3].Content != "new question" {
+		t.Errorf("result[3].Content = %q, want current turn", result[3].Content)
+	}
+}
+
+func TestBuildRequestEmptyCompacted(t *testing.T) {
+	b := NewCacheAwareRequestBuilder()
+
+	protected := []Message{
+		{Role: RoleSystem, Content: "system prompt"},
+	}
+	currentTurn := []Message{
+		{Role: RoleUser, Content: "question"},
+	}
+
+	result := b.BuildRequest(protected, nil, currentTurn)
+
+	// Empty compacted → protected + currentTurn
+	if len(result) != 2 {
+		t.Fatalf("BuildRequest() returned %d messages, want 2", len(result))
+	}
+	if result[0].Content != "system prompt" {
+		t.Errorf("result[0].Content = %q, want system prompt", result[0].Content)
+	}
+	if result[1].Content != "question" {
+		t.Errorf("result[1].Content = %q, want question", result[1].Content)
+	}
+}
+
+func TestBuildRequestEmptyProtected(t *testing.T) {
+	b := NewCacheAwareRequestBuilder()
+
+	compacted := []Message{
+		{Role: RoleAssistant, Content: "summary"},
+	}
+	currentTurn := []Message{
+		{Role: RoleUser, Content: "follow-up"},
+	}
+
+	result := b.BuildRequest(nil, compacted, currentTurn)
+
+	// No protected → compacted + currentTurn
+	if len(result) != 2 {
+		t.Fatalf("BuildRequest() returned %d messages, want 2", len(result))
+	}
+	if result[0].Content != "summary" {
+		t.Errorf("result[0].Content = %q, want summary", result[0].Content)
+	}
+	if result[1].Content != "follow-up" {
+		t.Errorf("result[1].Content = %q, want follow-up", result[1].Content)
 	}
 }

@@ -123,6 +123,22 @@ func (b *CacheAwareRequestBuilder) BuildCacheHint() CacheHint {
 	}
 }
 
+// BuildRequest assembles messages in cache-optimal order from three slices:
+// protected messages (system prompts, profile markers), compacted history
+// (conversation after compaction), and the current turn (latest user message).
+// Output ordering: [protected] → [compacted] → [currentTurn].
+func (b *CacheAwareRequestBuilder) BuildRequest(
+	protected []Message,
+	compacted []Message,
+	currentTurn []Message,
+) []Message {
+	result := make([]Message, 0, len(protected)+len(compacted)+len(currentTurn))
+	result = append(result, protected...)
+	result = append(result, compacted...)
+	result = append(result, currentTurn...)
+	return result
+}
+
 // SortMessagesForCache reorders messages to maximize cache hits.
 // Static content (system, tools) goes first, growing content goes last.
 func SortMessagesForCache(messages []Message) []Message {
