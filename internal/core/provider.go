@@ -17,19 +17,19 @@ const (
 // ToolCall is a provider request to invoke a tool. Arguments is the raw JSON
 // argument object exactly as the provider emitted it.
 type ToolCall struct {
-	ID        string
-	Name      string
-	Arguments string
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // Message is one entry of the conversation exchanged with the provider.
 // ToolCall is set on assistant messages that request tool execution;
 // ToolCallID links a tool result message back to the call it answers.
 type Message struct {
-	Role       string
-	Content    string
-	ToolCall   *ToolCall
-	ToolCallID string
+	Role       string    `json:"role"`
+	Content    string    `json:"content"`
+	ToolCall   *ToolCall `json:"tool_call,omitempty"`
+	ToolCallID string    `json:"tool_call_id,omitempty"`
 }
 
 // Provider is the port to a model backend (D2). Chat exchanges the full
