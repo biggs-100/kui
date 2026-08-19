@@ -52,6 +52,10 @@ type Controller struct {
 	SetModeler SetModeler
 	reloader   Reloader // REQ-RELOAD-14
 
+	// lspDispatch executes an LSP tool call and returns the result.
+	// When nil, LSP keybindings (gd, gr, K) are no-ops.
+	lspDispatch func(toolName string, args map[string]interface{}) (string, error)
+
 	// Session persistence: the controller optionally holds a session store
 	// and tracks the active session ID for auto-save and resume.
 	sessionStore core.SessionStore
@@ -612,6 +616,27 @@ func (c *Controller) ReloadProfiles(names []string) {
 			return
 		}
 	}
+}
+
+// SetLspDispatcher attaches an LSP tool dispatcher to the controller.
+// When set, LSP keybindings (gd, gr, K) are enabled and dispatch tool
+// calls through the provided function.
+func (c *Controller) SetLspDispatcher(fn func(toolName string, args map[string]interface{}) (string, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lspDispatch = fn
+}
+
+// DispatchLsp calls the LSP dispatcher for the given tool with args.
+// Returns the tool result or an error if the dispatcher is not set.
+func (c *Controller) DispatchLsp(toolName string, args map[string]interface{}) (string, error) {
+	c.mu.Lock()
+	fn := c.lspDispatch
+	c.mu.Unlock()
+	if fn == nil {
+		return "", fmt.Errorf("lsp dispatch not configured")
+	}
+	return fn(toolName, args)
 }
 
 // Reload triggers a cancel-and-wait hot-reload (REQ-RELOAD-6/7/8). It

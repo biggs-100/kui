@@ -111,6 +111,78 @@ func TestWriteFileSyncsGracefulDegradation(t *testing.T) {
 	}
 }
 
+func TestDefaultWithSyncerWiresFileSync(t *testing.T) {
+	syncer := &mockFileSyncer{}
+	root := t.TempDir()
+
+	// Create a test file.
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("pkg main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	toolSlice := DefaultWithSyncer(root, 0, syncer)
+	if len(toolSlice) != 3 {
+		t.Fatalf("DefaultWithSyncer returned %d tools, want 3", len(toolSlice))
+	}
+
+	// Find read_file and write_file tools.
+	var readFile, writeFile interface {
+		Execute(context.Context, json.RawMessage) (string, error)
+	}
+	for _, tool := range toolSlice {
+		switch tool.Name() {
+		case "read_file":
+			readFile = tool
+		case "write_file":
+			writeFile = tool
+		}
+	}
+
+	if readFile == nil {
+		t.Fatal("DefaultWithSyncer missing read_file tool")
+	}
+	if writeFile == nil {
+		t.Fatal("DefaultWithSyncer missing write_file tool")
+	}
+
+	// Execute read_file — should trigger DidOpen via syncer.
+	_, err := readFile.Execute(context.Background(), json.RawMessage(`{"path":"main.go"}`))
+	if err != nil {
+		t.Fatalf("read_file Execute error: %v", err)
+	}
+	if len(syncer.opened) != 1 {
+		t.Errorf("didOpen calls = %d, want 1 after read_file with syncer", len(syncer.opened))
+	}
+
+	// Execute write_file — should trigger DidChange via syncer.
+	_, err = writeFile.Execute(context.Background(), json.RawMessage(`{"path":"main.go","content":"updated\n"}`))
+	if err != nil {
+		t.Fatalf("write_file Execute error: %v", err)
+	}
+	if len(syncer.changed) != 1 {
+		t.Errorf("didChange calls = %d, want 1 after write_file with syncer", len(syncer.changed))
+	}
+}
+
+func TestDefaultWithoutSyncerNoNotifications(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("pkg main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	toolSlice := Default(root, 0)
+	for _, tool := range toolSlice {
+		if tool.Name() == "read_file" {
+			_, err := tool.Execute(context.Background(), json.RawMessage(`{"path":"main.go"}`))
+			if err != nil {
+				t.Fatalf("read_file Execute error: %v", err)
+			}
+		}
+	}
+	// Default() does not wire a syncer — no notifications should be sent.
+	// (This just verifies Default still works without syncer.)
+}
+
 func TestReadFileSyncerError(t *testing.T) {
 	syncer := &errorSyncer{openErr: errors.New("sync failed")}
 	root := t.TempDir()

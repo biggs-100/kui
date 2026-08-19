@@ -94,6 +94,65 @@ func TestRuntimeReloadWithLsp(t *testing.T) {
 	}
 }
 
+func TestReloadPreservesLspTools(t *testing.T) {
+	cfg := newTestConfig(t)
+	writeProfile(t, cfg.ConfigRoot, "coder", "read_file")
+	setActive(t, cfg.ConfigRoot, "coder")
+
+	rt, err := Build(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	// Verify LSP tools are registered after Build.
+	lspToolNames := []string{"lsp_diagnostics", "lsp_hover", "lsp_definition", "lsp_references"}
+	for _, name := range lspToolNames {
+		if _, ok := rt.Full.Get(name); !ok {
+			t.Errorf("Build: full registry missing LSP tool %q", name)
+		}
+	}
+
+	// Reload should preserve LSP tools in the registry.
+	result := rt.Reload(context.Background())
+	if result.Err != nil {
+		t.Fatalf("Reload() error: %v", result.Err)
+	}
+
+	for _, name := range lspToolNames {
+		if _, ok := rt.Full.Get(name); !ok {
+			t.Errorf("Reload lost LSP tool %q from registry", name)
+		}
+	}
+}
+
+func TestReloadStopsOldLspServers(t *testing.T) {
+	cfg := newTestConfig(t)
+	writeProfile(t, cfg.ConfigRoot, "coder", "read_file")
+	setActive(t, cfg.ConfigRoot, "coder")
+
+	rt, err := Build(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	// Pre-populate diagnostics to verify they are cleared during Reload teardown.
+	rt.LSP.Cache().Set("file:///old.go", []lsp.Diagnostic{{Message: "old error"}})
+	if rt.LSP.Cache().Count() != 1 {
+		t.Fatal("precondition: cache should have 1 diagnostic")
+	}
+
+	result := rt.Reload(context.Background())
+	if result.Err != nil {
+		t.Fatalf("Reload() error: %v", result.Err)
+	}
+
+	// Reload calls StopAll() + Cache().ClearAll() in teardown.
+	// The diagnostics cache should be empty after Reload.
+	if count := rt.LSP.Cache().Count(); count != 0 {
+		t.Errorf("cache count after Reload = %d, want 0 (clearAll should have run)", count)
+	}
+}
+
 // mockToolManager satisfies lsp.ToolManager for testing.
 type mockToolManager struct{}
 

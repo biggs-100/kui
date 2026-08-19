@@ -67,3 +67,26 @@ func (dc *DiagnosticCache) Count() int {
 	}
 	return count
 }
+
+// Summary returns diagnostic counts grouped by severity level.
+// Severities follow the LSP specification: 1=Error, 2=Warning, 3=Info, 4=Hint.
+// Diagnostics without a severity are counted as errors.
+func (dc *DiagnosticCache) Summary() (errors, warnings, infos, hints int) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	for _, diags := range dc.diags {
+		for _, d := range diags {
+			switch d.Severity {
+			case DiagnosticSeverityWarning:
+				warnings++
+			case DiagnosticSeverityInfo:
+				infos++
+			case DiagnosticSeverityHint:
+				hints++
+			default:
+				errors++
+			}
+		}
+	}
+	return
+}

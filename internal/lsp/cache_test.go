@@ -107,6 +107,43 @@ func TestCount(t *testing.T) {
 	}
 }
 
+func TestSummary(t *testing.T) {
+	cache := NewDiagnosticCache()
+	cache.Set("file:///a.go", []Diagnostic{
+		{Severity: DiagnosticSeverityError, Message: "error1"},
+		{Severity: DiagnosticSeverityError, Message: "error2"},
+		{Severity: DiagnosticSeverityWarning, Message: "warn1"},
+		{Severity: DiagnosticSeverityInfo, Message: "info1"},
+		{Severity: DiagnosticSeverityHint, Message: "hint1"},
+	})
+	cache.Set("file:///b.go", []Diagnostic{
+		{Severity: DiagnosticSeverityWarning, Message: "warn2"},
+		{Message: "no-severity"}, // defaults to error
+	})
+
+	errors, warnings, infos, hints := cache.Summary()
+	if errors != 3 {
+		t.Errorf("Summary() errors = %d, want 3", errors)
+	}
+	if warnings != 2 {
+		t.Errorf("Summary() warnings = %d, want 2", warnings)
+	}
+	if infos != 1 {
+		t.Errorf("Summary() infos = %d, want 1", infos)
+	}
+	if hints != 1 {
+		t.Errorf("Summary() hints = %d, want 1", hints)
+	}
+}
+
+func TestSummaryEmpty(t *testing.T) {
+	cache := NewDiagnosticCache()
+	errors, warnings, infos, hints := cache.Summary()
+	if errors != 0 || warnings != 0 || infos != 0 || hints != 0 {
+		t.Errorf("Summary() on empty cache = (%d,%d,%d,%d), want (0,0,0,0)", errors, warnings, infos, hints)
+	}
+}
+
 func TestConcurrentAccess(t *testing.T) {
 	cache := NewDiagnosticCache()
 	const goroutines = 100
