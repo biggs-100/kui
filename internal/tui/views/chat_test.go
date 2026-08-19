@@ -194,3 +194,16 @@ func TestChatLoadHistoryClearsPrevious(t *testing.T) {
 		t.Errorf("message[0].Content = %q, want %q", m.Messages()[0].Content, "new question")
 	}
 }
+
+func TestChatMarkdownRender(t *testing.T) {
+	m := NewChatModel(testStyles())
+	m.AppendMessage("assistant", "# Heading\n\nSome **bold** text.", "", "")
+	got := m.Render()
+
+	if !strings.Contains(got, "Heading") {
+		t.Error("rendered output should contain heading text")
+	}
+	if !strings.Contains(got, "bold") {
+		t.Error("rendered output should contain bold text")
+	}
+}

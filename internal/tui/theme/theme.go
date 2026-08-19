@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -207,6 +208,22 @@ func List() []string {
 			names = append(names, name)
 		}
 	}
+	return names
+}
+
+// ThemeNames returns all available theme names sorted alphabetically.
+// This is used by the /theme next|prev command for cycling.
+func ThemeNames() []string {
+	themes := Discover(DefaultDirs())
+	names := make([]string, 0, len(themes)+1)
+	names = append(names, "kui-default")
+	for name := range themes {
+		if name != "kui-default" {
+			names = append(names, name)
+		}
+	}
+	// Sort for deterministic cycling order
+	sort.Strings(names)
 	return names
 }
 

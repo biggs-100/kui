@@ -28,6 +28,13 @@ type Styles struct {
 	StatusOK     lipgloss.Style
 	StatusError  lipgloss.Style
 	StatusWarn   lipgloss.Style
+
+	// Diff view
+	FileDiff     lipgloss.Style
+	DiffAdded    lipgloss.Style
+	DiffRemoved  lipgloss.Style
+	DiffContext  lipgloss.Style
+	DiffHunk     lipgloss.Style
 }
 
 // NewStyles creates a Styles from a Theme.
@@ -97,5 +104,22 @@ func NewStyles(t *Theme) *Styles {
 
 		StatusWarn: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.StatusWarn)),
+
+		// Diff
+		FileDiff: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Primary)),
+
+		DiffAdded: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.DiffAdded)),
+
+		DiffRemoved: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.DiffRemoved)),
+
+		DiffContext: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.DiffContext)),
+
+		DiffHunk: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Accent)).
+			Bold(true),
 	}
 }

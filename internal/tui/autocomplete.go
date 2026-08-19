@@ -4,22 +4,6 @@ import (
 	"strings"
 )
 
-// defaultCommands is the set of slash commands available for autocomplete.
-var defaultCommands = []string{
-	"/reload",
-	"/sessions",
-	"/resume",
-	"/rename",
-	"/undo",
-	"/redo",
-	"/quit",
-	"/exit",
-	"/help",
-	"/theme",
-	"/status",
-	"/clear",
-}
-
 // AutocompleteModel manages slash-command completion.
 type AutocompleteModel struct {
 	commands []string
@@ -28,10 +12,12 @@ type AutocompleteModel struct {
 	active   bool
 }
 
-// NewAutocompleteModel creates an AutocompleteModel with default commands.
+// NewAutocompleteModel creates an AutocompleteModel with default commands
+// derived from the command registry.
 func NewAutocompleteModel() AutocompleteModel {
+	registry := NewCommandRegistry()
 	return AutocompleteModel{
-		commands: defaultCommands,
+		commands: registry.CommandNames(),
 	}
 }
 
