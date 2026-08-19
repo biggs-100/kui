@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/credentials"
 )
 
 // ResolveProvider applies the layered resolution chain for provider selection:
@@ -25,8 +26,9 @@ func ResolveProvider(flagProvider, profileProvider string) string {
 }
 
 // CreateProvider uses the registry to construct a provider from the resolved
-// name and environment variables (REQ-SEL-3 fail-fast API key validation).
-func CreateProvider(reg *Registry, name string) (core.Provider, error) {
+// name. API key resolution: environment variable → credentials store → error
+// (REQ-SEL-3). root is the project root for resolving .kui/credentials.json.
+func CreateProvider(reg *Registry, name string, root string) (core.Provider, error) {
 	entry, err := reg.Resolve(name)
 	if err != nil {
 		return nil, err
@@ -34,8 +36,21 @@ func CreateProvider(reg *Registry, name string) (core.Provider, error) {
 
 	// Read API key from the provider's required env var.
 	apiKey := os.Getenv(entry.RequiredEnvVar)
+
+	// Fallback to credential store if env var is empty.
 	if apiKey == "" {
-		return nil, fmt.Errorf("%s is not set: export %s before running kui", entry.RequiredEnvVar, entry.RequiredEnvVar)
+		store := credentials.NewCredentialStore(root)
+		if err := store.Load(); err != nil {
+			return nil, fmt.Errorf("load credentials: %w", err)
+		}
+		key, err := store.GetAPIKey(name)
+		if err == nil {
+			apiKey = key
+		}
+	}
+
+	if apiKey == "" {
+		return nil, fmt.Errorf("%s is not set: export %s before running kui, or run `kui setup`", entry.RequiredEnvVar, entry.RequiredEnvVar)
 	}
 
 	// Read base URL from the provider's base URL env var, falling back to default.

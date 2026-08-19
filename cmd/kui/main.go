@@ -45,6 +45,7 @@ const usage = `kui [--] PROMPT...
 Runs the agent loop once and prints the final answer to stdout.
 
 Subcommands:
+  kui setup [--provider <name>]   configure API key for a provider
   kui tui [--resume <id>]         start the interactive TUI
   kui session list                list saved sessions
   kui session resume <id>         start TUI with a restored session
@@ -136,6 +137,11 @@ func run(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: determine working directory: %v\n", err)
 		return 1
+	}
+
+	// The setup subcommand launches the credential setup wizard.
+	if args[0] == "setup" {
+		return runSetup(root, args[1:])
 	}
 
 	// The profile subcommand group handles its own usage.
@@ -458,7 +464,7 @@ func runTUIWithHistory(root string, session *core.Session) int {
 		ProjectDir:  root,
 		ConfigRoot:  cfgRoot,
 		Client: func() (core.Provider, error) {
-			return createProvider(providerName)
+			return createProvider(providerName, root)
 		},
 		MaxIter: maxIterations,
 	}
@@ -506,7 +512,7 @@ func runPrompt(root string, opts Options, args []string) int {
 	}
 	providerName := resolveProvider(opts.Provider, profileProvider)
 
-	client, err := createProvider(providerName)
+	client, err := createProvider(providerName, root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "kui: %v\n", err)
 		return 1
@@ -727,8 +733,8 @@ func resolveProvider(flagProvider, profileProvider string) string {
 
 // createProvider uses the registry to construct a provider from the resolved
 // name and environment variables (REQ-SEL-3 fail-fast API key validation).
-func createProvider(name string) (core.Provider, error) {
-	return providers.CreateProvider(providers.NewDefaultRegistry(), name)
+func createProvider(name, root string) (core.Provider, error) {
+	return providers.CreateProvider(providers.NewDefaultRegistry(), name, root)
 }
 
 // runTUI starts the interactive TUI (REQ-CLI-5). It validates the provider
@@ -752,7 +758,7 @@ func runTUI(root string, opts Options) int {
 		ProjectDir:  root,
 		ConfigRoot:  cfgRoot,
 		Client: func() (core.Provider, error) {
-			return createProvider(providerName)
+			return createProvider(providerName, root)
 		},
 		MaxIter: maxIterations,
 	}

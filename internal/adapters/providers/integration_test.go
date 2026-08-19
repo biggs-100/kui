@@ -142,7 +142,7 @@ func TestThinkingDegradationNoWarningWhenSupported(t *testing.T) {
 	defer os.Unsetenv("OPENAI_API_KEY")
 
 	r := NewDefaultRegistry()
-	provider, err := CreateProvider(r, "openai")
+	provider, err := CreateProvider(r, "openai", t.TempDir())
 	if err != nil {
 		t.Fatalf("CreateProvider returned error: %v", err)
 	}
