@@ -20,3 +20,8 @@ coverage.*
 # OS
 .DS_Store
 Thumbs.db
+
+# Coverage files
+coverage
+coverage_new
+coverage_tui
