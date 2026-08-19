@@ -21,6 +21,7 @@ import (
 	"github.com/biggs-100/kui/internal/agent"
 	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/extensions/dynamic"
+	"github.com/biggs-100/kui/internal/lsp"
 	"github.com/biggs-100/kui/internal/mcp"
 )
 
@@ -60,6 +61,7 @@ type Runtime struct {
 	MCP      *mcp.MCPManager
 	Hooks    *core.HookRegistry
 	Dynamic  *dynamic.Manager
+	LSP      *lsp.LspManager
 	Profiles []string
 
 	cfg Config // retained so Reload can re-run the build from disk
@@ -126,9 +128,18 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 
 	// Step 5: registry (builtin tools + MCP tools) + hooks + dynamic extensions + extension LoadAll.
-	full, mgr, hooks, dynMgr, err := buildComponents(ctx, cfg)
+	// WARNING FIX #4: Wire LSP file syncer into file tools before building components.
+	// Create LSP manager first so file tools can send DidOpen/DidChange notifications.
+	lspMgr := lsp.NewLspManager()
+	fileSyncer := lsp.NewLspFileSyncer(lspMgr)
+	full, mgr, hooks, dynMgr, err := buildComponentsWithSyncer(ctx, cfg, fileSyncer)
 	if err != nil {
 		return nil, err
+	}
+
+	// Step 5b: register LSP tools in the full registry.
+	for _, tool := range lsp.LspTools(lspMgr) {
+		_ = full.Register(tool)
 	}
 
 	// Step 6: agent runtime.
@@ -147,6 +158,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		MCP:      mgr,
 		Hooks:    hooks,
 		Dynamic:  dynMgr,
+		LSP:      lspMgr,
 		Profiles: names,
 		cfg:      cfg,
 	}
@@ -214,8 +226,15 @@ func buildSkillsIndex(cfg Config, loader *profile.Loader, st *store.Store) (*ski
 // (REQ-RELOAD-16/17). A LoadAll error fails the build; any MCP manager
 // created is shut down before returning.
 func buildComponents(ctx context.Context, cfg Config) (*core.Registry, *mcp.MCPManager, *core.HookRegistry, *dynamic.Manager, error) {
+	return buildComponentsWithSyncer(ctx, cfg, nil)
+}
+
+// buildComponentsWithSyncer builds the full tool registry with optional LSP file
+// sync. When syncer is non-nil, read_file and write_file tools are created with
+// DidOpen/DidChange notification support (WARNING FIX #4).
+func buildComponentsWithSyncer(ctx context.Context, cfg Config, syncer tools.FileSyncer) (*core.Registry, *mcp.MCPManager, *core.HookRegistry, *dynamic.Manager, error) {
 	full := core.NewRegistry()
-	for _, tool := range tools.Default(cfg.ProjectDir, 0) {
+	for _, tool := range tools.DefaultWithSyncer(cfg.ProjectDir, 0, syncer) {
 		if err := full.Register(tool); err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("register tool: %w", err)
 		}
@@ -294,6 +313,10 @@ func (r *Runtime) Reload(ctx context.Context) ReloadResult {
 	if r.MCP != nil {
 		r.MCP.Shutdown()
 	}
+	if r.LSP != nil {
+		_ = r.LSP.StopAll() // WARNING FIX #5: stop old LSP servers before rebuilding
+		r.LSP.Cache().ClearAll()
+	}
 
 	// Save old state for rollback.
 	oldProvider := r.Provider
@@ -328,6 +351,13 @@ func (r *Runtime) Reload(ctx context.Context) ReloadResult {
 	if err != nil {
 		r.Provider = oldProvider
 		return ReloadResult{Err: fmt.Errorf("rebuild components: %w", err)}
+	}
+
+	// Step 7b: re-register LSP tools in the rebuilt registry (CRITICAL FIX #1).
+	// buildComponents() creates a fresh registry without LSP tools — we must
+	// re-register them so lsp_* tools remain available after Reload.
+	for _, tool := range lsp.LspTools(r.LSP) {
+		_ = full.Register(tool)
 	}
 
 	// Swap (D2): apply new state atomically.
@@ -369,6 +399,9 @@ func (r *Runtime) Close() error {
 
 	if r.MCP != nil {
 		r.MCP.Shutdown()
+	}
+	if r.LSP != nil {
+		_ = r.LSP.StopAll()
 	}
 	if r.Dynamic != nil {
 		_ = r.Dynamic.ShutdownAll()

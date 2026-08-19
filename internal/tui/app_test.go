@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/tui/theme"
+	"github.com/biggs-100/kui/internal/tui/toast"
 )
 
 // --- fakeAppRunner implements Runner for app-level tests ---
@@ -756,5 +759,422 @@ func TestStreamDoneMsgWiresUsageToController(t *testing.T) {
 	// Controller should have accumulated the tokens
 	if got := a.ctrl.TotalTokens(); got != 150 {
 		t.Errorf("TotalTokens() = %d, want 150 after streamDoneMsg with usage", got)
+	}
+}
+
+// --- Diff View Toggle Tests ---
+
+func TestAppDiffToggle(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Initially diff should not be visible
+	if app.diffVisible {
+		t.Error("diff should not be visible initially")
+	}
+
+	// Press 'd' to toggle diff view
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	a := msg.(*App)
+
+	if !a.diffVisible {
+		t.Error("diff should be visible after pressing 'd'")
+	}
+
+	// Press 'd' again to hide
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	a = msg.(*App)
+
+	if a.diffVisible {
+		t.Error("diff should be hidden after pressing 'd' again")
+	}
+}
+
+func TestAppDiffViewDoesNotAffectInput(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type some text, then 'd' should not toggle diff when input has content
+	for _, r := range "hello" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+
+	// Press 'd' — should be typed into input, not toggle diff
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	a := msg.(*App)
+
+	if a.diffVisible {
+		t.Error("diff should not toggle when input has content")
+	}
+	if a.input.Value() != "hellod" {
+		t.Errorf("input should contain 'hellod', got %q", a.input.Value())
+	}
+}
+
+func TestAppDiffViewRendered(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Toggle diff view
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	a := msg.(*App)
+
+	// View should render without panic
+	view := a.View()
+	if view == "" {
+		t.Error("expected non-empty view with diff visible")
+	}
+}
+
+// --- LSP Keybinding Tests (Fix #6) ---
+
+func TestAppLspKeybindingGdWithoutDispatcher(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Press 'g' then 'd' — should not panic even without dispatcher
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	a := msg.(*App)
+	if !a.lspPendingG {
+		t.Error("pressing 'g' should set lspPendingG")
+	}
+
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	_ = msg
+
+	// lspPendingG should be cleared
+	a2 := msg.(*App)
+	if a2.lspPendingG {
+		t.Error("lspPendingG should be false after 'gd' sequence")
+	}
+
+	// Status should show an error (no dispatcher configured)
+	if a2.chat.Status() == "" {
+		t.Error("gd without dispatcher should set error status")
+	}
+}
+
+func TestAppLspKeybindingGrWithoutDispatcher(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Press 'g' then 'r'
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	a := msg.(*App)
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	a = msg.(*App)
+
+	if a.chat.Status() == "" {
+		t.Error("gr without dispatcher should set error status")
+	}
+}
+
+func TestAppLspKeybindingKWithoutDispatcher(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Press 'K' (uppercase)
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
+	a := msg.(*App)
+
+	if a.chat.Status() == "" {
+		t.Error("K without dispatcher should set error status")
+	}
+}
+
+func TestAppLspKeybindingWithDispatcher(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	c.SetLspDispatcher(func(toolName string, args map[string]interface{}) (string, error) {
+		return `{"locations":[{"uri":"file:///main.go","range":{"start":{"line":10,"character":0}}}]}`, nil
+	})
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Press 'g' then 'd' — should dispatch and add result to chat
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	a := msg.(*App)
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	a = msg.(*App)
+
+	// Chat should have an assistant message with the result
+	if len(a.chat.Messages()) == 0 {
+		t.Fatal("gd with dispatcher should add result to chat")
+	}
+	last := a.chat.Messages()[len(a.chat.Messages())-1]
+	if last.Role != "assistant" {
+		t.Errorf("expected assistant message, got role %q", last.Role)
+	}
+}
+
+func TestAppLspKeybindingCancelled(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Press 'g' then something other than 'd' or 'r' — should cancel
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	a := msg.(*App)
+	if !a.lspPendingG {
+		t.Error("pressing 'g' should set lspPendingG")
+	}
+
+	// Press 'x' — should cancel the gd/gr sequence
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	a = msg.(*App)
+	if a.lspPendingG {
+		t.Error("lspPendingG should be false after cancelled sequence")
+	}
+}
+
+func TestAppLspKeybindingIgnoredWithInput(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type some text first
+	for _, r := range "hello" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+
+	// Now press 'g' — should NOT trigger lspPendingG because input is non-empty
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	a := msg.(*App)
+	if a.lspPendingG {
+		t.Error("lspPendingG should not be set when input is non-empty")
+	}
+
+	// 'K' should also be ignored when input is non-empty
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
+	a = msg.(*App)
+	// Should have typed 'K' into input, not dispatched LSP
+	if a.input.Value() != "hellogK" {
+		t.Errorf("K with non-empty input should type into input, got %q", a.input.Value())
+	}
+}
+
+// --- Command Palette Tests (Phase 5) ---
+
+func TestAppPaletteToggle(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Palette should not be active initially
+	if app.paletteMode {
+		t.Error("paletteMode should be false initially")
+	}
+
+	// Press Ctrl+P to open palette
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	a := msg.(*App)
+
+	if !a.paletteMode {
+		t.Error("paletteMode should be true after Ctrl+P")
+	}
+	if a.commandPalette == nil {
+		t.Fatal("commandPalette should be non-nil after Ctrl+P")
+	}
+
+	// View should show the palette
+	view := a.View()
+	if !strings.Contains(view, "Command Palette") {
+		t.Errorf("view should contain 'Command Palette' when palette is active, got:\n%s", view)
+	}
+}
+
+func TestAppPaletteEscape(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Open palette
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	a := msg.(*App)
+
+	// Escape should close palette
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	a = msg.(*App)
+
+	if a.paletteMode {
+		t.Error("paletteMode should be false after Escape")
+	}
+}
+
+func TestAppHelpCategorized(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type /help and submit
+	for _, r := range "/help" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := msg.(*App)
+
+	status := a.chat.Status()
+	if status == "" {
+		t.Fatal("/help should set a status message")
+	}
+
+	// Should contain category headers
+	if !strings.Contains(status, "Session") {
+		t.Errorf("/help output missing 'Session' category, got: %s", status)
+	}
+	if !strings.Contains(status, "System") {
+		t.Errorf("/help output missing 'System' category, got: %s", status)
+	}
+
+	// Should contain command descriptions
+	if !strings.Contains(status, "/reload") {
+		t.Errorf("/help output missing /reload, got: %s", status)
+	}
+}
+
+func TestAppPaletteDoesNotInterfereWithInput(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Type some text
+	for _, r := range "hello" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+
+	// Input should have the text
+	if app.input.Value() != "hello" {
+		t.Errorf("input should contain 'hello', got %q", app.input.Value())
+	}
+
+	// Palette should not be active
+	if app.paletteMode {
+		t.Error("paletteMode should be false when typing normally")
+	}
+}
+
+// --- Toast Integration Tests (Phase 2) ---
+
+func TestAppToast(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Push a toast via the app
+	app.toast.Push("config reloaded", toast.LevelInfo, 3*time.Second)
+
+	// View should contain the toast text
+	view := app.View()
+	if !strings.Contains(view, "config reloaded") {
+		t.Errorf("View() should contain toast text, got:\n%s", view)
+	}
+}
+
+func TestAppToastDismissOnTick(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Push a toast with zero duration
+	app.toast.Push("expired", toast.LevelInfo, 0)
+
+	// Tick to dismiss
+	app.Update(toast.TickMsg{})
+
+	// View should NOT contain the expired toast
+	view := app.View()
+	if strings.Contains(view, "expired") {
+		t.Errorf("View() should not contain expired toast, got:\n%s", view)
+	}
+}
+
+// --- Theme Cycling Tests (Phase 5) ---
+
+func TestThemeCycling(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Record initial theme
+	initial := app.currentTheme
+
+	// Type /theme next and submit
+	for _, r := range "/theme next" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := msg.(*App)
+
+	// Theme should have changed
+	if a.currentTheme == initial {
+		t.Errorf("theme should change after /theme next, still %q", a.currentTheme)
+	}
+}
+
+func TestThemeCyclingPrev(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	initial := app.currentTheme
+
+	// Type /theme prev and submit
+	for _, r := range "/theme prev" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a := msg.(*App)
+
+	if a.currentTheme == initial {
+		t.Errorf("theme should change after /theme prev, still %q", a.currentTheme)
+	}
+}
+
+func TestThemeCyclingWraps(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	app := NewApp(c)
+	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	names := theme.ThemeNames()
+	if len(names) < 2 {
+		// In test env, themes may not be discoverable from package dir.
+		// Verify wrap logic with a direct approach.
+		app.currentTheme = "nonexistent-A"
+		// When theme is not in list, cycling should still work (falls back to first)
+		for _, r := range "/theme next" {
+			msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			app = msg.(*App)
+		}
+		app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		// Should land on "kui-default" (first in list)
+		if app.currentTheme != "kui-default" {
+			t.Errorf("cycling from unknown theme should land on kui-default, got %q", app.currentTheme)
+		}
+		return
+	}
+
+	// Cycle forward through all themes — should return to start
+	original := app.currentTheme
+	for i := 0; i < len(names); i++ {
+		for _, r := range "/theme next" {
+			msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			app = msg.(*App)
+		}
+		app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	}
+
+	if app.currentTheme != original {
+		t.Errorf("cycling through all themes should wrap back to %q, got %q", original, app.currentTheme)
 	}
 }

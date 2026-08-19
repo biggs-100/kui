@@ -920,3 +920,36 @@ func TestControllerAutoSaveAfterSubmit(t *testing.T) {
 		t.Error("auto-saved session has no messages")
 	}
 }
+
+// --- LSP Dispatch Tests (Fix #6) ---
+
+func TestDispatchLspWithoutDispatcher(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	_, err := c.DispatchLsp("lsp_definition", map[string]interface{}{"uri": "file:///test.go"})
+	if err == nil {
+		t.Error("DispatchLsp without dispatcher should return error")
+	}
+}
+
+func TestDispatchLspWithDispatcher(t *testing.T) {
+	c := NewController([]string{"coder"}, nil, nil)
+	called := false
+	c.SetLspDispatcher(func(toolName string, args map[string]interface{}) (string, error) {
+		called = true
+		if toolName != "lsp_definition" {
+			t.Errorf("toolName = %q, want %q", toolName, "lsp_definition")
+		}
+		return `{"result":"ok"}`, nil
+	})
+
+	result, err := c.DispatchLsp("lsp_definition", map[string]interface{}{"uri": "file:///test.go"})
+	if err != nil {
+		t.Fatalf("DispatchLsp error: %v", err)
+	}
+	if !called {
+		t.Error("dispatcher was not called")
+	}
+	if result != `{"result":"ok"}` {
+		t.Errorf("result = %q, want %q", result, `{"result":"ok"}`)
+	}
+}
