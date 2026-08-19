@@ -168,7 +168,7 @@ func TestResolveWithOverrideTakesPrecedence(t *testing.T) {
 	st := setupTestStore(t, "coder", "gpt-4o")
 	loader := setupTestLoader(t, "coder", "gpt-4o-profile")
 
-	got := resolveWithOverride("gpt-4o-mini", st, loader, "coder")
+	got := resolveWithOverride("gpt-4o-mini", st, loader, "coder", "openai")
 	if got != "gpt-4o-mini" {
 		t.Errorf("resolveWithOverride() = %q, want %q", got, "gpt-4o-mini")
 	}
@@ -178,7 +178,7 @@ func TestResolveWithOverrideEmptyFallsThroughToSaved(t *testing.T) {
 	st := setupTestStore(t, "coder", "gpt-4o-saved")
 	loader := setupTestLoader(t, "coder", "gpt-4o-profile")
 
-	got := resolveWithOverride("", st, loader, "coder")
+	got := resolveWithOverride("", st, loader, "coder", "openai")
 	if got != "gpt-4o-saved" {
 		t.Errorf("resolveWithOverride() = %q, want %q", got, "gpt-4o-saved")
 	}
@@ -189,7 +189,7 @@ func TestResolveWithOverrideEmptyFallsThroughToProfile(t *testing.T) {
 	st := store.New(dir) // empty store — no saved model
 	loader := setupTestLoader(t, "coder", "gpt-4o-profile")
 
-	got := resolveWithOverride("", st, loader, "coder")
+	got := resolveWithOverride("", st, loader, "coder", "openai")
 	if got != "gpt-4o-profile" {
 		t.Errorf("resolveWithOverride() = %q, want %q", got, "gpt-4o-profile")
 	}
@@ -201,7 +201,7 @@ func TestResolveWithOverrideEmptyFallsThroughToEnv(t *testing.T) {
 	loader := setupTestLoader(t, "coder", "") // no profile model
 
 	t.Setenv("OPENAI_MODEL", "gpt-from-env")
-	got := resolveWithOverride("", st, loader, "coder")
+	got := resolveWithOverride("", st, loader, "coder", "openai")
 	if got != "gpt-from-env" {
 		t.Errorf("resolveWithOverride() = %q, want %q", got, "gpt-from-env")
 	}
@@ -212,7 +212,7 @@ func TestResolveWithOverrideEmptyFallsThroughToDefault(t *testing.T) {
 	st := store.New(dir)
 	loader := setupTestLoader(t, "coder", "") // no profile model
 
-	got := resolveWithOverride("", st, loader, "coder")
+	got := resolveWithOverride("", st, loader, "coder", "openai")
 	if got != defaultModel {
 		t.Errorf("resolveWithOverride() = %q, want %q", got, defaultModel)
 	}

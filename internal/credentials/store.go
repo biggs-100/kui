@@ -52,6 +52,11 @@ func (cs *CredentialStore) credPath() string {
 	return filepath.Join(cs.dir(), credFileName)
 }
 
+// CredPath returns the absolute path to the credentials file (exported for debugging).
+func (cs *CredentialStore) CredPath() string {
+	return cs.credPath()
+}
+
 // Load reads and parses the credentials file. If the file does not exist, the
 // store remains empty (no error). Malformed JSON returns a descriptive error.
 func (cs *CredentialStore) Load() error {
@@ -104,6 +109,33 @@ func (cs *CredentialStore) GetConfiguredProvider() string {
 		}
 	}
 	return ""
+}
+
+// OpenCodeAuth represents the structure of OpenCode's auth.json.
+type OpenCodeAuth struct {
+	Type string `json:"type"`
+	Key  string `json:"key"`
+}
+
+// ReadOpenCodeAuth reads an API key from OpenCode's auth.json (~/.local/share/opencode/auth.json).
+func ReadOpenCodeAuth(provider string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	data, err := os.ReadFile(authPath)
+	if err != nil {
+		return "", err
+	}
+	var auths map[string]OpenCodeAuth
+	if err := json.Unmarshal(data, &auths); err != nil {
+		return "", err
+	}
+	if auth, ok := auths[provider]; ok && auth.Key != "" {
+		return auth.Key, nil
+	}
+	return "", fmt.Errorf("no key for %q in OpenCode auth", provider)
 }
 
 // readCreds loads the credentials from disk. An absent file yields an empty

@@ -54,13 +54,13 @@ func (r *Registry) Register(name string, entry ProviderEntry) {
 func (r *Registry) Resolve(name string) (ProviderEntry, error) {
 	entry, ok := r.entries[name]
 	if !ok {
-		return ProviderEntry{}, fmt.Errorf("unknown provider %q: available providers are openai, opencode", name)
+		return ProviderEntry{}, fmt.Errorf("unknown provider %q: available providers are openai, opencode, opencode-go", name)
 	}
 	return entry, nil
 }
 
 // NewDefaultRegistry creates a registry pre-populated with the built-in
-// providers: "openai" and "opencode" (task 1.7).
+// providers: "openai", "opencode", and "opencode-go" (task 1.7).
 func NewDefaultRegistry() *Registry {
 	r := NewRegistry()
 
@@ -76,10 +76,20 @@ func NewDefaultRegistry() *Registry {
 
 	r.Register("opencode", ProviderEntry{
 		Factory: func(apiKey, baseURL string) (core.Provider, error) {
-			return opencode.NewClient(baseURL)
+			return opencode.NewClient(apiKey, baseURL)
 		},
 		RequiredEnvVar:   "OPENCODE_API_KEY",
 		BaseURLEnvVar:    "OPENCODE_BASE_URL",
+		DefaultBaseURL:   "https://opencode.ai/zen/v1",
+		SupportsThinking: false,
+	})
+
+	r.Register("opencode-go", ProviderEntry{
+		Factory: func(apiKey, baseURL string) (core.Provider, error) {
+			return opencode.NewClient(apiKey, baseURL)
+		},
+		RequiredEnvVar:   "OPENCODE_GO_API_KEY",
+		BaseURLEnvVar:    "OPENCODE_GO_BASE_URL",
 		DefaultBaseURL:   "https://opencode.ai/zen/go/v1",
 		SupportsThinking: false,
 	})

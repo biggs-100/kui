@@ -25,10 +25,7 @@ func TestOpenCodeIntegrationBaseURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	os.Setenv("OPENCODE_API_KEY", "test-key")
-	defer os.Unsetenv("OPENCODE_API_KEY")
-
-	provider, err := opencode.NewClient(srv.URL)
+	provider, err := opencode.NewClient("test-key", srv.URL)
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}

@@ -602,7 +602,7 @@ func runPrompt(root string, opts Options, args []string) int {
 	}
 
 	// Resolve model for verbose logging and JSON output (REQ-CLI-4, REQ-CLI-11).
-	resolvedModel := resolveWithOverride(opts.Model, st, loader, activeName)
+	resolvedModel := resolveWithOverride(opts.Model, st, loader, activeName, providerName)
 
 	if activeName != "" {
 		if sm, ok := client.(interface{ SetModel(string) }); ok {
@@ -632,7 +632,7 @@ func runPrompt(root string, opts Options, args []string) int {
 	// When no profile is active, the --model flag still applies (REQ-CLI-11).
 	if activeName == "" {
 		if sm, ok := client.(interface{ SetModel(string) }); ok {
-			sm.SetModel(resolveWithOverride(opts.Model, st, loader, ""))
+			sm.SetModel(resolveWithOverride(opts.Model, st, loader, "", providerName))
 		}
 	}
 
@@ -673,11 +673,11 @@ func runPrompt(root string, opts Options, args []string) int {
 // --model override as highest priority. When override is non-empty, it is
 // returned immediately (REQ-CLI-11). Otherwise the standard chain applies:
 // saved model → profile.yaml model → OPENAI_MODEL → default (REQ-CLI-4).
-func resolveWithOverride(override string, st *store.Store, loader *profile.Loader, name string) string {
+func resolveWithOverride(override string, st *store.Store, loader *profile.Loader, name, provider string) string {
 	if override != "" {
 		return override
 	}
-	return resolveModel(st, loader, name)
+	return resolveModel(st, loader, name, provider)
 }
 
 // resolveThinking validates a thinking level string against the allowed values
@@ -711,7 +711,7 @@ func resolveThinkingLevel(flagLevel string, loader *profile.Loader, activeName s
 // model (ModelMemory, .kui/models.json), then the layered profile.yaml model
 // (profile → project → global, merged by the loader), then OPENAI_MODEL, then
 // the built-in default.
-func resolveModel(st *store.Store, loader *profile.Loader, name string) string {
+func resolveModel(st *store.Store, loader *profile.Loader, name, provider string) string {
 	if model, ok := st.Get(name); ok {
 		return model
 	}
@@ -721,7 +721,19 @@ func resolveModel(st *store.Store, loader *profile.Loader, name string) string {
 	if model := os.Getenv("OPENAI_MODEL"); model != "" {
 		return model
 	}
-	return defaultModel
+	return defaultModelForProvider(provider)
+}
+
+// defaultModelForProvider returns a sensible default model for the given provider.
+func defaultModelForProvider(provider string) string {
+	switch provider {
+	case "opencode":
+		return "mimo-v2.5-free"
+	case "opencode-go":
+		return "mimo-v2.5"
+	default:
+		return defaultModel
+	}
 }
 
 // resolveProvider applies the layered resolution chain for provider selection:

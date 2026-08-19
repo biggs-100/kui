@@ -3,24 +3,15 @@ package opencode
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
-	"strings"
 	"testing"
 )
 
 func TestOpenCodeMissingAPIKey(t *testing.T) {
-	// REQ-SEL-3: missing API key fails with error naming the variable.
-	orig := os.Getenv("OPENCODE_API_KEY")
-	os.Unsetenv("OPENCODE_API_KEY")
-	defer os.Setenv("OPENCODE_API_KEY", orig)
-
-	_, err := NewClient("https://opencode.ai/zen/go/v1")
+	// REQ-SEL-3: missing API key fails with error.
+	_, err := NewClient("", "https://opencode.ai/zen/v1")
 	if err == nil {
-		t.Fatal("NewClient returned nil error with missing OPENCODE_API_KEY, want error")
-	}
-	if !strings.Contains(err.Error(), "OPENCODE_API_KEY") {
-		t.Errorf("error = %q, want it to contain %q", err.Error(), "OPENCODE_API_KEY")
+		t.Fatal("NewClient returned nil error with empty API key, want error")
 	}
 }
 
@@ -32,10 +23,7 @@ func TestOpenCodeBaseURLOverride(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	os.Setenv("OPENCODE_API_KEY", "test-key")
-	defer os.Unsetenv("OPENCODE_API_KEY")
-
-	client, err := NewClient(srv.URL)
+	client, err := NewClient("test-key", srv.URL)
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
@@ -45,13 +33,8 @@ func TestOpenCodeBaseURLOverride(t *testing.T) {
 }
 
 func TestOpenCodeDefaultBaseURLFallback(t *testing.T) {
-	// When OPENCODE_API_KEY is set but OPENCODE_BASE_URL is not, the client
-	// must fall back to the hardcoded default (https://opencode.ai/zen/go/v1).
-	os.Setenv("OPENCODE_API_KEY", "test-key")
-	defer os.Unsetenv("OPENCODE_API_KEY")
-	os.Unsetenv("OPENCODE_BASE_URL")
-
-	client, err := NewClient("")
+	// When baseURL is empty, the client must fall back to the hardcoded default.
+	client, err := NewClient("test-key", "")
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
@@ -62,7 +45,7 @@ func TestOpenCodeDefaultBaseURLFallback(t *testing.T) {
 	// Verify the internal baseURL field holds the default value via reflection.
 	v := reflect.ValueOf(client).Elem()
 	baseURL := v.FieldByName("baseURL").String()
-	want := "https://opencode.ai/zen/go/v1"
+	want := "https://opencode.ai/zen/v1"
 	if baseURL != want {
 		t.Errorf("baseURL = %q, want %q", baseURL, want)
 	}

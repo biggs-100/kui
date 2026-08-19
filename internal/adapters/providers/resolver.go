@@ -1,9 +1,11 @@
 package providers
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/credentials"
@@ -33,7 +35,7 @@ func ResolveProvider(flagProvider, profileProvider, root string) string {
 }
 
 // CreateProvider uses the registry to construct a provider from the resolved
-// name. API key resolution: environment variable → credentials store → error
+// name. API key resolution: environment variable → OpenCode auth.json → kui credentials → error
 // (REQ-SEL-3). root is the project root for resolving .kui/credentials.json.
 func CreateProvider(reg *Registry, name string, root string) (core.Provider, error) {
 	entry, err := reg.Resolve(name)
@@ -44,15 +46,18 @@ func CreateProvider(reg *Registry, name string, root string) (core.Provider, err
 	// Read API key from the provider's required env var.
 	apiKey := os.Getenv(entry.RequiredEnvVar)
 
-	// Fallback to credential store if env var is empty.
+	// Fallback to OpenCode's auth.json (most common for kui users).
+	if apiKey == "" {
+		apiKey = readOpenCodeAuth(name)
+	}
+
+	// Fallback to kui's own credential store.
 	if apiKey == "" {
 		store := credentials.NewCredentialStore(root)
-		if err := store.Load(); err != nil {
-			return nil, fmt.Errorf("load credentials: %w", err)
-		}
-		key, err := store.GetAPIKey(name)
-		if err == nil {
-			apiKey = key
+		if err := store.Load(); err == nil {
+			if key, err := store.GetAPIKey(name); err == nil {
+				apiKey = key
+			}
 		}
 	}
 
@@ -70,6 +75,30 @@ func CreateProvider(reg *Registry, name string, root string) (core.Provider, err
 	}
 
 	return entry.Factory(apiKey, baseURL)
+}
+
+// readOpenCodeAuth reads an API key from OpenCode's auth.json.
+func readOpenCodeAuth(provider string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	authPath := filepath.Join(home, ".local", "share", "opencode", "auth.json")
+	data, err := os.ReadFile(authPath)
+	if err != nil {
+		return ""
+	}
+	var auths map[string]struct {
+		Type string `json:"type"`
+		Key  string `json:"key"`
+	}
+	if err := json.Unmarshal(data, &auths); err != nil {
+		return ""
+	}
+	if auth, ok := auths[provider]; ok && auth.Key != "" {
+		return auth.Key
+	}
+	return ""
 }
 
 // WarnThinkingDegradation emits a stderr warning when the resolved provider

@@ -4,31 +4,20 @@
 package opencode
 
 import (
-	"errors"
-	"os"
+	"fmt"
 
 	"github.com/biggs-100/kui/internal/adapters/providers/openai"
 	"github.com/biggs-100/kui/internal/core"
 )
 
-const (
-	// defaultBaseURL is the OpenCode Zen endpoint when OPENCODE_BASE_URL is unset.
-	defaultBaseURL = "https://opencode.ai/zen/go/v1"
-)
-
-// NewClient creates an OpenCode provider from the environment. It reads
-// OPENCODE_API_KEY (required) and OPENCODE_BASE_URL (optional, defaults to
-// https://opencode.ai/zen/go/v1) and delegates to openai.NewClientWithConfig.
-func NewClient(baseURL string) (core.Provider, error) {
-	key := os.Getenv("OPENCODE_API_KEY")
-	if key == "" {
-		return nil, errors.New("OPENCODE_API_KEY is not set: export OPENCODE_API_KEY before running kui")
+// NewClient creates an OpenCode provider from the resolved API key and base URL.
+// The caller (resolver layer) is responsible for layered API key resolution.
+func NewClient(apiKey, baseURL string) (core.Provider, error) {
+	if apiKey == "" {
+		return nil, fmt.Errorf("opencode API key is empty")
 	}
 	if baseURL == "" {
-		baseURL = os.Getenv("OPENCODE_BASE_URL")
-		if baseURL == "" {
-			baseURL = defaultBaseURL
-		}
+		baseURL = "https://opencode.ai/zen/v1"
 	}
-	return openai.NewClientWithConfig(key, baseURL, "")
+	return openai.NewClientWithConfig(apiKey, baseURL, "")
 }
