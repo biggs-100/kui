@@ -21,6 +21,7 @@ import (
 	"github.com/biggs-100/kui/internal/agent"
 	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/extensions/dynamic"
+	"github.com/biggs-100/kui/internal/lsp"
 	"github.com/biggs-100/kui/internal/mcp"
 )
 
@@ -60,6 +61,7 @@ type Runtime struct {
 	MCP      *mcp.MCPManager
 	Hooks    *core.HookRegistry
 	Dynamic  *dynamic.Manager
+	LSP      *lsp.LspManager
 	Profiles []string
 
 	cfg Config // retained so Reload can re-run the build from disk
@@ -131,6 +133,12 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 
+	// Step 5b: LSP manager — lazy startup, tools registered immediately.
+	lspMgr := lsp.NewLspManager()
+	for _, tool := range lsp.LspTools(lspMgr) {
+		_ = full.Register(tool)
+	}
+
 	// Step 6: agent runtime.
 	manager := agent.NewManager(loader, full)
 	ag := agent.NewAgent(manager, skillsIndex, provider, cfg.MaxIter)
@@ -147,6 +155,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		MCP:      mgr,
 		Hooks:    hooks,
 		Dynamic:  dynMgr,
+		LSP:      lspMgr,
 		Profiles: names,
 		cfg:      cfg,
 	}
@@ -294,6 +303,9 @@ func (r *Runtime) Reload(ctx context.Context) ReloadResult {
 	if r.MCP != nil {
 		r.MCP.Shutdown()
 	}
+	if r.LSP != nil {
+		r.LSP.Cache().ClearAll()
+	}
 
 	// Save old state for rollback.
 	oldProvider := r.Provider
@@ -369,6 +381,9 @@ func (r *Runtime) Close() error {
 
 	if r.MCP != nil {
 		r.MCP.Shutdown()
+	}
+	if r.LSP != nil {
+		_ = r.LSP.StopAll()
 	}
 	if r.Dynamic != nil {
 		_ = r.Dynamic.ShutdownAll()

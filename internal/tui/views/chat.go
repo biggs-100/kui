@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/tui/markdown"
 	"github.com/biggs-100/kui/internal/tui/theme"
 )
 
@@ -22,10 +23,11 @@ type Message struct {
 // streaming answer chunks, error state, and a status line for reload feedback
 // (REQ-TUI-CHAT-1/2, REQ-RELOAD-12).
 type ChatModel struct {
-	messages  []Message
-	lastError string
-	status    string // REQ-RELOAD-12: neutral status line
-	styles    *theme.Styles
+	messages    []Message
+	lastError   string
+	status      string   // REQ-RELOAD-12: neutral status line
+	diagnostics []string // inline diagnostic annotations
+	styles      *theme.Styles
 }
 
 // NewChatModel creates an empty ChatModel.
@@ -108,6 +110,16 @@ func (m ChatModel) Status() string {
 	return m.status
 }
 
+// SetDiagnostics sets inline diagnostic annotations displayed below messages.
+func (m *ChatModel) SetDiagnostics(diags []string) {
+	m.diagnostics = diags
+}
+
+// Diagnostics returns the current diagnostic annotations (for testing).
+func (m ChatModel) Diagnostics() []string {
+	return m.diagnostics
+}
+
 // Render produces the full chat view string.
 func (m ChatModel) Render() string {
 	if len(m.messages) == 0 {
@@ -131,7 +143,13 @@ func (m ChatModel) Render() string {
 		}
 
 		line.WriteString("\n")
-		line.WriteString(msg.Content)
+
+		// Assistant messages go through markdown rendering
+		if msg.Role == "assistant" {
+			line.WriteString(markdown.Render(msg.Content, m.styles))
+		} else {
+			line.WriteString(msg.Content)
+		}
 
 		parts = append(parts, line.String())
 	}
@@ -142,6 +160,13 @@ func (m ChatModel) Render() string {
 
 	if m.status != "" {
 		parts = append(parts, m.styles.EmptyHint.Render(m.status))
+	}
+
+	// Inline diagnostic annotations.
+	if len(m.diagnostics) > 0 {
+		for _, d := range m.diagnostics {
+			parts = append(parts, m.styles.Error.Render("  "+d))
+		}
 	}
 
 	return strings.Join(parts, "\n\n")

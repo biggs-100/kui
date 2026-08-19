@@ -16,6 +16,8 @@ type FooterModel struct {
 	cost         float64
 	mcpConnected int
 	mcpFailed    int
+	lspState     string // "running", "idle", "error", or ""
+	lspDiags     string // e.g. "3 errors, 2 warnings"
 	styles       *theme.Styles
 }
 
@@ -49,6 +51,12 @@ func (m *FooterModel) SetCost(cost float64) {
 func (m *FooterModel) SetMCPStatus(connected, failed int) {
 	m.mcpConnected = connected
 	m.mcpFailed = failed
+}
+
+// SetLSPStatus sets the LSP server state and diagnostic summary.
+func (m *FooterModel) SetLSPStatus(state, diagSummary string) {
+	m.lspState = state
+	m.lspDiags = diagSummary
 }
 
 // Render produces the footer string.
@@ -92,6 +100,15 @@ func (m FooterModel) Render() string {
 		mcp = fmt.Sprintf("MCP: %d/%d", m.mcpConnected, m.mcpFailed)
 	}
 
-	parts := []string{dir, model, tokens, cost, mcp}
+	// LSP status
+	lsp := "LSP: --"
+	if m.lspState != "" {
+		lsp = fmt.Sprintf("LSP: %s", m.lspState)
+		if m.lspDiags != "" {
+			lsp += " | " + m.lspDiags
+		}
+	}
+
+	parts := []string{dir, model, tokens, cost, mcp, lsp}
 	return m.styles.StatusLine.Render(strings.Join(parts, " | "))
 }
