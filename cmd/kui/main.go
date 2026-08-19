@@ -148,6 +148,11 @@ func run(args []string) int {
 		return runSession(root, args[1:])
 	}
 
+	// The plugin subcommand group manages plugin lifecycle.
+	if args[0] == "plugin" {
+		return runPlugin(root, args[1:])
+	}
+
 	// The tui subcommand starts the interactive TUI (REQ-CLI-5).
 	if args[0] == "tui" {
 		// Parse flags first to check for --mode json conflict.
