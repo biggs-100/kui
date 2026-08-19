@@ -29,5 +29,8 @@ func DefaultWithSyncer(root string, bashTimeout time.Duration, syncer FileSyncer
 		rf,
 		wf,
 		NewBash(bashTimeout),
+		NewGlobTool(root),
+		NewGrepTool(root),
+		NewWebFetchTool(0),
 	}
 }

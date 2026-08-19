@@ -121,8 +121,8 @@ func TestDefaultWithSyncerWiresFileSync(t *testing.T) {
 	}
 
 	toolSlice := DefaultWithSyncer(root, 0, syncer)
-	if len(toolSlice) != 3 {
-		t.Fatalf("DefaultWithSyncer returned %d tools, want 3", len(toolSlice))
+	if len(toolSlice) != 6 {
+		t.Fatalf("DefaultWithSyncer returned %d tools, want 6", len(toolSlice))
 	}
 
 	// Find read_file and write_file tools.

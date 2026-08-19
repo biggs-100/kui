@@ -13,8 +13,8 @@ import (
 func TestDefaultSetEnumeratesBuiltins(t *testing.T) {
 	set := Default(t.TempDir(), 0)
 
-	if len(set) != 3 {
-		t.Fatalf("default set has %d tools, want 3", len(set))
+	if len(set) != 6 {
+		t.Fatalf("default set has %d tools, want 6", len(set))
 	}
 	var names []string
 	for _, tool := range set {
@@ -27,7 +27,7 @@ func TestDefaultSetEnumeratesBuiltins(t *testing.T) {
 			t.Errorf("tool %q has an invalid schema %q", tool.Name(), schema)
 		}
 	}
-	want := []string{"read_file", "write_file", "bash"}
+	want := []string{"read_file", "write_file", "bash", "glob", "grep", "web_fetch"}
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("default set order = %v, want %v", names, want)
 	}
