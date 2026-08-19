@@ -13,36 +13,36 @@ import (
 func TestResolveProvider_FlagTakesPrecedence(t *testing.T) {
 	// REQ-SEL-2: --provider flag has highest priority.
 	t.Setenv("KUI_PROVIDER", "opencode")
-	got := ResolveProvider("openai", "")
+	got := ResolveProvider("openai", "", t.TempDir())
 	if got != "openai" {
-		t.Errorf("ResolveProvider(%q, %q) = %q, want %q", "openai", "", got, "openai")
+		t.Errorf("ResolveProvider(%q, %q, root) = %q, want %q", "openai", "", got, "openai")
 	}
 }
 
 func TestResolveProvider_ProfileTakesPrecedenceOverEnv(t *testing.T) {
 	// REQ-SEL-2: profile provider beats KUI_PROVIDER env.
 	t.Setenv("KUI_PROVIDER", "opencode")
-	got := ResolveProvider("", "openai")
+	got := ResolveProvider("", "openai", t.TempDir())
 	if got != "openai" {
-		t.Errorf("ResolveProvider(%q, %q) = %q, want %q", "", "openai", got, "openai")
+		t.Errorf("ResolveProvider(%q, %q, root) = %q, want %q", "", "openai", got, "openai")
 	}
 }
 
 func TestResolveProvider_EnvTakesPrecedenceOverDefault(t *testing.T) {
 	// REQ-SEL-2: KUI_PROVIDER env beats default "openai".
 	t.Setenv("KUI_PROVIDER", "opencode")
-	got := ResolveProvider("", "")
+	got := ResolveProvider("", "", t.TempDir())
 	if got != "opencode" {
-		t.Errorf("ResolveProvider(%q, %q) = %q, want %q", "", "", got, "opencode")
+		t.Errorf("ResolveProvider(%q, %q, root) = %q, want %q", "", "", got, "opencode")
 	}
 }
 
 func TestResolveProvider_DefaultOpenAI(t *testing.T) {
 	// REQ-SEL-2: default is "openai" when nothing is set.
 	os.Unsetenv("KUI_PROVIDER")
-	got := ResolveProvider("", "")
+	got := ResolveProvider("", "", t.TempDir())
 	if got != "openai" {
-		t.Errorf("ResolveProvider(%q, %q) = %q, want %q", "", "", got, "openai")
+		t.Errorf("ResolveProvider(%q, %q, root) = %q, want %q", "", "", got, "openai")
 	}
 }
 

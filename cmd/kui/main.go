@@ -457,7 +457,7 @@ func runTUIWithHistory(root string, session *core.Session) int {
 	if resolved, err := loader.Resolve(activeName); err == nil {
 		profileProvider = resolved.Provider
 	}
-	providerName := resolveProvider("", profileProvider)
+	providerName := resolveProvider("", profileProvider, root)
 
 	wiring := tui.Wiring{
 		ProfileRoot: filepath.Join(cfgRoot, "profiles"),
@@ -510,7 +510,7 @@ func runPrompt(root string, opts Options, args []string) int {
 	if resolved, err := loader.Resolve(activeName); err == nil {
 		profileProvider = resolved.Provider
 	}
-	providerName := resolveProvider(opts.Provider, profileProvider)
+	providerName := resolveProvider(opts.Provider, profileProvider, root)
 
 	client, err := createProvider(providerName, root)
 	if err != nil {
@@ -726,9 +726,9 @@ func resolveModel(st *store.Store, loader *profile.Loader, name string) string {
 
 // resolveProvider applies the layered resolution chain for provider selection:
 // --provider flag (highest priority) → profile.yaml provider → KUI_PROVIDER
-// env → default "openai" (REQ-SEL-2).
-func resolveProvider(flagProvider, profileProvider string) string {
-	return providers.ResolveProvider(flagProvider, profileProvider)
+// env → credentials store configured provider → default "openai" (REQ-SEL-2).
+func resolveProvider(flagProvider, profileProvider, root string) string {
+	return providers.ResolveProvider(flagProvider, profileProvider, root)
 }
 
 // createProvider uses the registry to construct a provider from the resolved
@@ -751,7 +751,7 @@ func runTUI(root string, opts Options) int {
 	if resolved, err := loader.Resolve(activeName); err == nil {
 		profileProvider = resolved.Provider
 	}
-	providerName := resolveProvider(opts.Provider, profileProvider)
+	providerName := resolveProvider(opts.Provider, profileProvider, root)
 
 	wiring := tui.Wiring{
 		ProfileRoot: filepath.Join(cfgRoot, "profiles"),

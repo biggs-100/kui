@@ -11,8 +11,8 @@ import (
 
 // ResolveProvider applies the layered resolution chain for provider selection:
 // --provider flag (highest priority) → profile.yaml provider → KUI_PROVIDER
-// env → default "openai" (REQ-SEL-2).
-func ResolveProvider(flagProvider, profileProvider string) string {
+// env → credentials store configured provider → default "openai" (REQ-SEL-2).
+func ResolveProvider(flagProvider, profileProvider, root string) string {
 	if flagProvider != "" {
 		return flagProvider
 	}
@@ -21,6 +21,13 @@ func ResolveProvider(flagProvider, profileProvider string) string {
 	}
 	if env := os.Getenv("KUI_PROVIDER"); env != "" {
 		return env
+	}
+	// Check credentials store for a configured provider.
+	store := credentials.NewCredentialStore(root)
+	if err := store.Load(); err == nil {
+		if configured := store.GetConfiguredProvider(); configured != "" {
+			return configured
+		}
 	}
 	return "openai"
 }

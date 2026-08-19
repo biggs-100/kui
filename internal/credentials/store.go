@@ -92,6 +92,20 @@ func (cs *CredentialStore) SetAPIKey(provider, key string) error {
 	return cs.writeCreds(cs.creds)
 }
 
+// GetConfiguredProvider returns the first provider that has a stored API key.
+// Returns empty string if no provider is configured.
+func (cs *CredentialStore) GetConfiguredProvider() string {
+	if cs.creds.Providers == nil {
+		return ""
+	}
+	for provider, cred := range cs.creds.Providers {
+		if cred.APIKey != "" {
+			return provider
+		}
+	}
+	return ""
+}
+
 // readCreds loads the credentials from disk. An absent file yields an empty
 // credentials struct.
 func (cs *CredentialStore) readCreds() (credentials, error) {
