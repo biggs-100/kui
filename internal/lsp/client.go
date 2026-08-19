@@ -306,3 +306,95 @@ func (c *LspClient) sendRaw(req jsonrpcRequest) error {
 	}
 	return WriteMessage(c.stdin, data)
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// File sync methods
+// ──────────────────────────────────────────────────────────────────────────────
+
+// DidOpen sends a textDocument/didOpen notification.
+func (c *LspClient) DidOpen(uri string, languageId string, version int, text string) error {
+	return c.SendNotification("textDocument/didOpen", map[string]interface{}{
+		"textDocument": map[string]interface{}{
+			"uri":        uri,
+			"languageId": languageId,
+			"version":    version,
+			"text":       text,
+		},
+	})
+}
+
+// DidChange sends a textDocument/didChange notification.
+func (c *LspClient) DidChange(uri string, version int, changes []TextDocumentContentChangeEvent) error {
+	return c.SendNotification("textDocument/didChange", map[string]interface{}{
+		"textDocument": map[string]interface{}{
+			"uri":     uri,
+			"version": version,
+		},
+		"contentChanges": changes,
+	})
+}
+
+// DidClose sends a textDocument/didClose notification.
+func (c *LspClient) DidClose(uri string) error {
+	return c.SendNotification("textDocument/didClose", map[string]interface{}{
+		"textDocument": map[string]interface{}{
+			"uri": uri,
+		},
+	})
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LSP request methods
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Hover sends a textDocument/hover request.
+func (c *LspClient) Hover(uri string, line, character int) (*Hover, error) {
+	var result Hover
+	if err := c.SendRequest("textDocument/hover", TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     Position{Line: line, Character: character},
+	}, &result); err != nil {
+		return nil, fmt.Errorf("hover: %w", err)
+	}
+	// A null response means no hover info at this position.
+	if result.Contents == "" && result.Range == nil {
+		return nil, nil
+	}
+	return &result, nil
+}
+
+// Definition sends a textDocument/definition request.
+func (c *LspClient) Definition(uri string, line, character int) ([]Location, error) {
+	var result []Location
+	if err := c.SendRequest("textDocument/definition", TextDocumentPositionParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     Position{Line: line, Character: character},
+	}, &result); err != nil {
+		return nil, fmt.Errorf("definition: %w", err)
+	}
+	return result, nil
+}
+
+// References sends a textDocument/references request.
+func (c *LspClient) References(uri string, line, character int, includeDeclaration bool) ([]Location, error) {
+	var result []Location
+	if err := c.SendRequest("textDocument/references", ReferenceParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     Position{Line: line, Character: character},
+		Context:      ReferenceContext{IncludeDeclaration: includeDeclaration},
+	}, &result); err != nil {
+		return nil, fmt.Errorf("references: %w", err)
+	}
+	return result, nil
+}
+
+// Diagnostics sends a textDocument/diagnostic request (pull-based) for initial sync.
+func (c *LspClient) Diagnostics(uri string) ([]Diagnostic, error) {
+	var result []Diagnostic
+	if err := c.SendRequest("textDocument/diagnostic", map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": uri},
+	}, &result); err != nil {
+		return nil, fmt.Errorf("diagnostics: %w", err)
+	}
+	return result, nil
+}

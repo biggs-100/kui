@@ -69,3 +69,9 @@ type ReferenceParams struct {
 type ReferenceContext struct {
 	IncludeDeclaration bool `json:"includeDeclaration"`
 }
+
+// TextDocumentContentChangeEvent represents a change to a text document.
+type TextDocumentContentChangeEvent struct {
+	Range *Range `json:"range,omitempty"`
+	Text  string `json:"text"`
+}
