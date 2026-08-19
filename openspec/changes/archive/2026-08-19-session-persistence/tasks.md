@@ -77,21 +77,21 @@ Chain strategy: stacked-to-main
 
 ## Phase 5: CLI Subcommands
 
-- [ ] 5.1 Add `Resume string` field to `Options` in `cmd/kui/flags.go`
-- [ ] 5.2 Add `resume` to `stringFlags` map in `cmd/kui/flags.go`
-- [ ] 5.3 Add `kui session` subcommand dispatcher in `cmd/kui/main.go`
-- [ ] 5.4 Implement `runSessionList()` — create `FileSessionStore`, call `List()`, print table to stdout
-- [ ] 5.5 Implement `runSessionResume(id)` — load session, validate exists, launch TUI with history injected
-- [ ] 5.6 Update `runTUI()` to accept optional resume ID — load session history if provided
-- [ ] 5.7 Add session usage text constant in `cmd/kui/main.go`
-- [ ] 5.8 REFACTOR: Verify `go test ./cmd/kui/...` and full `go test ./...` pass
+- [x] 5.1 Add `Resume string` field to `Options` in `cmd/kui/flags.go`
+- [x] 5.2 Add `resume` to `stringFlags` map in `cmd/kui/flags.go`
+- [x] 5.3 Add `kui session` subcommand dispatcher in `cmd/kui/main.go`
+- [x] 5.4 Implement `runSessionList()` — create `FileSessionStore`, call `List()`, print table to stdout
+- [x] 5.5 Implement `runSessionResume(id)` — load session, validate exists, launch TUI with history injected
+- [x] 5.6 Update `runTUI()` to accept optional resume ID — load session history if provided
+- [x] 5.7 Add session usage text constant in `cmd/kui/main.go`
+- [x] 5.8 REFACTOR: Verify `go test ./cmd/kui/...` and full `go test ./...` pass
 
 ## Phase 6: Integration Verification
 
-- [ ] 6.1 Run `go build ./...` — verify clean build
-- [ ] 6.2 Run `go vet ./...` — verify no vet issues
-- [ ] 6.3 Run `go test ./...` — all tests pass, no regressions
-- [ ] 6.4 Manual test: `kui session list` shows "No sessions found" on fresh install
-- [ ] 6.5 Manual test: Start TUI, send prompt, quit → session saved to `.kui/sessions/`
-- [ ] 6.6 Manual test: `kui session list` shows saved session with correct metadata
-- [ ] 6.7 Manual test: `kui session resume <id>` restores session with history
+- [x] 6.1 Run `go build ./...` — verify clean build
+- [x] 6.2 Run `go vet ./...` — verify no vet issues
+- [x] 6.3 Run `go test ./...` — all tests pass, no regressions
+- [x] 6.4 Manual test: `kui session list` shows "No sessions found" on fresh install
+- [x] 6.5 Manual test: Start TUI, send prompt, quit → session saved to `.kui/sessions/`
+- [x] 6.6 Manual test: `kui session list` shows saved session with correct metadata
+- [x] 6.7 Manual test: `kui session resume <id>` restores session with history
