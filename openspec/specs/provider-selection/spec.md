@@ -40,19 +40,36 @@ Provider selection MUST follow the same layered chain as model resolution: `--pr
 
 ### Requirement: REQ-SEL-3 — Fail-Fast API Key Validation
 
-At provider creation time, the system MUST verify the required API key environment variable is set and non-empty. If missing, creation MUST fail immediately with an error naming the variable.
+At provider creation time, the system MUST verify the API key is available through the resolution chain: environment variable > `.kui/credentials.json` > error. If missing at all layers, creation MUST fail immediately with an error naming the expected env var.
 
-#### Scenario: Key present
+#### Scenario: Key present in env var
 
 - GIVEN `OPENAI_API_KEY` is set
 - WHEN the openai provider is created
 - THEN creation succeeds
 
-#### Scenario: Key missing
+#### Scenario: Key missing everywhere
 
 - GIVEN `OPENAI_API_KEY` is unset
+- AND no openai key in `.kui/credentials.json`
 - WHEN the openai provider is created
 - THEN creation fails with an error naming `OPENAI_API_KEY`
+
+#### Scenario: Key found in credentials file
+
+- GIVEN `OPENAI_API_KEY` is unset
+- AND `.kui/credentials.json` contains openai key
+- WHEN the openai provider is created
+- THEN creation succeeds
+- AND the credentials file key is used
+
+#### Scenario: Env var takes precedence over file
+
+- GIVEN `OPENAI_API_KEY` is set to `env-key`
+- AND `.kui/credentials.json` contains openai key `file-key`
+- WHEN the openai provider is created
+- THEN creation succeeds
+- AND the env var key is used
 
 ### Requirement: REQ-SEL-4 — Thinking Degradation Warning
 
