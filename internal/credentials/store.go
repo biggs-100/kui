@@ -97,6 +97,15 @@ func (cs *CredentialStore) SetAPIKey(provider, key string) error {
 	return cs.writeCreds(cs.creds)
 }
 
+// DeleteAPIKey removes the stored API key for the given provider and persists to disk.
+func (cs *CredentialStore) DeleteAPIKey(provider string) error {
+	if cs.creds.Providers == nil {
+		return nil
+	}
+	delete(cs.creds.Providers, provider)
+	return cs.writeCreds(cs.creds)
+}
+
 // GetConfiguredProvider returns the first provider that has a stored API key.
 // Returns empty string if no provider is configured.
 func (cs *CredentialStore) GetConfiguredProvider() string {

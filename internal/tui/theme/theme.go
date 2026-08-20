@@ -104,6 +104,12 @@ func ParseFile(path string) (*Theme, error) {
 	return ParseBytes(data)
 }
 
+// builtinThemes holds built-in themes that don't require file discovery.
+var builtinThemes = map[string]*Theme{
+	"kui-default": DefaultTheme(),
+	"opencode":    OpenCodeTheme,
+}
+
 // DefaultTheme returns the built-in default theme (matches original hardcoded colors).
 func DefaultTheme() *Theme {
 	return &Theme{
@@ -182,11 +188,17 @@ func DefaultDirs() []string {
 	return dirs
 }
 
-// Load finds a theme by name from the default directories.
+// Load finds a theme by name from built-in themes or the default directories.
 // Returns the default theme if name is empty or not found.
 func Load(name string) *Theme {
 	if name == "" {
-		return DefaultTheme()
+		// Default to the OpenCode-style gray theme so the TUI matches OpenCode out of the box.
+		return OpenCodeTheme
+	}
+
+	// Check built-in themes first
+	if t, ok := builtinThemes[name]; ok {
+		return t
 	}
 
 	themes := Discover(DefaultDirs())
@@ -215,10 +227,12 @@ func List() []string {
 // This is used by the /theme next|prev command for cycling.
 func ThemeNames() []string {
 	themes := Discover(DefaultDirs())
-	names := make([]string, 0, len(themes)+1)
-	names = append(names, "kui-default")
+	names := make([]string, 0, len(themes)+len(builtinThemes))
+	for name := range builtinThemes {
+		names = append(names, name)
+	}
 	for name := range themes {
-		if name != "kui-default" {
+		if _, builtin := builtinThemes[name]; !builtin {
 			names = append(names, name)
 		}
 	}

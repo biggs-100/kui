@@ -35,6 +35,22 @@ type Styles struct {
 	DiffRemoved  lipgloss.Style
 	DiffContext  lipgloss.Style
 	DiffHunk     lipgloss.Style
+
+	// Home screen
+	LogoAccent lipgloss.Style
+	HomeBorder lipgloss.Style
+	HomeMuted  lipgloss.Style
+
+	// Panel / popup (opencode session)
+	Panel lipgloss.Style
+	Popup lipgloss.Style
+
+	// Opencode session sidebar + input bar
+	Sidebar        lipgloss.Style
+	InputBar       lipgloss.Style
+	InputBarAccent lipgloss.Style
+	CodeBlock      lipgloss.Style
+	Thought        lipgloss.Style
 }
 
 // NewStyles creates a Styles from a Theme.
@@ -60,15 +76,15 @@ func NewStyles(t *Theme) *Styles {
 			Foreground(lipgloss.Color(t.TextMuted)).
 			Faint(true),
 
-		// Header
+		// Header — opencode minimal: active blue bold no strong BG, inactive dim faint
 		ActiveTab: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color(t.TabActive)).
-			Background(lipgloss.Color(t.TabActiveBG)).
 			Padding(0, 1),
 
 		InactiveTab: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(t.TabInactive)).
+			Foreground(lipgloss.Color(t.TextMuted)).
+			Faint(true).
 			Padding(0, 1),
 
 		Hint: lipgloss.NewStyle().
@@ -105,6 +121,18 @@ func NewStyles(t *Theme) *Styles {
 		StatusWarn: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.StatusWarn)),
 
+		// Home screen
+		LogoAccent: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Accent)).
+			Bold(true),
+
+		HomeBorder: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Border)),
+
+		HomeMuted: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.TextMuted)).
+			Faint(true),
+
 		// Diff
 		FileDiff: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Primary)),
@@ -121,5 +149,49 @@ func NewStyles(t *Theme) *Styles {
 		DiffHunk: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Accent)).
 			Bold(true),
+
+		// Panel — rounded bordered panel BGHighlight #252525 Border #333333 for tool/diff
+		Panel: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.BorderSubtle)).
+			Background(lipgloss.Color(t.BGHighlight)).
+			Padding(0, 1),
+
+		// Popup — centered overlay for palette, BGFloat Border subtle
+		Popup: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.BorderSubtle)).
+			Background(lipgloss.Color(t.BGFloat)).
+			Padding(1, 1),
+
+		// Sidebar — dark panel for opencode right sidebar (#1a1a1a bg, muted text)
+		Sidebar: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.BGSidebar)).
+			Foreground(lipgloss.Color(t.TextMuted)).
+			Padding(0, 1),
+
+		// InputBar — full-width dark gray bar #2a2a2a with left blue accent
+		InputBar: lipgloss.NewStyle().
+			Background(lipgloss.Color("#2a2a2a")).
+			Foreground(lipgloss.Color(t.FG)).
+			Padding(0, 1),
+
+		InputBarAccent: lipgloss.NewStyle().
+			Border(lipgloss.Border{Left: "▏"}, false, false, false, true).
+			BorderForeground(lipgloss.Color("#569cd6")).
+			Background(lipgloss.Color("#2a2a2a")).
+			Padding(0, 1),
+
+		// CodeBlock — dark #252525 background for fenced code
+		CodeBlock: lipgloss.NewStyle().
+			Background(lipgloss.Color("#252525")).
+			Foreground(lipgloss.Color(t.FG)).
+			Padding(0, 1),
+
+		// Thought — orange #e0af68 for "Thought:" prefix
+		Thought: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#e0af68")).
+			Bold(true),
+
 	}
 }

@@ -769,6 +769,7 @@ func runTUI(root string, opts Options) int {
 		ProfileRoot: filepath.Join(cfgRoot, "profiles"),
 		ProjectDir:  root,
 		ConfigRoot:  cfgRoot,
+		Model:       opts.Model,
 		Client: func() (core.Provider, error) {
 			return createProvider(providerName, root)
 		},

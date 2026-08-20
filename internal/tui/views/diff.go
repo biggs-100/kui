@@ -66,17 +66,17 @@ func (m *DiffModel) MoveUp() {
 	}
 }
 
-// View renders the full diff view as a string.
+// View renders the full diff view as a string — opencode bordered panel.
 func (m DiffModel) View() string {
 	if len(m.diffs) == 0 {
 		return m.styles.EmptyHint.Render("no changes to display (d to toggle)")
 	}
 
-	var b strings.Builder
+	var inner strings.Builder
 
 	// File list header
-	b.WriteString(m.styles.ToolName.Render("CHANGED FILES"))
-	b.WriteString("\n\n")
+	inner.WriteString(m.styles.ToolName.Render("CHANGED FILES"))
+	inner.WriteString("\n\n")
 
 	for i, file := range m.diffs {
 		prefix := "  "
@@ -88,46 +88,46 @@ func (m DiffModel) View() string {
 		addDel := fmt.Sprintf("+%d,-%d", file.Additions, file.Deletions)
 
 		line := fmt.Sprintf("%s%s %s", prefix, statusIcon, file.Path)
-		b.WriteString(m.styles.FileDiff.Render(line))
-		b.WriteString(" ")
-		b.WriteString(m.styles.DiffAdded.Render(fmt.Sprintf("+%d", file.Additions)))
-		b.WriteString(",")
-		b.WriteString(m.styles.DiffRemoved.Render(fmt.Sprintf("-%d", file.Deletions)))
-		b.WriteString(" ")
-		b.WriteString(m.styles.DiffContext.Render(addDel))
-		b.WriteString("\n")
+		inner.WriteString(m.styles.FileDiff.Render(line))
+		inner.WriteString(" ")
+		inner.WriteString(m.styles.DiffAdded.Render(fmt.Sprintf("+%d", file.Additions)))
+		inner.WriteString(",")
+		inner.WriteString(m.styles.DiffRemoved.Render(fmt.Sprintf("-%d", file.Deletions)))
+		inner.WriteString(" ")
+		inner.WriteString(m.styles.DiffContext.Render(addDel))
+		inner.WriteString("\n")
 	}
 
-	// Separator
-	b.WriteString(strings.Repeat("─", 60))
-	b.WriteString("\n\n")
+	inner.WriteString("\n")
 
 	// Unified diff for selected file
 	sel := m.SelectedFile()
-	if sel == nil {
-		return b.String()
-	}
+	if sel != nil {
+		inner.WriteString(m.styles.ToolName.Render(sel.Path))
+		inner.WriteString("\n")
 
-	b.WriteString(m.styles.ToolName.Render(sel.Path))
-	b.WriteString("\n")
-
-	for _, hunk := range sel.Hunks {
-		b.WriteString(m.styles.DiffHunk.Render(hunk.Header))
-		b.WriteString("\n")
-		for _, line := range hunk.Lines {
-			switch line.Type {
-			case "added":
-				b.WriteString(m.styles.DiffAdded.Render("+" + line.Content))
-			case "removed":
-				b.WriteString(m.styles.DiffRemoved.Render("-" + line.Content))
-			default:
-				b.WriteString(m.styles.DiffContext.Render(" " + line.Content))
+		for _, hunk := range sel.Hunks {
+			inner.WriteString(m.styles.DiffHunk.Render(hunk.Header))
+			inner.WriteString("\n")
+			for _, line := range hunk.Lines {
+				switch line.Type {
+				case "added":
+					inner.WriteString(m.styles.DiffAdded.Render("+" + line.Content))
+				case "removed":
+					inner.WriteString(m.styles.DiffRemoved.Render("-" + line.Content))
+				default:
+					inner.WriteString(m.styles.DiffContext.Render(" " + line.Content))
+				}
+				inner.WriteString("\n")
 			}
-			b.WriteString("\n")
 		}
 	}
 
-	return b.String()
+	content := strings.TrimSuffix(inner.String(), "\n")
+	if m.styles != nil {
+		return m.styles.Panel.Render(content)
+	}
+	return content
 }
 
 // fileStatusIcon returns a short icon for the file status.

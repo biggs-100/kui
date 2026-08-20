@@ -137,11 +137,21 @@ func TestAppUpdateQuitOnQ(t *testing.T) {
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	msg, cmd := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	_ = msg
+	a := msg.(*App)
 
-	// cmd should return tea.Quit
-	if cmd == nil {
-		t.Fatal("expected quit command on 'q' key")
+	// 'q' should NOT quit — it should be typed into input
+	if cmd != nil {
+		// tea.Quit is a func() tea.Msg; check if cmd would quit
+		// We treat non-nil quit as failure for this test
+		if msg2 := cmd(); msg2 == tea.Quit() {
+			t.Fatal("typing 'q' should not quit")
+		}
+	}
+	if a.quitting {
+		t.Fatal("typing 'q' should not set quitting")
+	}
+	if a.input.Value() != "q" {
+		t.Errorf("input after 'q' = %q, want %q", a.input.Value(), "q")
 	}
 }
 
@@ -192,7 +202,7 @@ func TestAppUpdateSubmitPrompt(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type a prompt — capture each Update result
+	// Type a prompt - capture each Update result
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	app = msg.(*App)
 	msg, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
@@ -221,7 +231,7 @@ func TestAppUpdateNilObserverDoesNotPanic(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Submit with nil runner — should be no-op, no panic
+	// Submit with nil runner - should be no-op, no panic
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	_ = msg
 }
@@ -253,7 +263,7 @@ func TestAppStreamDoneMsgSetsAnswer(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type and submit — capture each Update result
+	// Type and submit - capture each Update result
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
 	app = msg.(*App)
 	msg, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
@@ -295,7 +305,7 @@ func TestAppSessionsCommandNoStore(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type /sessions and submit — capture each Update result
+	// Type /sessions and submit - capture each Update result
 	for _, r := range "/sessions" {
 		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		app = msg.(*App)
@@ -315,7 +325,7 @@ func TestAppSessionsCommandWithStore(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type /sessions and submit — capture each Update result
+	// Type /sessions and submit - capture each Update result
 	for _, r := range "/sessions" {
 		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		app = msg.(*App)
@@ -333,7 +343,7 @@ func TestAppResumeCommandNoID(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type /resume (no ID) and submit — capture each Update result
+	// Type /resume (no ID) and submit - capture each Update result
 	for _, r := range "/resume" {
 		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		app = msg.(*App)
@@ -360,7 +370,7 @@ func TestAppResumeCommandWithSession(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type /resume test-123 and submit — capture each Update result
+	// Type /resume test-123 and submit - capture each Update result
 	for _, r := range "/resume test-123" {
 		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		app = msg.(*App)
@@ -385,7 +395,7 @@ func TestAppQuitCommandSavesSession(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type /quit and submit — capture each Update result
+	// Type /quit and submit - capture each Update result
 	for _, r := range "/quit" {
 		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		app = msg.(*App)
@@ -509,7 +519,7 @@ func TestAppAutocompleteTrigger(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Type "/" — should trigger autocomplete
+	// Type "/" - should trigger autocomplete
 	for _, r := range "/" {
 		app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
@@ -526,6 +536,14 @@ func TestAppViewIncludesFooter(t *testing.T) {
 	c.SetModelName("gpt-4")
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Switch to session mode by typing a prompt and pressing Enter
+	for _, r := range "hello" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app = msg.(*App)
 
 	view := app.View()
 	if view == "" {
@@ -548,6 +566,14 @@ func TestAppFooterUpdatesOnStreamDone(t *testing.T) {
 	c.SetModelName("gpt-4")
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Switch to session mode by typing a prompt and pressing Enter
+	for _, r := range "hello" {
+		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		app = msg.(*App)
+	}
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	app = msg.(*App)
 
 	// Simulate stream done
 	app.Update(streamDoneMsg{})
@@ -802,7 +828,7 @@ func TestAppDiffViewDoesNotAffectInput(t *testing.T) {
 		app = msg.(*App)
 	}
 
-	// Press 'd' — should be typed into input, not toggle diff
+	// Press 'd' - should be typed into input, not toggle diff
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	a := msg.(*App)
 
@@ -837,7 +863,7 @@ func TestAppLspKeybindingGdWithoutDispatcher(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Press 'g' then 'd' — should not panic even without dispatcher
+	// Press 'g' then 'd' - should not panic even without dispatcher
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	a := msg.(*App)
 	if !a.lspPendingG {
@@ -897,7 +923,7 @@ func TestAppLspKeybindingWithDispatcher(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Press 'g' then 'd' — should dispatch and add result to chat
+	// Press 'g' then 'd' - should dispatch and add result to chat
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	a := msg.(*App)
 	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
@@ -918,14 +944,14 @@ func TestAppLspKeybindingCancelled(t *testing.T) {
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Press 'g' then something other than 'd' or 'r' — should cancel
+	// Press 'g' then something other than 'd' or 'r' - should cancel
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	a := msg.(*App)
 	if !a.lspPendingG {
 		t.Error("pressing 'g' should set lspPendingG")
 	}
 
-	// Press 'x' — should cancel the gd/gr sequence
+	// Press 'x' - should cancel the gd/gr sequence
 	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	a = msg.(*App)
 	if a.lspPendingG {
@@ -944,7 +970,7 @@ func TestAppLspKeybindingIgnoredWithInput(t *testing.T) {
 		app = msg.(*App)
 	}
 
-	// Now press 'g' — should NOT trigger lspPendingG because input is non-empty
+	// Now press 'g' - should NOT trigger lspPendingG because input is non-empty
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	a := msg.(*App)
 	if a.lspPendingG {
@@ -1164,17 +1190,28 @@ func TestThemeCyclingWraps(t *testing.T) {
 		return
 	}
 
-	// Cycle forward through all themes — should return to start
-	original := app.currentTheme
+	// Cycle forward through all themes - should return to start
+	// Note: original may be "" (default) which is not in the theme list,
+	// so we track where we started and verify we cycle through all themes.
+	seen := make(map[string]bool)
 	for i := 0; i < len(names); i++ {
 		for _, r := range "/theme next" {
 			msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 			app = msg.(*App)
 		}
 		app.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		seen[app.currentTheme] = true
 	}
 
-	if app.currentTheme != original {
-		t.Errorf("cycling through all themes should wrap back to %q, got %q", original, app.currentTheme)
+	// Verify we saw all themes
+	for _, name := range names {
+		if !seen[name] {
+			t.Errorf("cycling did not visit theme %q", name)
+		}
+	}
+
+	// After cycling through all themes, we should be back to the first theme in the list
+	if app.currentTheme != names[0] {
+		t.Errorf("cycling through all themes should wrap back to %q, got %q", names[0], app.currentTheme)
 	}
 }

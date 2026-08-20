@@ -2,10 +2,15 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/biggs-100/kui/internal/adapters/providers"
+	"github.com/biggs-100/kui/internal/credentials"
 	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/biggs-100/kui/internal/tui/toast"
 	"github.com/biggs-100/kui/internal/tui/views"
@@ -44,6 +49,23 @@ type App struct {
 	paletteMode    bool
 	commandPalette *views.CommandPaletteModel
 
+	// Model list mode: interactive model selector.
+	modelList *views.ModelListModel
+	modelListMode bool
+
+	// Provider list mode: interactive provider selector for login.
+	providerList *views.ProviderListModel
+	providerListMode bool
+
+	// Login mode: prompting for API key.
+	loginMode     bool
+	loginProvider string
+
+	// Route system: home vs session.
+	route      string
+	homeView   views.HomeView
+	homeFooter views.HomeFooterModel
+
 	// Registry holds all command metadata and dispatches commands.
 	registry *CommandRegistry
 
@@ -71,15 +93,20 @@ func NewAppWithTheme(ctrl *Controller, themeName string) *App {
 	t := theme.Load(themeName)
 	styles := theme.NewStyles(t)
 
+	cwd, _ := os.Getwd()
+
 	return &App{
 		ctrl:         ctrl,
 		styles:       styles,
-		input:        NewInputModel("type here...", ""),
+		input:        NewInputModel("Ask kui...", ""),
 		autocomplete: NewAutocompleteModel(),
 		chat:         views.NewChatModel(styles),
 		tool:         views.NewToolModel(styles),
 		footer:       views.NewFooterModel(styles),
 		diff:         views.NewDiffModel(styles),
+		homeView:     views.NewHomeView(styles, 0, 0),
+		homeFooter:   views.NewHomeFooterModel(styles, cwd),
+		route:        "home",
 		registry:     NewCommandRegistry(),
 		toast:        toast.NewModel(styles),
 		currentTheme: themeName,
@@ -163,19 +190,44 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey processes keyboard input. App-level keys (Tab, Ctrl+C, Enter)
 // are intercepted before delegating to InputModel (REQ-TUI-APP-1).
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// --- Command palette mode: delegate all keys to palette ---
-	if a.paletteMode && a.commandPalette != nil {
-		updated, cmd := a.commandPalette.Update(msg)
-		a.commandPalette = &updated
-		if a.commandPalette.Selected() != "" {
-			name := a.commandPalette.Selected()
-			a.commandPalette = nil
-			a.paletteMode = false
-			return a.executeCommandByName(name)
+	// --- Provider list mode: delegate all keys to provider list ---
+	if a.providerListMode && a.providerList != nil {
+		updated, cmd := a.providerList.Update(msg)
+		*a.providerList = updated
+		if a.providerList.Selected() != "" {
+			id := a.providerList.Selected()
+			a.providerList = nil
+			a.providerListMode = false
+			a.enterLoginMode(id)
+			return a, cmd
 		}
-		if a.commandPalette == nil || a.commandPalette.View() == "" {
-			a.commandPalette = nil
-			a.paletteMode = false
+		if a.providerList.Quitting() {
+			a.providerList = nil
+			a.providerListMode = false
+			return a, cmd
+		}
+		return a, cmd
+	}
+
+	// --- Model list mode: delegate all keys to model list ---
+	if a.modelListMode && a.modelList != nil {
+		updated, cmd := a.modelList.Update(msg)
+		*a.modelList = updated
+		if a.modelList.Selected() != "" {
+			sel := a.modelList.Selected()
+			a.modelList = nil
+			a.modelListMode = false
+			if err := a.ctrl.ChangeModel(sel); err != nil {
+				a.chat.SetStatus("error: " + err.Error())
+			} else {
+				a.chat.SetStatus("model: " + sel)
+				a.footer.SetModel(sel)
+			}
+			return a, cmd
+		}
+		if a.modelList.Quitting() {
+			a.modelList = nil
+			a.modelListMode = false
 			return a, cmd
 		}
 		return a, cmd
@@ -197,6 +249,61 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.listMode = false
 			return a, cmd
 		}
+		return a, cmd
+	}
+
+	// --- Command palette mode: delegate all keys to palette ---
+	if a.paletteMode && a.commandPalette != nil {
+		updated, cmd := a.commandPalette.Update(msg)
+		a.commandPalette = &updated
+		if a.commandPalette.Selected() != "" {
+			name := a.commandPalette.Selected()
+			a.commandPalette = nil
+			a.paletteMode = false
+			return a.executeCommandByName(name)
+		}
+		if a.commandPalette == nil || a.commandPalette.View() == "" {
+			a.commandPalette = nil
+			a.paletteMode = false
+			return a, cmd
+		}
+		return a, cmd
+	}
+
+	// --- Login mode: API key prompt ---
+	if a.loginMode {
+		switch msg.Type {
+		case tea.KeyEnter:
+			key := strings.TrimSpace(a.input.Value())
+			if err := tuiValidateKey(key); err != nil {
+				a.chat.SetStatus("invalid API key: " + err.Error())
+				return a, nil
+			}
+			root := a.credentialStoreRoot()
+			cs := credentials.NewCredentialStore(root)
+			_ = cs.Load()
+			if err := cs.SetAPIKey(a.loginProvider, key); err != nil {
+				a.chat.SetStatus("failed to save key: " + err.Error())
+				return a, nil
+			}
+			a.chat.SetStatus("logged in: " + a.loginProvider)
+			a.loginMode = false
+			a.loginProvider = ""
+			a.input.Clear()
+			a.input.SetPlaceholder("Ask kui...")
+			a.homeView.SetInput("")
+			return a, nil
+		case tea.KeyEscape:
+			a.loginMode = false
+			a.loginProvider = ""
+			a.input.Clear()
+			a.input.SetPlaceholder("Ask kui...")
+			return a, nil
+		}
+		// Delegate typing to input while in login mode (no autocomplete)
+		var cmd tea.Cmd
+		a.input, cmd = a.input.Update(msg)
+		a.homeView.SetInput(a.input.Value())
 		return a, cmd
 	}
 
@@ -240,12 +347,17 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			completed := a.autocomplete.Accept(a.input.Value())
 			a.input.SetValue(completed)
+			a.homeView.SetInput(completed)
 			a.autocomplete.Deactivate()
 			// Accept + submit in one step for slash commands
 			if strings.TrimSpace(completed) != "" {
 				submitted := a.input.Submit()
+				a.homeView.SetInput("")
 				if strings.HasPrefix(submitted, "/") {
 					return a.handleCommand(submitted)
+				}
+				if a.route == "home" {
+					a.route = "session"
 				}
 				a.chat.AppendMessage("user", submitted, a.ctrl.ActiveProfile(), "")
 				a.ctrl.SubmitPrompt(submitted)
@@ -257,36 +369,35 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyTab:
 			completed := a.autocomplete.Accept(a.input.Value())
 			a.input.SetValue(completed)
+			a.homeView.SetInput(completed)
 			a.autocomplete.Deactivate()
 			return a, nil
 		}
 	}
 
-	// --- Enter: submit or command ---
+	// --- Enter: submit or command (home vs session) ---
 	if msg.Type == tea.KeyEnter {
 		text := a.input.Value()
 		if strings.TrimSpace(text) == "" {
 			return a, nil
 		}
 		submitted := a.input.Submit()
+		a.homeView.SetInput("")
 		a.autocomplete.Deactivate()
 		// REQ-RELOAD-11: handle slash commands before submitting.
 		if strings.HasPrefix(submitted, "/") {
 			return a.handleCommand(submitted)
+		}
+		if a.route == "home" {
+			a.route = "session"
 		}
 		a.chat.AppendMessage("user", submitted, a.ctrl.ActiveProfile(), "")
 		a.ctrl.SubmitPrompt(submitted)
 		return a, nil
 	}
 
-	// --- 'q' to quit (only when input is empty) ---
 	if msg.Type == tea.KeyRunes {
 		runes := msg.Runes
-		if len(runes) == 1 && runes[0] == 'q' && a.input.Value() == "" {
-			_ = a.ctrl.SaveSession()
-			a.quitting = true
-			return a, tea.Quit
-		}
 
 		// --- LSP keybindings (only when input is empty) ---
 		// Must be checked BEFORE single-key handlers like 'd' to avoid conflicts.
@@ -325,10 +436,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// --- Delegate everything else to InputModel ---
 	var cmd tea.Cmd
 	a.input, cmd = a.input.Update(msg)
+	a.homeView.SetInput(a.input.Value())
 
 	// After input update: check if we should trigger autocomplete
 	val := a.input.Value()
-	if strings.HasPrefix(val, "/") {
+	if shouldAutocomplete(val) {
 		if !a.autocomplete.IsActive() {
 			a.autocomplete.Activate(val)
 		} else {
@@ -339,6 +451,17 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, cmd
+}
+
+func shouldAutocomplete(val string) bool {
+	trimmed := strings.TrimSpace(val)
+	if strings.HasPrefix(trimmed, "/") {
+		return true
+	}
+	if strings.Contains(val, "@") {
+		return true
+	}
+	return false
 }
 
 // executeCommandByName dispatches a command selected from the palette.
@@ -382,6 +505,12 @@ func (a *App) executeCommandByName(name string) (tea.Model, tea.Cmd) {
 	case "/redo":
 		a.handleRedoCommand()
 		return a, nil
+	case "/model":
+		return a.handleModelCommand([]string{"/model"})
+	case "/login":
+		return a.handleLoginCommand([]string{"/login"})
+	case "/logout":
+		return a.handleLogoutCommand([]string{"/logout"})
 	case "/help":
 		a.chat.SetStatus(a.registry.HelpText())
 		return a, nil
@@ -430,10 +559,117 @@ func (a *App) handleCommand(text string) (tea.Model, tea.Cmd) {
 		a.handleUndoCommand()
 	case "/redo":
 		a.handleRedoCommand()
+	case "/model":
+		return a.handleModelCommand(parts)
+	case "/login":
+		return a.handleLoginCommand(parts)
+	case "/logout":
+		return a.handleLogoutCommand(parts)
 	default:
 		a.chat.SetStatus("unknown command: " + text + " (try /help)")
 	}
 	return a, nil
+}
+
+func (a *App) handleModelCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
+		model := strings.TrimSpace(parts[1])
+		if err := a.ctrl.ChangeModel(model); err != nil {
+			a.chat.SetStatus("error: " + err.Error())
+		} else {
+			a.chat.SetStatus("model: " + model)
+			a.footer.SetModel(model)
+		}
+		return a, nil
+	}
+	models := views.AvailableModelsFiltered()
+	if len(models) == 0 {
+		a.chat.SetStatus("no models available")
+		return a, nil
+	}
+	current := a.ctrl.ModelName()
+	ml := views.NewModelListModel(models, current, a.width, a.height-4)
+	a.modelList = &ml
+	a.modelListMode = true
+	return a, nil
+}
+
+func (a *App) handleLoginCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
+		provider := strings.TrimSpace(parts[1])
+		// Validate via registry and AvailableProviders list
+		valid := false
+		for _, p := range views.AvailableProviders() {
+			if p.ID == provider {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			reg := providers.NewDefaultRegistry()
+			if _, err := reg.Resolve(provider); err != nil {
+				a.chat.SetStatus("unknown provider: " + provider)
+				return a, nil
+			}
+		}
+		a.enterLoginMode(provider)
+		return a, nil
+	}
+	infos := views.AvailableProviders()
+	pl := views.NewProviderListModel(infos, a.width, a.height-4)
+	a.providerList = &pl
+	a.providerListMode = true
+	return a, nil
+}
+
+func (a *App) handleLogoutCommand(parts []string) (tea.Model, tea.Cmd) {
+	var provider string
+	if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
+		provider = strings.TrimSpace(parts[1])
+	} else {
+		a.chat.SetStatus("usage: /logout <provider>")
+		return a, nil
+	}
+	roots := []string{a.credentialStoreRoot()}
+	if cwd, err := os.Getwd(); err == nil && cwd != "" && cwd != roots[0] {
+		roots = append(roots, cwd)
+	}
+	for _, root := range roots {
+		cs := credentials.NewCredentialStore(root)
+		_ = cs.Load()
+		_ = cs.DeleteAPIKey(provider)
+	}
+	a.chat.SetStatus("logged out: " + provider)
+	return a, nil
+}
+
+func (a *App) enterLoginMode(id string) {
+	a.loginMode = true
+	a.loginProvider = id
+	a.input.Clear()
+	a.input.SetPlaceholder("Enter API key for " + id + "...")
+	a.homeView.SetInput("")
+}
+
+func (a *App) credentialStoreRoot() string {
+	if v := os.Getenv("KUI_HOME"); v != "" {
+		return v
+	}
+	if dir, err := os.UserConfigDir(); err == nil {
+		return filepath.Join(dir, "kui")
+	}
+	return "."
+}
+
+func tuiValidateKey(key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("API key cannot be empty")
+	}
+	if len(key) < 8 {
+		return fmt.Errorf("API key too short")
+	}
+	return nil
 }
 
 // handleThemeCommand switches the active theme.
@@ -582,22 +818,44 @@ func (a *App) View() string {
 		return a.commandPalette.View()
 	}
 
+	// Provider list mode
+	if a.providerListMode && a.providerList != nil {
+		return a.providerList.View()
+	}
+
+	// Model list mode
+	if a.modelListMode && a.modelList != nil {
+		return a.modelList.View()
+	}
+
 	// Session list mode: render the interactive list instead of the normal layout
 	if a.listMode && a.sessionList != nil {
 		return a.sessionList.View()
 	}
 
+	// Login mode overlay
+	if a.loginMode {
+		prompt := fmt.Sprintf("Enter API key for %s (Enter to save, Esc to cancel):", a.loginProvider)
+		inputLine := a.input.View()
+		return prompt + "\n" + inputLine
+	}
+
+	// Route dispatch: home vs session
+	if a.route == "home" {
+		return a.renderHome()
+	}
+
 	// Rebuild views with current state
 	a.rebuildViews()
 
-	// Header: 1 line
-	header := a.header.Render()
+	// Header: minimal with subtle full-width bottom border (opencode style)
+	header := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, true, false).
+		BorderForeground(a.styles.HomeBorder.GetBorderTopForeground()).
+		Width(a.width).
+		Render(a.header.Render())
 
-	// Tool view: up to 10 lines, but no more than 1/4 of height
-	toolMax := a.height / 4
-	if toolMax < 3 {
-		toolMax = 3
-	}
+	// Tool view: per-entry bordered panels already; no extra outer wrap needed
 	toolStr := a.tool.Render()
 
 	// Chat or Diff view: fills remaining space
@@ -608,16 +866,69 @@ func (a *App) View() string {
 		mainStr = a.chat.Render()
 	}
 
-	// Input line at bottom — with autocomplete popup if active
-	inputLine := a.input.View()
+	// Input: full-width dark gray bar #2a2a2a with left blue accent (opencode style, docked bottom — NOT centered)
+	inputInner := a.input.View()
+	inputBar := a.styles.InputBarAccent.Copy().Width(a.width - 2).Render(inputInner)
+	inputLine := inputBar
+
+	// Autocomplete popup above input, left-aligned to input bar (not centered)
+	var popupStr string
 	if a.autocomplete.IsActive() {
 		popup := a.autocomplete.View()
 		if popup != "" {
-			inputLine = popup + "\n" + inputLine
+			popupStyled := lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(a.styles.HomeBorder.GetBorderTopForeground()).
+				Background(lipgloss.Color("#252525")).
+				Padding(0, 1).
+				Width(a.width - 4).
+				Render(popup)
+			popupStr = popupStyled
 		}
 	}
 
-	// Compose regions with newlines between them
+	// Sidebar (opencode right panel) when wide enough
+	var sidebarStr string
+	if a.width >= 110 {
+		sb := views.NewSidebarModel(a.styles)
+		sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
+		sb.SetCost(a.ctrl.Cost())
+		sb.SetProfile(a.ctrl.ActiveProfile())
+		sb.SetModel(a.ctrl.ModelName())
+		sideWidth := 30
+		mainWidth := a.width - sideWidth - 1
+		sidebarStr = sb.View(sideWidth)
+
+		// Build main panel string at mainWidth
+		var mb strings.Builder
+		mb.WriteString(header)
+		mb.WriteString("\n")
+		mb.WriteString(mainStr)
+		mb.WriteString("\n")
+		if toolStr != "" {
+			mb.WriteString(toolStr)
+			mb.WriteString("\n")
+		}
+		toastStr := a.toast.View()
+		if toastStr != "" {
+			mb.WriteString(toastStr)
+			mb.WriteString("\n")
+		}
+		if popupStr != "" {
+			mb.WriteString(popupStr)
+			mb.WriteString("\n")
+		}
+		mb.WriteString(inputLine)
+		mb.WriteString("\n")
+		mb.WriteString(a.footer.Render())
+		mainPanel := mb.String()
+
+		// Trim main panel to mainWidth columns per line for clean join
+		mainPanel = trimToWidth(mainPanel, mainWidth)
+		return lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
+	}
+
+	// Compose regions with newlines between them (narrow terminal, no sidebar)
 	var b strings.Builder
 	b.WriteString(header)
 	b.WriteString("\n")
@@ -635,10 +946,51 @@ func (a *App) View() string {
 		b.WriteString("\n")
 	}
 
+	if popupStr != "" {
+		b.WriteString(popupStr)
+		b.WriteString("\n")
+	}
 	b.WriteString(inputLine)
 	b.WriteString("\n")
 	b.WriteString(a.footer.Render())
 
+	return b.String()
+}
+
+func (a *App) renderHome() string {
+	// Sync home view state before render.
+	a.homeView.SetSize(a.width, a.height)
+	a.homeView.SetStyles(a.styles)
+	a.homeView.SetInput(a.input.Value())
+
+	base := a.homeView.View()
+
+	// Autocomplete popup centered
+	if a.autocomplete.IsActive() {
+		popup := a.autocomplete.View()
+		if popup != "" {
+			centered := lipgloss.PlaceHorizontal(a.width, lipgloss.Center, popup)
+			base = base + "\n" + centered
+		}
+	}
+
+	// Home footer at bottom
+	homeFooterStr := a.homeFooter.Render()
+
+	// Toast overlay
+	toastStr := a.toast.View()
+
+	var b strings.Builder
+	b.WriteString(base)
+	b.WriteString("\n")
+	if toastStr != "" {
+		b.WriteString(toastStr)
+		b.WriteString("\n")
+	}
+	b.WriteString(homeFooterStr)
+
+	// Login mode already handled in View(), but keep input line for home when not in login?
+	// For home, the prompt is rendered inside homeView, so no extra input line needed.
 	return b.String()
 }
 
@@ -659,6 +1011,15 @@ func (a *App) rebuildViews() {
 	a.footer.SetModel(a.ctrl.ModelName())
 	a.footer.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
 	a.footer.SetCost(a.ctrl.Cost())
+
+	// Update home view in-place
+	if a.homeView.IsZero() {
+		a.homeView = views.NewHomeView(a.styles, a.width, a.height)
+	} else {
+		a.homeView.SetStyles(a.styles)
+		a.homeView.SetSize(a.width, a.height)
+		a.homeView.SetInput(a.input.Value())
+	}
 }
 
 // chat returns the chat model for inspection.
@@ -691,4 +1052,31 @@ func (a *App) dispatchLspTool(toolName string) (tea.Model, tea.Cmd) {
 
 	a.chat.AppendMessage("assistant", result, a.ctrl.ActiveProfile(), "")
 	return a, nil
+}
+
+// trimToWidth truncates each line of s to maxWidth columns so it can be
+// joined horizontally with a sidebar without overflow.
+func trimToWidth(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		w := lipgloss.Width(line)
+		if w > maxWidth {
+			// Trim by visible columns, preserving as much as possible.
+			trimmed := ""
+			cols := 0
+			for _, r := range line {
+				rw := lipgloss.Width(string(r))
+				if cols+rw > maxWidth {
+					break
+				}
+				trimmed += string(r)
+				cols += rw
+			}
+			lines[i] = trimmed
+		}
+	}
+	return strings.Join(lines, "\n")
 }

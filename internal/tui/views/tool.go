@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/biggs-100/kui/internal/tui/theme"
@@ -52,8 +51,13 @@ func (m *ToolModel) AppendResult(callID, result string) {
 }
 
 // Render produces the full tool view string (REQ-TUI-TOOL-1/2).
+// Opencode style: each call wrapped in rounded bordered panel BGHighlight #252525 Border #333333,
+// hide callID, show ToolName bold + ToolResult plain, pending faint dot, truncate long result.
 func (m ToolModel) Render() string {
 	if len(m.events) == 0 {
+		if m.styles != nil {
+			return m.styles.HomeMuted.Render("no tool calls")
+		}
 		return m.styles.ToolEmpty.Render("no tool calls")
 	}
 
@@ -63,14 +67,28 @@ func (m ToolModel) Render() string {
 		line.WriteString(m.styles.ToolName.Render(ev.Name))
 
 		if ev.Result != "" {
+			result := ev.Result
+			// truncate long result to 200 chars
+			if len(result) > 200 {
+				result = result[:200] + "…"
+			}
+			// replace newlines with spaces for compact panel
+			result = strings.ReplaceAll(result, "\n", " ")
 			line.WriteString(" → ")
-			line.WriteString(m.styles.ToolResult.Render(ev.Result))
+			line.WriteString(m.styles.ToolResult.Render(result))
 		} else {
 			line.WriteString(" ")
-			line.WriteString(m.styles.ToolPending.Render(fmt.Sprintf("(pending %s)", ev.CallID)))
+			line.WriteString(m.styles.ToolPending.Render("○ pending"))
 		}
 
-		parts = append(parts, line.String())
+		inner := line.String()
+		// Wrap each entry in bordered panel
+		if m.styles != nil {
+			panel := m.styles.Panel.Render(inner)
+			parts = append(parts, panel)
+		} else {
+			parts = append(parts, inner)
+		}
 	}
 
 	return strings.Join(parts, "\n")

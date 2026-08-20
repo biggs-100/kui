@@ -24,6 +24,8 @@ func NewInputModel(placeholder, historyPath string) InputModel {
 	ta.SetHeight(1)
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(false)
+	// No built-in prompt/border: app.go wraps the input in an opencode-style bar.
+	ta.Prompt = ""
 
 	var h *History
 	if historyPath != "" {
@@ -126,6 +128,11 @@ func (m *InputModel) Blur() {
 func (m *InputModel) SetValue(s string) {
 	m.pushUndo()
 	m.textarea.SetValue(s)
+}
+
+// SetPlaceholder updates the textarea placeholder text.
+func (m *InputModel) SetPlaceholder(s string) {
+	m.textarea.Placeholder = s
 }
 
 // History returns the underlying History (for navigation).

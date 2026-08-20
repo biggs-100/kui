@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/tui/markdown"
 	"github.com/biggs-100/kui/internal/tui/theme"
@@ -159,7 +160,16 @@ func (m ChatModel) Render() string {
 	}
 
 	if m.status != "" {
-		parts = append(parts, m.styles.EmptyHint.Render(m.status))
+		// Opencode status line: muted gray with left dot (●) — e.g. "Gentle-Orchestrator · MiMo V2.5 · 9m 1s"
+		dot := lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Render("● ")
+		// Use HomeMuted for muted gray, keep faint for subtlety
+		statusLine := m.styles.HomeMuted.Render(m.status)
+		// If styles available, ensure dot + muted text
+		if m.styles != nil {
+			parts = append(parts, dot+statusLine)
+		} else {
+			parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Faint(true).Render("● "+m.status))
+		}
 	}
 
 	// Inline diagnostic annotations.
@@ -169,5 +179,5 @@ func (m ChatModel) Render() string {
 		}
 	}
 
-	return strings.Join(parts, "\n\n")
+	return strings.Join(parts, "\n")
 }

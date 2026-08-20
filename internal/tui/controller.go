@@ -72,6 +72,10 @@ type Controller struct {
 	modelName     string
 	modelPricing  map[string]modelPrice
 
+	// modelStore persists per-profile model overrides. When nil, /model changes
+	// are in-memory only (session-scoped).
+	modelStore core.ModelMemory
+
 	// Run tracking (REQ-RELOAD-13): guards cancel-and-wait for /reload.
 	running bool
 	cancel  context.CancelFunc
@@ -404,6 +408,50 @@ func (c *Controller) ModelName() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.modelName
+}
+
+// SetModelStore sets the persistent model store for /model changes.
+func (c *Controller) SetModelStore(store core.ModelMemory) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.modelStore = store
+}
+
+// ActiveProfileName returns the name of the active profile.
+func (c *Controller) ActiveProfileName() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.active < 0 || c.active >= len(c.profiles) {
+		return ""
+	}
+	return c.profiles[c.active]
+}
+
+// ChangeModel switches the model for the active profile. It persists the
+// change to the model store, updates the in-memory name, and applies it
+// to the provider for the next prompt.
+func (c *Controller) ChangeModel(model string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	profile := c.profiles[c.active]
+
+	// Persist to store if available.
+	if c.modelStore != nil {
+		if err := c.modelStore.Set(profile, model); err != nil {
+			return fmt.Errorf("save model: %w", err)
+		}
+	}
+
+	// Update in-memory state.
+	c.modelName = model
+
+	// Apply to provider for the next prompt.
+	if c.SetModeler != nil {
+		c.SetModeler.SetModel(model)
+	}
+
+	return nil
 }
 
 // ContextWindow returns the configured context window size.

@@ -1,5 +1,4 @@
 you (coder/gpt-4)
 What is 2+2?
-
 assistant
 4

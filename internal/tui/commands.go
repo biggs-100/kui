@@ -75,6 +75,28 @@ func NewCommandRegistry() *CommandRegistry {
 		Category:    "Runtime",
 	}, nil)
 
+	// Model commands
+	r.registerWithHandler(views.Command{
+		Name:        "/model",
+		Description: "Show or switch the active model",
+		Category:    "Model",
+		Args:        "[<model-name>]",
+	}, nil)
+
+	// Auth commands
+	r.registerWithHandler(views.Command{
+		Name:        "/login",
+		Description: "Authenticate provider",
+		Category:    "Auth",
+		Args:        "<provider>",
+	}, nil)
+	r.registerWithHandler(views.Command{
+		Name:        "/logout",
+		Description: "Logout provider",
+		Category:    "Auth",
+		Args:        "[<provider>]",
+	}, nil)
+
 	// Navigation commands (keyboard shortcuts)
 	r.registerWithHandler(views.Command{
 		Name:        "Tab",

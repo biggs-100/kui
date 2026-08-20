@@ -25,3 +25,11 @@ Thumbs.db
 coverage
 coverage_new
 coverage_tui
+
+# Harness state
+.pi/
+
+# Local reference artifacts (screenshots, debug dumps)
+capturas/
+*.dump.txt
+internal/tui/session_dump.txt

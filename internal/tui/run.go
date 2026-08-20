@@ -31,6 +31,9 @@ type Wiring struct {
 	ProjectDir string
 	// ConfigRoot is the .kui config directory (KUI_HOME).
 	ConfigRoot string
+	// Model is the --model flag override. When non-empty, it takes highest
+	// priority in the REQ-CLI-4 resolution chain.
+	Model string
 	// Client is a factory that creates the core.Provider. If it returns
 	// an error, Run exits with that error before starting the TUI
 	// (REQ-TUI-APP-1 startup validation).
@@ -170,7 +173,11 @@ func Run(ctx context.Context, w Wiring) error {
 	// Step 5: Build the model resolver (REQ-CLI-4 chain).
 	envModel := os.Getenv("OPENAI_MODEL")
 	mla := &modelLoaderAdapter{loader: loader}
+	flagModel := w.Model // --model flag override (highest priority)
 	resolver := func(profileName string) string {
+		if flagModel != "" {
+			return flagModel
+		}
 		return agent.ResolveModel(st, mla, profileName, envModel)
 	}
 
@@ -184,6 +191,10 @@ func Run(ctx context.Context, w Wiring) error {
 	// Step 6b: Wire session store for persistence.
 	sessionStore := store.NewSessionStore(w.ConfigRoot)
 	ctrl.SetSessionStore(sessionStore)
+
+	// Step 6c: Wire model store for /model persistence.
+	ctrl.SetModelStore(st)
+
 	if w.Session != nil {
 		// Restore session: use the existing ID and load history.
 		ctrl.SetSessionID(w.Session.Meta.ID)

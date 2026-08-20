@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/biggs-100/kui/internal/tui/theme"
 )
 
@@ -31,7 +32,7 @@ func Render(content string, styles *theme.Styles) string {
 		return ""
 	}
 
-	// Process fenced code blocks first (they span multiple lines)
+	// Process fenced code blocks first (they span multiple lines) — Background #252525
 	result := reFence.ReplaceAllStringFunc(content, func(match string) string {
 		parts := reFence.FindStringSubmatch(match)
 		if len(parts) < 3 {
@@ -39,17 +40,41 @@ func Render(content string, styles *theme.Styles) string {
 		}
 		lang := parts[1]
 		code := parts[2]
+		// Style code block with dark background #252525
+		codeBlockStyle := styles.CodeBlock
+		if styles == nil {
+			codeBlockStyle = lipgloss.NewStyle().Background(lipgloss.Color("#252525")).Padding(0, 1)
+		}
+		var rendered string
 		if lang != "" {
 			highlighted := HighlightCode(code, lang, theme.DefaultTheme())
-			return highlighted
+			rendered = codeBlockStyle.Render(highlighted)
+		} else {
+			if styles != nil {
+				rendered = codeBlockStyle.Render(styles.ToolResult.Render(code))
+			} else {
+				rendered = codeBlockStyle.Render(code)
+			}
 		}
-		return styles.ToolResult.Render(code)
+		return rendered
 	})
 
 	// Process block-level patterns (per line)
 	lines := strings.Split(result, "\n")
 	var out []string
 	for _, line := range lines {
+		// Thought: — orange #e0af68 (opencode style)
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Thought:") {
+			// Preserve prefix styling in orange
+			thoughtStyle := styles.Thought
+			if styles == nil {
+				thoughtStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0af68")).Bold(true)
+			}
+			out = append(out, thoughtStyle.Render(line))
+			continue
+		}
+
 
 		// Heading
 		if m := reHeading.FindStringSubmatch(line); m != nil {

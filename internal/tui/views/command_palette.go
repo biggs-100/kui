@@ -170,7 +170,7 @@ func (m CommandPaletteModel) Update(msg tea.Msg) (CommandPaletteModel, tea.Cmd) 
 	return m, cmd
 }
 
-// View renders the command palette.
+// View renders the command palette — centered overlay with rounded border BGFloat.
 func (m CommandPaletteModel) View() string {
 	if m.quitting {
 		return ""
@@ -184,7 +184,21 @@ func (m CommandPaletteModel) View() string {
 		filterLine = "  > _\n"
 	}
 
-	return "\n" + filterLine + m.list.View()
+	content := filterLine + m.list.View()
+
+	// Apply popup styling if we can infer styles from width — use lipgloss directly
+	// for overlay. Caller (app.go) will center via Place; here we just border it.
+	bordered := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#333333")).
+		Background(lipgloss.Color("#1a1a1a")).
+		Padding(1, 1).
+		Render(content)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, bordered)
+	}
+	return bordered
 }
 
 // Selected returns the name of the command the user selected, or empty string
