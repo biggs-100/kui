@@ -25,7 +25,6 @@ func TestFooterRenderFull(t *testing.T) {
 	m.SetModel("gpt-4")
 	m.SetTokens(1234, 10000)
 	m.SetCost(0.05)
-	m.SetMCPStatus(2, 1)
 
 	got := m.Render()
 
@@ -37,7 +36,6 @@ func TestFooterRenderFull(t *testing.T) {
 		{"model", "gpt-4"},
 		{"token count", "1234"},
 		{"cost", "$0.05"},
-		{"MCP connected", "2"},
 	}
 
 	for _, tt := range checks {
@@ -91,20 +89,6 @@ func TestFooterCostNonZero(t *testing.T) {
 
 	if !strings.Contains(got, "$1.23") {
 		t.Errorf("footer should show $1.23, got: %q", got)
-	}
-}
-
-func TestFooterMCPStatus(t *testing.T) {
-	m := NewFooterModel(testStyles())
-	m.SetMCPStatus(3, 0)
-
-	got := m.Render()
-
-	if !strings.Contains(got, "MCP") {
-		t.Errorf("footer should show MCP status, got: %q", got)
-	}
-	if !strings.Contains(got, "3") {
-		t.Errorf("footer should show 3 connected, got: %q", got)
 	}
 }
 

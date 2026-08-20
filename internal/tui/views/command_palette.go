@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -70,15 +71,16 @@ func (d commandItemDelegate) Render(w io.Writer, m list.Model, index int, item l
 // CommandPaletteModel wraps a bubbles/list.Model for interactive command
 // selection with fuzzy filtering.
 type CommandPaletteModel struct {
-	list        list.Model
-	commands    []Command
-	allItems    []commandItem
-	filtered    []commandItem
-	filterText  string
-	selected    string
-	quitting    bool
-	width       int
-	height      int
+	list       list.Model
+	commands   []Command
+	allItems   []commandItem
+	filtered   []commandItem
+	filterText string
+	selected   string
+	quitting   bool
+	width      int
+	height     int
+	styles     *theme.Styles
 }
 
 // NewCommandPaletteModel creates a CommandPaletteModel from a slice of Commands.
@@ -104,6 +106,14 @@ func NewCommandPaletteModel(cmds []Command, width, height int) CommandPaletteMod
 		filtered: allItems,
 		width:    width,
 		height:   height,
+		styles:   theme.NewStyles(theme.OpenCode()),
+	}
+}
+
+// SetStyles overrides the palette styles (e.g. the active app theme).
+func (m *CommandPaletteModel) SetStyles(s *theme.Styles) {
+	if s != nil {
+		m.styles = s
 	}
 }
 
@@ -186,14 +196,7 @@ func (m CommandPaletteModel) View() string {
 
 	content := filterLine + m.list.View()
 
-	// Apply popup styling if we can infer styles from width — use lipgloss directly
-	// for overlay. Caller (app.go) will center via Place; here we just border it.
-	bordered := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#333333")).
-		Background(lipgloss.Color("#1a1a1a")).
-		Padding(1, 1).
-		Render(content)
+	bordered := m.styles.Popup.Render(content)
 
 	if m.width > 0 && m.height > 0 {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, bordered)

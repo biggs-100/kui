@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/biggs-100/kui/internal/credentials"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/biggs-100/kui/internal/credentials"
 )
 
 // AvailableModels returns the list of selectable model names shown in the
@@ -32,27 +32,7 @@ func AvailableModels() []string {
 		"claude-3-haiku",
 		"gemini-2.0-flash",
 		"gemini-1.5-pro",
-		"mimo-v2-free",
-		"mimo-v2.5",
-		"mimo-v2.5-free",
 	}
-}
-
-// modelProvider maps each model to its provider for filtering.
-var modelProvider = map[string]string{
-	"gpt-4":              "openai",
-	"gpt-4o":             "openai",
-	"gpt-4o-mini":        "openai",
-	"gpt-3.5-turbo":      "openai",
-	"claude-3.5-sonnet":  "anthropic",
-	"claude-3.5-haiku":   "anthropic",
-	"claude-3-opus":      "anthropic",
-	"claude-3-haiku":     "anthropic",
-	"gemini-2.0-flash":   "gemini",
-	"gemini-1.5-pro":     "gemini",
-	"mimo-v2-free":       "opencode",
-	"mimo-v2.5":          "opencode-go",
-	"mimo-v2.5-free":     "opencode-go",
 }
 
 // providerEnvVar maps provider to its required env var.
@@ -108,222 +88,219 @@ func IsProviderConfigured(provider string) bool {
 // --- Live model discovery (pi-opencode-provider style) ---
 
 var (
-    liveCacheMu sync.Mutex
-    liveCache   = map[string]cachedModels{}
-    liveTTL     = 5 * time.Minute
+	liveCacheMu sync.Mutex
+	liveCache   = map[string]cachedModels{}
+	liveTTL     = 5 * time.Minute
 )
 
 type cachedModels struct {
-    models []string
-    expiry time.Time
+	models []string
+	expiry time.Time
 }
 
 func getAPIKeyForProvider(provider string) string {
-    if envVar, ok := providerEnvVar[provider]; ok {
-        if v := os.Getenv(envVar); v != "" {
-            return v
-        }
-    }
-    if key, err := credentials.ReadOpenCodeAuth(provider); err == nil && key != "" {
-        return key
-    }
-    for _, root := range credentialRoots() {
-        cs := credentials.NewCredentialStore(root)
-        if err := cs.Load(); err == nil {
-            if key, err := cs.GetAPIKey(provider); err == nil && key != "" {
-                return key
-            }
-        }
-    }
-    return ""
+	if envVar, ok := providerEnvVar[provider]; ok {
+		if v := os.Getenv(envVar); v != "" {
+			return v
+		}
+	}
+	if key, err := credentials.ReadOpenCodeAuth(provider); err == nil && key != "" {
+		return key
+	}
+	for _, root := range credentialRoots() {
+		cs := credentials.NewCredentialStore(root)
+		if err := cs.Load(); err == nil {
+			if key, err := cs.GetAPIKey(provider); err == nil && key != "" {
+				return key
+			}
+		}
+	}
+	return ""
 }
 
 func fetchOpencodeModels(ctx context.Context, endpoint, apiKey string) ([]string, error) {
-    req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
-    if err != nil {
-        return nil, err
-    }
-    if apiKey != "" {
-        req.Header.Set("Authorization", "Bearer "+apiKey)
-    }
-    req.Header.Set("Accept", "application/json")
-    client := &http.Client{Timeout: 4 * time.Second}
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-        return nil, fmt.Errorf("opencode models %d: %s", resp.StatusCode, string(body))
-    }
-    var payload struct {
-        Data []struct {
-            ID string `json:"id"`
-        } `json:"data"`
-        Object string `json:"object"`
-    }
-    if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-        return nil, err
-    }
-    var ids []string
-    for _, d := range payload.Data {
-        if d.ID != "" {
-            ids = append(ids, d.ID)
-        }
-    }
-    return ids, nil
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("opencode models %d: %s", resp.StatusCode, string(body))
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+		Object string `json:"object"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, d := range payload.Data {
+		if d.ID != "" {
+			ids = append(ids, d.ID)
+		}
+	}
+	return ids, nil
 }
 
 func fetchOpenAIModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
-    endpoint := baseURL
-    if endpoint == "" {
-        endpoint = "https://api.openai.com/v1"
-    }
-    if len(endpoint) > 0 && endpoint[len(endpoint)-1] == '/' {
-        endpoint = endpoint[:len(endpoint)-1]
-    }
-    endpoint += "/models"
-    return fetchOpencodeModels(ctx, endpoint, apiKey)
+	endpoint := baseURL
+	if endpoint == "" {
+		endpoint = "https://api.openai.com/v1"
+	}
+	if len(endpoint) > 0 && endpoint[len(endpoint)-1] == '/' {
+		endpoint = endpoint[:len(endpoint)-1]
+	}
+	endpoint += "/models"
+	return fetchOpencodeModels(ctx, endpoint, apiKey)
 }
 
 func fetchAnthropicModels(ctx context.Context, apiKey string) ([]string, error) {
-    req, err := http.NewRequestWithContext(ctx, "GET", "https://api.anthropic.com/v1/models", nil)
-    if err != nil {
-        return nil, err
-    }
-    req.Header.Set("x-api-key", apiKey)
-    req.Header.Set("anthropic-version", "2023-06-01")
-    req.Header.Set("Accept", "application/json")
-    client := &http.Client{Timeout: 4 * time.Second}
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-        return nil, fmt.Errorf("anthropic models %d: %s", resp.StatusCode, string(body))
-    }
-    var payload struct {
-        Data []struct {
-            ID string `json:"id"`
-            DisplayName string `json:"display_name"`
-        } `json:"data"`
-    }
-    if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-        return nil, err
-    }
-    var ids []string
-    for _, d := range payload.Data {
-        if d.ID != "" {
-            ids = append(ids, d.ID)
-        }
-    }
-    return ids, nil
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.anthropic.com/v1/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("anthropic models %d: %s", resp.StatusCode, string(body))
+	}
+	var payload struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, d := range payload.Data {
+		if d.ID != "" {
+			ids = append(ids, d.ID)
+		}
+	}
+	return ids, nil
 }
 
 func fetchGeminiModels(ctx context.Context, apiKey string) ([]string, error) {
-    endpoint := "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey
-    req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
-    if err != nil {
-        return nil, err
-    }
-    req.Header.Set("Accept", "application/json")
-    client := &http.Client{Timeout: 4 * time.Second}
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-        body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-        return nil, fmt.Errorf("gemini models %d: %s", resp.StatusCode, string(body))
-    }
-    var payload struct {
-        Models []struct {
-            Name string `json:"name"`
-        } `json:"models"`
-    }
-    if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-        return nil, err
-    }
-    var ids []string
-    for _, m := range payload.Models {
-        id := m.Name
-        if len(id) > 7 && id[:7] == "models/" {
-            id = id[7:]
-        }
-        if id != "" {
-            ids = append(ids, id)
-        }
-    }
-    return ids, nil
+	endpoint := "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("gemini models %d: %s", resp.StatusCode, string(body))
+	}
+	var payload struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, m := range payload.Models {
+		id := m.Name
+		if len(id) > 7 && id[:7] == "models/" {
+			id = id[7:]
+		}
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 func liveModelsForProvider(provider string) []string {
-    // check cache
-    liveCacheMu.Lock()
-    if c, ok := liveCache[provider]; ok && time.Now().Before(c.expiry) && len(c.models) > 0 {
-        models := c.models
-        liveCacheMu.Unlock()
-        return models
-    }
-    liveCacheMu.Unlock()
+	// check cache
+	liveCacheMu.Lock()
+	if c, ok := liveCache[provider]; ok && time.Now().Before(c.expiry) && len(c.models) > 0 {
+		models := c.models
+		liveCacheMu.Unlock()
+		return models
+	}
+	liveCacheMu.Unlock()
 
-    apiKey := getAPIKeyForProvider(provider)
-    ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-    defer cancel()
+	apiKey := getAPIKeyForProvider(provider)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
 
-    var ids []string
-    var err error
-    switch provider {
-    case "opencode":
-        ids, err = fetchOpencodeModels(ctx, "https://opencode.ai/zen/v1/models", apiKey)
-    case "opencode-go":
-        ids, err = fetchOpencodeModels(ctx, "https://opencode.ai/zen/go/v1/models", apiKey)
-    case "openai":
-        ids, err = fetchOpenAIModels(ctx, "https://api.openai.com/v1", apiKey)
-    case "anthropic":
-        if apiKey == "" {
-            err = fmt.Errorf("no api key")
-        } else {
-            ids, err = fetchAnthropicModels(ctx, apiKey)
-        }
-    case "gemini":
-        if apiKey == "" {
-            err = fmt.Errorf("no api key")
-        } else {
-            ids, err = fetchGeminiModels(ctx, apiKey)
-        }
-    default:
-        return nil
-    }
-    if err != nil || len(ids) == 0 {
-        return nil
-    }
-    liveCacheMu.Lock()
-    liveCache[provider] = cachedModels{models: ids, expiry: time.Now().Add(liveTTL)}
-    liveCacheMu.Unlock()
-    return ids
+	var ids []string
+	var err error
+	switch provider {
+	case "opencode":
+		ids, err = fetchOpencodeModels(ctx, "https://opencode.ai/zen/v1/models", apiKey)
+	case "opencode-go":
+		ids, err = fetchOpencodeModels(ctx, "https://opencode.ai/zen/go/v1/models", apiKey)
+	case "openai":
+		ids, err = fetchOpenAIModels(ctx, "https://api.openai.com/v1", apiKey)
+	case "anthropic":
+		if apiKey == "" {
+			err = fmt.Errorf("no api key")
+		} else {
+			ids, err = fetchAnthropicModels(ctx, apiKey)
+		}
+	case "gemini":
+		if apiKey == "" {
+			err = fmt.Errorf("no api key")
+		} else {
+			ids, err = fetchGeminiModels(ctx, apiKey)
+		}
+	default:
+		return nil
+	}
+	if err != nil || len(ids) == 0 {
+		return nil
+	}
+	liveCacheMu.Lock()
+	liveCache[provider] = cachedModels{models: ids, expiry: time.Now().Add(liveTTL)}
+	liveCacheMu.Unlock()
+	return ids
 }
 
-
-
 // AvailableModelsFiltered returns only models whose provider is configured.
-// It first attempts live discovery (pi-opencode-provider style) for each
-// configured provider via their /models endpoints; on failure it falls back to
-// the static catalog.
+// It attempts live discovery (pi-opencode-provider style) for each configured
+// provider via their /models endpoints. When nothing is configured, or no
+// provider returns models, it returns an empty list (no fabricated IDs); the
+// caller renders a help/empty state.
 func AvailableModelsFiltered() []string {
 	// Try live discovery for configured providers
 	providers := []string{"openai", "anthropic", "gemini", "opencode", "opencode-go"}
 	var live []string
-	var anyConfigured bool
 	for _, prov := range providers {
 		if !IsProviderConfigured(prov) {
 			continue
 		}
-		anyConfigured = true
 		if ids := liveModelsForProvider(prov); len(ids) > 0 {
 			live = append(live, ids...)
 		}
@@ -340,27 +317,9 @@ func AvailableModelsFiltered() []string {
 		}
 		return out
 	}
-	// Fallback: static catalog filtered
-	if !anyConfigured {
-		// No provider configured -> show static catalog so user sees something + hint
-		return AvailableModels()
-	}
-	all := AvailableModels()
-	var filtered []string
-	for _, m := range all {
-		provider, ok := modelProvider[m]
-		if !ok {
-			filtered = append(filtered, m)
-			continue
-		}
-		if IsProviderConfigured(provider) {
-			filtered = append(filtered, m)
-		}
-	}
-	if len(filtered) == 0 {
-		return AvailableModels()
-	}
-	return filtered
+	// No provider configured (or none returned live models): show an empty list
+	// rather than fabricated model IDs. The caller renders a help/empty state.
+	return nil
 }
 
 // modelItem wraps a single model name for display in the bubbles list.

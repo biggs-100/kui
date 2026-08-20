@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/biggs-100/kui/internal/adapters/providers"
 	"github.com/biggs-100/kui/internal/credentials"
 	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/biggs-100/kui/internal/tui/toast"
 	"github.com/biggs-100/kui/internal/tui/views"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // App is the root Bubble Tea model that composes the header, chat, and tool
@@ -32,11 +32,11 @@ type App struct {
 	diff   views.DiffModel
 	styles *theme.Styles
 
-	width  int
-	height int
-	input  InputModel
+	width        int
+	height       int
+	input        InputModel
 	autocomplete AutocompleteModel
-	quitting bool
+	quitting     bool
 
 	// Diff view toggle: when true, the diff panel is rendered instead of chat.
 	diffVisible bool
@@ -50,11 +50,11 @@ type App struct {
 	commandPalette *views.CommandPaletteModel
 
 	// Model list mode: interactive model selector.
-	modelList *views.ModelListModel
+	modelList     *views.ModelListModel
 	modelListMode bool
 
 	// Provider list mode: interactive provider selector for login.
-	providerList *views.ProviderListModel
+	providerList     *views.ProviderListModel
 	providerListMode bool
 
 	// Login mode: prompting for API key.
@@ -315,6 +315,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.registry = NewCommandRegistry() // refresh registry
 		cmds := a.registry.All()
 		palette := views.NewCommandPaletteModel(cmds, a.width, a.height-4)
+		palette.SetStyles(a.styles)
 		a.commandPalette = &palette
 		a.paletteMode = true
 		return a, nil

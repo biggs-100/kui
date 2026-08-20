@@ -555,9 +555,9 @@ func TestAppViewIncludesFooter(t *testing.T) {
 		t.Errorf("view should contain model name 'gpt-4', got:\n%s", view)
 	}
 
-	// Footer should contain MCP status
-	if !strings.Contains(view, "MCP") {
-		t.Errorf("view should contain 'MCP' in footer, got:\n%s", view)
+	// Footer should contain the command-palette hint (real ctrl+p binding)
+	if !strings.Contains(view, "ctrl+p commands") {
+		t.Errorf("view should contain 'ctrl+p commands' in footer, got:\n%s", view)
 	}
 }
 

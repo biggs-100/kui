@@ -4,29 +4,27 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/biggs-100/kui/internal/tui/theme"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // SidebarModel renders the opencode-style right sidebar.
-// Sections: Subagents, Context, MCP, LSP — muted grays with blue headers.
+// Only real, controller-backed fields are shown: token usage/cost (Context)
+// and the active profile/model (Session). kui tracks no MCP/LSP server state
+// and has no version string, so those sections are intentionally omitted.
 type SidebarModel struct {
-	styles       *theme.Styles
-	tokens       int
-	contextMax   int
-	cost         float64
-	mcpConnected int
-	mcpFailed    int
-	lspState     string
-	profile      string
-	model        string
-	version      string
-	width        int
+	styles     *theme.Styles
+	tokens     int
+	contextMax int
+	cost       float64
+	profile    string
+	model      string
+	width      int
 }
 
 // NewSidebarModel creates a SidebarModel with theme styles.
 func NewSidebarModel(styles *theme.Styles) SidebarModel {
-	return SidebarModel{styles: styles, version: "1.2.1"}
+	return SidebarModel{styles: styles}
 }
 
 // SetTokens sets token count and context window.
@@ -38,17 +36,6 @@ func (m *SidebarModel) SetTokens(total, limit int) {
 // SetCost sets session cost.
 func (m *SidebarModel) SetCost(cost float64) {
 	m.cost = cost
-}
-
-// SetMCPStatus sets MCP server counts.
-func (m *SidebarModel) SetMCPStatus(connected, failed int) {
-	m.mcpConnected = connected
-	m.mcpFailed = failed
-}
-
-// SetLSPStatus sets LSP state.
-func (m *SidebarModel) SetLSPStatus(state string) {
-	m.lspState = state
 }
 
 // SetProfile sets active profile name.
@@ -66,18 +53,14 @@ func (m SidebarModel) View(width int) string {
 	if m.styles == nil || width < 10 {
 		return ""
 	}
-	// Ensure reasonable width
 	if width < 20 {
 		width = 20
 	}
-	// Header style: accent blue bold
-	headerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#569cd6")).
-		Bold(true).
-		Width(width - 2)
+
+	// Header style: accent blue bold (theme token, not a literal)
+	headerStyle := m.styles.LogoAccent
 
 	muted := m.styles.HomeMuted
-	// Use muted for body, but ensure it renders within width
 	bodyStyle := lipgloss.NewStyle().
 		Foreground(muted.GetForeground()).
 		Faint(true).
@@ -87,14 +70,11 @@ func (m SidebarModel) View(width int) string {
 
 	var b strings.Builder
 
-	// Section helper
 	section := func(title string, lines []string) {
 		b.WriteString(headerStyle.Render(title))
 		b.WriteString("\n")
 		for _, l := range lines {
-			// Truncate if needed
 			if lipgloss.Width(l) > width-2 {
-				// simple truncation
 				l = l[:width-1] + "..."
 			}
 			b.WriteString(bodyStyle.Render(l))
@@ -104,79 +84,36 @@ func (m SidebarModel) View(width int) string {
 		b.WriteString("\n")
 	}
 
-	// Subagents section — placeholder counts (opencode style: Subagents 1.2.1 • 0 run • 0 done • Σ 0)
-	subLines := []string{
-		fmt.Sprintf("v%s • 0 run • 0 done • Σ 0", m.version),
-	}
-	// Add profile/model hint if available
-	if m.profile != "" || m.model != "" {
-		hint := strings.TrimSpace(fmt.Sprintf("%s · %s", m.profile, m.model))
-		subLines = append(subLines, muted.Render(hint))
-	}
-	section("Subagents", subLines)
-
-	// Context section — tokens, percent, cost (opencode: Context 319k tokens 32% $0.27)
+	// Context section — real tokens, percent, cost from the controller.
 	var ctxLines []string
 	if m.tokens > 0 {
 		pct := 0
 		if m.contextMax > 0 {
 			pct = m.tokens * 100 / m.contextMax
 		}
-		// Format like "319k tokens 32% $0.27" or "1234 tokens (12%)"
-		var tokenStr string
-		if m.tokens >= 1000 {
-			tokenStr = fmt.Sprintf("%.1fK tokens", float64(m.tokens)/1000)
-		} else {
-			tokenStr = fmt.Sprintf("%d tokens", m.tokens)
-		}
-		ctxLines = append(ctxLines, fmt.Sprintf("%s %d%% $%.2f", tokenStr, pct, m.cost))
-		// Context window hint
+		ctxLines = append(ctxLines, fmt.Sprintf("%d tokens %d%% $%.2f", m.tokens, pct, m.cost))
 		if m.contextMax > 0 {
 			ctxLines = append(ctxLines, fmt.Sprintf("%d / %d", m.tokens, m.contextMax))
 		}
 	} else {
-		ctxLines = append(ctxLines, "319k tokens 32% $0.27")
-		// Replace with real placeholders when no data: show dash
-		if m.contextMax == 0 {
-			ctxLines = []string{"0 tokens 0% $0.00"}
-		}
+		ctxLines = append(ctxLines, "0 tokens 0% $0.00")
 	}
 	section("Context", ctxLines)
 
-	// MCP section — dots (Connected / ○)
-	var mcpLines []string
-	if m.mcpConnected > 0 && m.mcpFailed == 0 {
-		mcpLines = append(mcpLines, fmt.Sprintf("● Connected (%d)", m.mcpConnected))
-	} else if m.mcpConnected > 0 || m.mcpFailed > 0 {
-		if m.mcpFailed > 0 {
-			mcpLines = append(mcpLines, fmt.Sprintf("● %d/%d (failed %d)", m.mcpConnected, m.mcpFailed, m.mcpFailed))
-		} else {
-			mcpLines = append(mcpLines, fmt.Sprintf("● %d connected", m.mcpConnected))
+	// Session section — real profile/model only (never fabricated).
+	if m.profile != "" || m.model != "" {
+		var sessLines []string
+		if m.profile != "" {
+			sessLines = append(sessLines, "profile  "+m.profile)
 		}
-	} else {
-		// Default like opencode: context7/engram Connected or disabled
-		mcpLines = append(mcpLines, "○ disconnected")
-		mcpLines = append(mcpLines, "context7 • engram")
+		if m.model != "" {
+			sessLines = append(sessLines, "model  "+m.model)
+		}
+		section("Session", sessLines)
 	}
-	section("MCP", mcpLines)
 
-	// LSP section
-	var lspLines []string
-	if m.lspState == "running" || m.lspState == "idle" {
-		lspLines = append(lspLines, fmt.Sprintf("● %s", m.lspState))
-	} else if m.lspState == "error" {
-		lspLines = append(lspLines, fmt.Sprintf("● error"))
-	} else {
-		lspLines = append(lspLines, "○ disabled")
-	}
-	section("LSP", lspLines)
-
-	// Wrap whole sidebar in background #1a1a1a / #252525 style
 	content := strings.TrimSuffix(b.String(), "\n")
-	// Apply sidebar background and constrain width
-	sidebarStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#1a1a1a")).
-		Width(width).
-		Padding(0, 1)
-	return sidebarStyle.Render(content)
+	// Use the theme's sidebar style (background BGSidebar + padding) instead of
+	// a hardcoded hex literal.
+	return m.styles.Sidebar.Width(width).Render(content)
 }
