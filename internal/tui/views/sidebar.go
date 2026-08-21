@@ -139,20 +139,30 @@ func (m SidebarModel) View(width int) string {
 // ViewFullHeight renders the sidebar stretched to exactly height rows: the
 // section blocks stay pinned at the top, blank filler fills the middle, and
 // the footer lines (workspace path above version line) are pinned at the very
-// bottom. The whole block is wrapped once in the Sidebar style so every row —
-// including filler — carries the rail background and spans exactly width
-// columns (lipgloss styles its width-fill with the style background). When
-// the content is taller than height the block renders at natural height.
+// bottom. The whole block is wrapped ONCE in a continuous rounded-border box
+// over the Sidebar style so every row — including filler — carries the rail
+// background and the rail reads as one long box spanning exactly width
+// columns and height rows. lipgloss Width() includes horizontal padding but
+// excludes borders, so the block is width-2 wide (padding eats 2 of those
+// columns, leaving width-4 for text) plus one border column per side.
+// When the content is taller than height the block renders at natural height.
 func (m SidebarModel) ViewFullHeight(width, height int) string {
 	if m.styles == nil || width < 10 {
 		return ""
 	}
-	if height < 1 {
+	if height < 3 {
 		return m.View(width)
 	}
-	body := m.viewBody(width)
-	footer := m.footerLines(width)
-	fill := height - len(strings.Split(body, "\n")) - len(footer)
+	borderColor := "444444"
+	if m.styles.Theme != nil && m.styles.Theme.BorderSubtle != "" {
+		borderColor = m.styles.Theme.BorderSubtle
+	}
+	body := m.viewBody(width - 2)
+	footer := m.footerLines(width - 2)
+	fill := height - 2 - len(strings.Split(body, "\n")) - len(footer)
+	if fill < 0 {
+		fill = 0
+	}
 
 	var b strings.Builder
 	b.WriteString(body)
@@ -163,7 +173,11 @@ func (m SidebarModel) ViewFullHeight(width, height int) string {
 		b.WriteString("\n")
 		b.WriteString(l)
 	}
-	return m.styles.Sidebar.Width(width).Render(b.String())
+	box := m.styles.Sidebar.Copy().
+		Width(width - 2).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor))
+	return box.Render(b.String())
 }
 
 // viewBody renders the sidebar sections without footer and without the outer
