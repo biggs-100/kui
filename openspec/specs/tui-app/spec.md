@@ -39,14 +39,22 @@
 
 ### Requirement: REQ-TUI-APP-2 — Layout & Resize
 
-The app MUST support two layouts: home (flex-spacer centered logo + prompt + footer) and session (header + chat + tool view + footer with sidebar). `wide` MUST be `width > 120` (Previously: `width >= 110`). Sidebar width MUST be `42` (Previously: `30`). Session `contentWidth` MUST be `width - (sidebarVisible?42:0) - 4`. When `!wide` sidebar MUST render as overlay with backdrop `RGBA(0,0,0,70)`. A window resize MUST reflow current layout and MUST NOT crash.
-(Previously: sidebar 30@110, no contentWidth calc)
+The app MUST support two layouts: home (flex-spacer centered logo + prompt + footer) and session (header + chat + tool view + footer with sidebar). `wide` MUST be `width > 120` (Previously: `width >= 110`). Sidebar width MUST be `42` (Previously: `30`). Session `contentWidth` MUST be `width - (sidebarVisible?42:0) - 4`. The sidebar rail MUST span the full terminal height in both modes: sections pinned at top, background-styled filler in between, footer (workspace path above version line) pinned at the very bottom — inline when wide, drawn over the backdrop when narrow overlay. A window resize MUST reflow current layout and MUST NOT crash.
+(Previously: sidebar 30@110, no contentWidth calc; sidebar floated at content height)
 
 #### Scenario: Wide shows sidebar inline
 
 - GIVEN width 130
 - WHEN session renders
 - THEN sidebar 42 cols is visible inline and contentWidth is 84
+
+#### Scenario: Wide sidebar spans full height with pinned footer
+
+- GIVEN width 130 session view
+- WHEN View renders
+- THEN the sidebar block has exactly as many rows as the main panel
+- AND its bottom rows are the workspace path directly above the version line
+- AND every sidebar row carries the Sidebar background (no unstyled gaps)
 
 #### Scenario: Narrow overlays sidebar
 

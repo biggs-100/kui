@@ -39,7 +39,7 @@ func TestAppNarrowSidebarOverlayRenders(t *testing.T) {
 	dump := app.View()
 	// Sidebar section markers must appear in narrow mode; before the overlay
 	// fix the narrow path discarded the sidebar entirely.
-	for _, marker := range []string{"Workspace", "NotAvailable"} {
+	for _, marker := range []string{"Session", "NotAvailable"} {
 		if !strings.Contains(dump, marker) {
 			t.Errorf("narrow session dump missing sidebar %q marker:\n%s", marker, dump)
 		}

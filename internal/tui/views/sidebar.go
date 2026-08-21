@@ -58,7 +58,7 @@ func (m *SidebarModel) SetTitle(title string) { m.title = title }
 // SetSessionID sets session ID shown in header.
 func (m *SidebarModel) SetSessionID(id string) { m.sessionID = id }
 
-// SetWorkspace sets workspace path displayed in header.
+// SetWorkspace sets workspace path displayed in the bottom-pinned footer.
 func (m *SidebarModel) SetWorkspace(ws string) { m.workspace = ws }
 
 // SetWidth sets sidebar width (should be 42 per spec).
@@ -85,6 +85,57 @@ func (m SidebarModel) View(width int) string {
 	}
 	if m.width == 42 && width != 42 {
 		// enforce 42 when wide per spec, but respect passed width if narrow overlay
+		if width > 42 {
+			width = 42
+		}
+	}
+
+	content := m.viewBody(width)
+	if footer := m.footerLines(width); len(footer) > 0 {
+		content = content + "\n" + strings.Join(footer, "\n")
+	}
+	// Use the theme's sidebar style (background BGSidebar + padding) instead of
+	// a hardcoded hex literal.
+	return m.styles.Sidebar.Width(width).Render(content)
+}
+
+// ViewFullHeight renders the sidebar stretched to exactly height rows: the
+// section blocks stay pinned at the top, blank filler fills the middle, and
+// the footer lines (workspace path above version line) are pinned at the very
+// bottom. The whole block is wrapped once in the Sidebar style so every row —
+// including filler — carries the rail background and spans exactly width
+// columns (lipgloss styles its width-fill with the style background). When
+// the content is taller than height the block renders at natural height.
+func (m SidebarModel) ViewFullHeight(width, height int) string {
+	if m.styles == nil || width < 10 {
+		return ""
+	}
+	if height < 1 {
+		return m.View(width)
+	}
+	body := m.viewBody(width)
+	footer := m.footerLines(width)
+	fill := height - len(strings.Split(body, "\n")) - len(footer)
+
+	var b strings.Builder
+	b.WriteString(body)
+	for i := 0; i < fill; i++ {
+		b.WriteString("\n")
+	}
+	for _, l := range footer {
+		b.WriteString("\n")
+		b.WriteString(l)
+	}
+	return m.styles.Sidebar.Width(width).Render(b.String())
+}
+
+// viewBody renders the sidebar sections without footer and without the outer
+// Sidebar style wrap.
+func (m SidebarModel) viewBody(width int) string {
+	if width < 20 {
+		width = 20
+	}
+	if m.width == 42 && width != 42 {
 		if width > 42 {
 			width = 42
 		}
@@ -117,22 +168,23 @@ func (m SidebarModel) View(width int) string {
 		b.WriteString("\n")
 	}
 
-	// Header: title+sessionID+workspace (REQ-TUI-APP-2, REQ-TUI-CHAT-6)
-	var headerLines []string
+	// Session section: title + sessionID + profile/model (REQ-TUI-APP-2,
+	// REQ-TUI-CHAT-6). The workspace path lives in the bottom-pinned footer.
+	var sessLines []string
 	if m.title != "" {
-		headerLines = append(headerLines, m.title)
+		sessLines = append(sessLines, m.title)
 	}
 	if m.sessionID != "" {
-		headerLines = append(headerLines, "session "+m.sessionID)
+		sessLines = append(sessLines, "session "+m.sessionID)
 	}
-	if m.workspace != "" {
-		headerLines = append(headerLines, m.workspace)
-	} else {
-		// NotAvailable muted when absent (never fabricate)
-		headerLines = append(headerLines, muted.Render("NotAvailable"))
+	if m.profile != "" {
+		sessLines = append(sessLines, "profile  "+m.profile)
 	}
-	if len(headerLines) > 0 {
-		section("Workspace", headerLines)
+	if m.model != "" {
+		sessLines = append(sessLines, "model  "+m.model)
+	}
+	if len(sessLines) > 0 {
+		section("Session", sessLines)
 	}
 
 	// Context section — real tokens, percent, cost from the controller via locale.
@@ -153,19 +205,44 @@ func (m SidebarModel) View(width int) string {
 	}
 	section("Context", ctxLines)
 
-	// Session section — real profile/model only (never fabricated).
-	if m.profile != "" || m.model != "" {
-		var sessLines []string
-		if m.profile != "" {
-			sessLines = append(sessLines, "profile  "+m.profile)
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// footerLines returns the bottom-pinned footer lines: separator, workspace
+// path (muted NotAvailable placeholder when absent — never fabricated), then
+// the version line last ("• kui <ver>" via buildinfo, omitted when absent).
+func (m SidebarModel) footerLines(width int) []string {
+	if width < 20 {
+		width = 20
+	}
+	if m.width == 42 && width != 42 {
+		if width > 42 {
+			width = 42
 		}
-		if m.model != "" {
-			sessLines = append(sessLines, "model  "+m.model)
-		}
-		section("Session", sessLines)
 	}
 
-	// Footer version via buildinfo: • kui <ver> when present else omitted
+	muted := m.styles.HomeMuted
+	bodyStyle := lipgloss.NewStyle().
+		Foreground(muted.GetForeground()).
+		Faint(true).
+		Width(width - 2)
+	sep := muted.Render(strings.Repeat("─", width-2))
+
+	lines := []string{sep}
+
+	// Workspace path near the bottom (OpenCode rail layout)
+	if m.workspace != "" {
+		ws := m.workspace
+		if lipgloss.Width(ws) > width-2 {
+			ws = truncateSidebarLine(ws, width-2)
+		}
+		lines = append(lines, bodyStyle.Render(ws))
+	} else {
+		// NotAvailable muted when absent (never fabricate)
+		lines = append(lines, bodyStyle.Render(muted.Render("NotAvailable")))
+	}
+
+	// Version line bottom-most via buildinfo: • kui <ver> when present else omitted
 	if ver := getVersion(); ver != "" {
 		footer := fmt.Sprintf("• kui %s", ver)
 		// success dot uses accent? Use muted with success color if available
@@ -173,16 +250,10 @@ func (m SidebarModel) View(width int) string {
 			dot := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Success)).Render("•")
 			footer = dot + " kui " + ver
 		}
-		b.WriteString(bodyStyle.Render(footer))
-		b.WriteString("\n")
-		b.WriteString(sep)
-		b.WriteString("\n")
+		lines = append(lines, bodyStyle.Render(footer))
 	}
 
-	content := strings.TrimSuffix(b.String(), "\n")
-	// Use the theme's sidebar style (background BGSidebar + padding) instead of
-	// a hardcoded hex literal.
-	return m.styles.Sidebar.Width(width).Render(content)
+	return lines
 }
 
 func truncateSidebarLine(s string, max int) string {

@@ -1,6 +1,9 @@
-  coder                                Workspace                                
+  coder                                Session                                  
 ────────────────────────────────────── coder                                    
-start a conversation...                NotAvailable                             
+start a conversation...                profile  coder                           
 no tool calls                          ──────────────────────────────────────── 
 ▏ Ask kui...                           Context                                  
 Get started                            0 tokens 0% $0.00                        
+                                       ──────────────────────────────────────── 
+                                       ──────────────────────────────────────── 
+                                       NotAvailable                             

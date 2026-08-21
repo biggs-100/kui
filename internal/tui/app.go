@@ -1000,7 +1000,6 @@ func (a *App) View() string {
 	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
 	if a.IsWide() {
 		mainWidth := a.ContentWidth()
-		sidebarStr := a.newSidebarView()
 
 		// Build main panel string at mainWidth
 		var mb strings.Builder
@@ -1028,6 +1027,10 @@ func (a *App) View() string {
 
 		// Trim main panel to mainWidth columns per line for clean join
 		mainPanel = trimToWidth(mainPanel, mainWidth)
+		// Sidebar rail stretches to the main panel's exact line count so it
+		// spans the full terminal height with its footer pinned at the bottom
+		// (REQ-TUI-APP-2).
+		sidebarStr := a.newSidebarViewFullHeight(strings.Count(mainPanel, "\n") + 1)
 		// Title sequence for session (kui | {title}) vs home (kui) — emitted as escape, not counted in width
 		titleSeq := "\x1b]0;" + a.Title() + "\x07"
 		return titleSeq + lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
@@ -1069,9 +1072,9 @@ func (a *App) View() string {
 	return titleSeq + out
 }
 
-// newSidebarView builds the opencode-style 42-col sidebar from live controller
-// state (shared by wide inline layout and narrow overlay).
-func (a *App) newSidebarView() string {
+// newSidebarModel builds the sidebar model from live controller state (shared
+// by wide inline layout and narrow overlay).
+func (a *App) newSidebarModel() views.SidebarModel {
 	sb := views.NewSidebarModel(a.styles)
 	sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
 	sb.SetCost(a.ctrl.Cost())
@@ -1086,21 +1089,41 @@ func (a *App) newSidebarView() string {
 	if ws, ok := a.ctrl.GetKV("workspace"); ok {
 		sb.SetWorkspace(ws)
 	}
-	return sb.View(42)
+	return sb
+}
+
+// newSidebarViewFullHeight builds the 42-col sidebar stretched to exactly
+// height rows: sections on top, footer (workspace path above version line)
+// pinned at the bottom. Shared by the wide inline layout and the narrow
+// overlay (REQ-TUI-APP-2).
+func (a *App) newSidebarViewFullHeight(height int) string {
+	return a.newSidebarModel().ViewFullHeight(42, height)
 }
 
 // applySidebarOverlay composes body with the sidebar drawn over the rightmost
 // 42 visible columns, keeping total visible width == a.width. The strip behind
-// the sidebar uses the RGBA(0,0,0,70) backdrop per REQ-TUI-APP-2.
+// the sidebar uses the RGBA(0,0,0,70) backdrop per REQ-TUI-APP-2. The sidebar
+// rail stretches to the body's exact line count so its footer stays pinned at
+// the bottom; when the rail's own content is taller than the body, the body
+// is padded so the rail (including its footer) is never truncated.
 func (a *App) applySidebarOverlay(body string) string {
 	const sidebarWidth = 42
-	overlay := trimToWidth(a.newSidebarView(), sidebarWidth)
+	bodyLines := strings.Split(body, "\n")
+	overlay := trimToWidth(a.newSidebarViewFullHeight(len(bodyLines)), sidebarWidth)
 	baseMax := a.width - sidebarWidth
 	backdropPad := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)"))
-	bodyLines := strings.Split(body, "\n")
 	overlayLines := strings.Split(overlay, "\n")
-	for i := range bodyLines {
-		left := trimToWidth(bodyLines[i], baseMax)
+
+	n := len(bodyLines)
+	if len(overlayLines) > n {
+		n = len(overlayLines)
+	}
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		left := ""
+		if i < len(bodyLines) {
+			left = trimToWidth(bodyLines[i], baseMax)
+		}
 		if gap := baseMax - lipgloss.Width(left); gap > 0 {
 			left += strings.Repeat(" ", gap)
 		}
@@ -1111,9 +1134,9 @@ func (a *App) applySidebarOverlay(body string) string {
 		if gap := sidebarWidth - lipgloss.Width(right); gap > 0 {
 			right += backdropPad.Render(strings.Repeat(" ", gap))
 		}
-		bodyLines[i] = left + right
+		out[i] = left + right
 	}
-	return strings.Join(bodyLines, "\n")
+	return strings.Join(out, "\n")
 }
 
 func (a *App) renderHome() string {
