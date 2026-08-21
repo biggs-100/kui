@@ -158,7 +158,7 @@ func DefaultTheme() *Theme {
 		BackgroundElement:    "#24283b",
 		BackgroundMenu:       "#24283b",
 		Border:               "#24283b",
-		BorderActive:         "#7aa2f7",
+		BorderActive:         "#565f89",
 		BorderSubtle:         "#24283b",
 		Primary:              "#7aa2f7",
 		Secondary:            "#9ece6a",
