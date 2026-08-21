@@ -15,6 +15,7 @@ import (
 	"github.com/biggs-100/kui/internal/agent"
 	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/mcp"
+	"github.com/biggs-100/kui/internal/subagent"
 )
 
 // maxIterations bounds the provider calls per run so a misbehaving provider
@@ -114,9 +115,23 @@ func Run(ctx context.Context, w Wiring) error {
 		}
 	}
 
+	// Background subagents (REQ-SUBAGENT-*): register the policy-gated
+	// subagent_run tool with a shared manager so the TUI sidebar can report
+	// real task state. The tool self-rejects while policy is "off".
+	bgMgr := subagent.NewBackgroundManager(subagent.MaxConcurrentBackground)
+	kuiBinary, err := os.Executable()
+	if err != nil {
+		kuiBinary = "kui" // fall back to PATH lookup
+	}
+	policy, _ := subagent.ResolvePolicy(w.ProjectDir, w.ConfigRoot)
+	if err := full.Register(subagent.NewToolWithManager(kuiBinary, w.ProjectDir, policy, bgMgr)); err != nil {
+		return fmt.Errorf("register subagent tool: %w", err)
+	}
+
 	// MCP integration (REQ-TOOLS-4): load config from global and project
 	// paths, connect to enabled servers, and register discovered tools.
 	// MCP failures are non-fatal — built-in tools always work.
+	var mcpRows []MCPServerState
 	mcpConfig, err := mcp.LoadConfig(
 		filepath.Join(w.ConfigRoot, "mcp.yaml"),
 		filepath.Join(w.ProjectDir, ".kui", "mcp.yaml"),
@@ -129,6 +144,9 @@ func Run(ctx context.Context, w Wiring) error {
 		}
 		for _, tool := range mgr.Tools() {
 			_ = full.Register(tool)
+		}
+		for _, s := range mgr.ServerStatuses() {
+			mcpRows = append(mcpRows, MCPServerState{Name: s.Name, Connected: s.Connected})
 		}
 	}
 
@@ -187,6 +205,23 @@ func Run(ctx context.Context, w Wiring) error {
 	if sm, ok := provider.(SetModeler); ok {
 		ctrl.SetModeler = sm
 	}
+
+	// Step 6a: Wire real sidebar data sources — background subagents (with
+	// change events) and MCP server connection states.
+	ctrl.SetSubagentSource(func() SubagentSnapshot {
+		snap := SubagentSnapshot{}
+		for _, t := range bgMgr.List() {
+			snap.Running = append(snap.Running, SubagentTask{ID: t.ID, Title: t.Task, StartedAt: t.StartedAt})
+		}
+		for _, f := range bgMgr.Recent() {
+			snap.Finished = append(snap.Finished, FinishedSubagent{
+				ID: f.ID, Title: f.Task, FinishedAt: f.FinishedAt, Failed: f.Error != nil,
+			})
+		}
+		return snap
+	})
+	bgMgr.SetOnChange(func() { ctrl.emit(bgChangedMsg{}) })
+	ctrl.SetMCPServers(mcpRows)
 
 	// Step 6b: Wire session store for persistence.
 	sessionStore := store.NewSessionStore(w.ConfigRoot)

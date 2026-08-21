@@ -179,6 +179,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.tool.AppendResult(msg.callID, msg.result)
 		return a, nil
 
+	case bgChangedMsg:
+		// Background subagent state changed; the sidebar re-reads the
+		// snapshot on the next View render — nothing else to do here.
+		return a, nil
+
 	case reloadStartMsg:
 		a.chat.SetStatus("reloading…")
 		return a, nil
@@ -1093,8 +1098,47 @@ func (a *App) newSidebarModel() views.SidebarModel {
 		// directory (home prefix shortened to ~). Never fabricate beyond it.
 		sb.SetWorkspace(shortenHome(wd))
 	}
+	// Subagents: real background task state only. Section renders only when
+	// a source is attached AND at least one task exists (nil→omit, PR3 rule).
+	if snap, has := a.ctrl.SubagentSnapshot(); has {
+		var tasks []views.SubTask
+		for _, t := range snap.Running {
+			tasks = append(tasks, views.SubTask{
+				Title: t.Title, Running: true, At: t.StartedAt.Format("15:04"),
+			})
+		}
+		// Most recent finished first, capped for display.
+		for i := len(snap.Finished) - 1; i >= 0 && len(tasks) < maxSidebarSubTasks; i-- {
+			f := snap.Finished[i]
+			tasks = append(tasks, views.SubTask{
+				Title: f.Title, Err: f.Failed, At: f.FinishedAt.Format("15:04"),
+			})
+		}
+		done, failed := 0, 0
+		for _, f := range snap.Finished {
+			if f.Failed {
+				failed++
+			} else {
+				done++
+			}
+		}
+		if len(snap.Running)+len(snap.Finished) > 0 {
+			sb.SetSubagents(len(snap.Running), done, failed, tasks)
+		}
+	}
+	// MCP: real per-server connection states; empty → section omitted.
+	if servers := a.ctrl.MCPServers(); len(servers) > 0 {
+		rows := make([]views.MCPServerState, len(servers))
+		for i, s := range servers {
+			rows[i] = views.MCPServerState{Name: s.Name, Connected: s.Connected}
+		}
+		sb.SetMCPServers(rows)
+	}
 	return sb
 }
+
+// maxSidebarSubTasks caps visible subagent rows in the sidebar.
+const maxSidebarSubTasks = 6
 
 // shortenHome replaces the user home prefix with ~ for compact display.
 // Paths outside home are returned unchanged.

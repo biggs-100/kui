@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/biggs-100/kui/internal/core"
 )
@@ -87,7 +88,45 @@ type Controller struct {
 	syncLSP      *int
 	kv           map[string]string
 
+	// Sidebar data sources (real state only; nil/empty → section omitted,
+	// never fabricated). subagentSource follows the same port pattern as
+	// Runner/ModelResolver so the controller does not import the subagent
+	// package.
+	subagentSource SubagentSource
+	mcpServers     []MCPServerState
+
 	mu sync.Mutex
+}
+
+// SubagentTask is one running background sub-agent row for status display.
+type SubagentTask struct {
+	ID        string
+	Title     string
+	StartedAt time.Time
+}
+
+// FinishedSubagent is one completed background sub-agent row.
+type FinishedSubagent struct {
+	ID         string
+	Title      string
+	FinishedAt time.Time
+	Failed     bool
+}
+
+// SubagentSnapshot is a point-in-time view of background sub-agent state.
+type SubagentSnapshot struct {
+	Running  []SubagentTask
+	Finished []FinishedSubagent // completion order, oldest first
+}
+
+// SubagentSource supplies live background sub-agent state for the sidebar.
+// It must be safe for concurrent use; nil source means the section is omitted.
+type SubagentSource func() SubagentSnapshot
+
+// MCPServerState is the runtime connection state of one MCP server.
+type MCPServerState struct {
+	Name      string
+	Connected bool
 }
 
 // modelPrice holds per-token pricing for a model.
@@ -361,6 +400,11 @@ type toolResultMsg struct {
 	callID string
 	result string
 }
+
+// bgChangedMsg is emitted when background sub-agent state changes (launch or
+// completion). It carries no payload — the sidebar re-reads the snapshot on
+// render. Bubble Tea re-renders after every delivered message.
+type bgChangedMsg struct{}
 
 // ── Token & Cost Tracking ────────────────────────────────────────────────
 
@@ -806,6 +850,46 @@ func (c *Controller) IsKV(key string) bool {
 	default:
 		return false
 	}
+}
+
+// SetSubagentSource attaches the live background sub-agent state source for
+// the sidebar. Nil disables the section (never fabricated). The controller
+// does not import the subagent package — callers adapt their manager to the
+// SubagentSource port.
+func (c *Controller) SetSubagentSource(src SubagentSource) {
+	c.mu.Lock()
+	c.subagentSource = src
+	c.mu.Unlock()
+}
+
+// SubagentSnapshot returns the current background sub-agent state via the
+// attached source. has=false when no source is set (section omitted).
+func (c *Controller) SubagentSnapshot() (snap SubagentSnapshot, has bool) {
+	c.mu.Lock()
+	src := c.subagentSource
+	c.mu.Unlock()
+	if src == nil {
+		return SubagentSnapshot{}, false
+	}
+	return src(), true
+}
+
+// SetMCPServers stores the real per-server MCP connection states snapshot.
+// Empty slice omits the section (no fabricated zero-state).
+func (c *Controller) SetMCPServers(servers []MCPServerState) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mcpServers = append([]MCPServerState(nil), servers...)
+}
+
+// MCPServers returns the stored MCP server states (nil when unset).
+func (c *Controller) MCPServers() []MCPServerState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.mcpServers) == 0 {
+		return nil
+	}
+	return append([]MCPServerState(nil), c.mcpServers...)
 }
 
 // Reload triggers a cancel-and-wait hot-reload (REQ-RELOAD-6/7/8). It

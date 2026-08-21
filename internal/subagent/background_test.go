@@ -198,22 +198,35 @@ func TestBackgroundManagerRecentLedger(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("Recent() = %d entries, want 2", len(got))
 	}
-	// Completion order preserved (oldest first).
-	if got[0].ID != "ok" || got[1].ID != "bad" {
-		t.Errorf("Recent() IDs = [%s, %s], want [ok, bad]", got[0].ID, got[1].ID)
+	// Completion order between two instant tasks is nondeterministic —
+	// assert by ID, never by position.
+	byID := map[string]FinishedTask{}
+	for _, f := range got {
+		if prev, dup := byID[f.ID]; dup {
+			t.Errorf("Recent() contains duplicate ID %q (%q and %q)", f.ID, prev.Task, f.Task)
+		}
+		byID[f.ID] = f
 	}
-	if got[0].Error != nil {
-		t.Errorf("Recent()[0].Error = %v, want nil", got[0].Error)
+	okT, found := byID["ok"]
+	if !found {
+		t.Fatal("Recent() missing entry for task ok")
 	}
-	if got[1].Error == nil {
-		t.Error("Recent()[1].Error = nil, want non-nil (failed task)")
+	if okT.Error != nil {
+		t.Errorf("ok.Error = %v, want nil", okT.Error)
 	}
-	for i, f := range got {
+	badT, found := byID["bad"]
+	if !found {
+		t.Fatal("Recent() missing entry for task bad")
+	}
+	if badT.Error == nil {
+		t.Error("bad.Error = nil, want non-nil (failed task)")
+	}
+	for _, f := range got {
 		if f.Task == "" {
-			t.Errorf("Recent()[%d].Task empty, want title", i)
+			t.Errorf("Recent()[%s].Task empty, want title", f.ID)
 		}
 		if f.FinishedAt.Before(f.StartedAt) {
-			t.Errorf("Recent()[%d] FinishedAt before StartedAt", i)
+			t.Errorf("Recent()[%s] FinishedAt before StartedAt", f.ID)
 		}
 	}
 }
