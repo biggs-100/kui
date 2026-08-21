@@ -246,7 +246,10 @@ func Run(ctx context.Context, w Wiring) error {
 	// Step 8: Start the controller event pump goroutine. It reads from
 	// the controller's Events channel and sends events to the Bubble Tea
 	// program via tea.Cmd (D3 channel+Cmd handoff, REQ-TUI-APP-3).
-	pgm := tea.NewProgram(app)
+	// AltScreen gives the program a fixed full-terminal surface so the
+	// layout budget (header/chat/input/footer summing to a.height) is
+	// stable frame to frame instead of scrolling the inline buffer.
+	pgm := tea.NewProgram(app, tea.WithAltScreen())
 	go pumpEvents(ctrl, pgm)
 
 	// Step 9: Seed the active profile if one is saved (D18).

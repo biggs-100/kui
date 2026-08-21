@@ -1,11 +1,30 @@
   coder                                                                        Session                                  
 ────────────────────────────────────────────────────────────────────────────── coder                                    
 start a conversation...                                                        profile  coder                           
-no tool calls                                                                  ──────────────────────────────────────── 
-▏ Ask kui...                                                                   Context                                  
-Get started                                                                    0 tokens 0% $0.00                        
+                                                                               ──────────────────────────────────────── 
+                                                                               Context                                  
+                                                                               0 tokens 0% $0.00                        
                                                                                ──────────────────────────────────────── 
                                                                                LSP                                      
                                                                                LSPs are disabled                        
                                                                                ──────────────────────────────────────── 
-                                                                               ~/dev-biggz/kui                          
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+no tool calls                                                                                                           
+▏ Ask kui...                                                                                                            
+Get started                                                                    ~/dev-biggz/kui                          

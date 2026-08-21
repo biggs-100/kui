@@ -967,27 +967,35 @@ func (a *App) View() string {
 	// Rebuild views with current state
 	a.rebuildViews()
 
+	// Explicit region widths: in wide mode every main-column region renders
+	// at ContentWidth so no post-hoc truncation is needed; narrow mode keeps
+	// full-width regions and overlays the rail on top.
+	mainWidth := a.width
+	if a.IsWide() {
+		mainWidth = a.ContentWidth()
+	}
+
 	// Header: minimal with subtle full-width bottom border (opencode style)
 	header := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(a.styles.HomeBorder.GetBorderTopForeground()).
-		Width(a.width).
+		Width(mainWidth).
 		Render(a.header.Render())
 
 	// Tool view: per-entry bordered panels already; no extra outer wrap needed
-	toolStr := a.tool.Render()
+	toolStr := trimToWidth(a.tool.Render(), mainWidth)
 
-	// Chat or Diff view: fills remaining space
+	// Chat or Diff view: fills its budgeted slot (see height budget below)
 	var mainStr string
 	if a.diffVisible {
-		mainStr = a.diff.View()
+		mainStr = trimToWidth(a.diff.View(), mainWidth)
 	} else {
 		mainStr = a.chat.Render()
 	}
 
 	// Input: full-width bar with backgroundElement and primary accent
 	inputInner := a.input.View()
-	inputBar := a.styles.InputBarAccent.Copy().Width(a.width - 2).Render(inputInner)
+	inputBar := a.styles.InputBarAccent.Copy().Width(mainWidth - 2).Render(inputInner)
 	inputLine := inputBar
 
 	// Autocomplete popup above input, left-aligned to input bar (not centered)
@@ -996,77 +1004,79 @@ func (a *App) View() string {
 		popup := a.autocomplete.View()
 		if popup != "" {
 			popupStyled := a.styles.Popup.Copy().
-				Width(a.width - 4).
+				Width(mainWidth - 4).
 				Render(popup)
-			popupStr = popupStyled
+			popupStr = trimToWidth(popupStyled, mainWidth)
 		}
 	}
 
-	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
-	if a.IsWide() {
-		mainWidth := a.ContentWidth()
+	// Toast: transient notice rendered as its own slot inside the budget.
+	toastStr := trimToWidth(a.toast.View(), mainWidth)
 
-		// Build main panel string at mainWidth
+	footerStr := a.footer.Render()
+
+	// --- Height budget (REQ-TUI-APP-2): assign every terminal row to ---
+	// --- exactly one slot so the frame fills a.height and the input ---
+	// --- bar plus footer stay pinned at the bottom edge.               ---
+	headerH := lipgloss.Height(header)
+	inputH := lipgloss.Height(inputLine)
+	footerH := lipgloss.Height(footerStr)
+	toolH, toastH, popupH := 0, 0, 0
+	if toolStr != "" {
+		toolH = lipgloss.Height(toolStr)
+	}
+	if toastStr != "" {
+		toastH = lipgloss.Height(toastStr)
+	}
+	if popupStr != "" {
+		popupH = lipgloss.Height(popupStr)
+	}
+	fixed := headerH + inputH + footerH + toolH + toastH + popupH
+	chatH := a.height - fixed
+	if chatH < 1 {
+		chatH = 1
+	}
+	// Overflow keeps the newest rows (sticky-bottom); shortfall pads blank
+	// rows below so pinned regions never shift between frames.
+	mainStr = fitVertical(mainStr, chatH)
+
+	buildPanel := func() string {
 		var mb strings.Builder
 		mb.WriteString(header)
 		mb.WriteString("\n")
 		mb.WriteString(mainStr)
-		mb.WriteString("\n")
-		if toolStr != "" {
+		if toolH > 0 {
+			mb.WriteString("\n")
 			mb.WriteString(toolStr)
-			mb.WriteString("\n")
 		}
-		toastStr := a.toast.View()
-		if toastStr != "" {
+		if toastH > 0 {
+			mb.WriteString("\n")
 			mb.WriteString(toastStr)
-			mb.WriteString("\n")
 		}
-		if popupStr != "" {
+		if popupH > 0 {
+			mb.WriteString("\n")
 			mb.WriteString(popupStr)
-			mb.WriteString("\n")
 		}
+		mb.WriteString("\n")
 		mb.WriteString(inputLine)
 		mb.WriteString("\n")
-		mb.WriteString(a.footer.Render())
-		mainPanel := mb.String()
+		mb.WriteString(footerStr)
+		return mb.String()
+	}
 
-		// Trim main panel to mainWidth columns per line for clean join
-		mainPanel = trimToWidth(mainPanel, mainWidth)
-		// Sidebar rail stretches to the main panel's exact line count so it
-		// spans the full terminal height with its footer pinned at the bottom
+	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
+	if a.IsWide() {
+		mainPanel := buildPanel()
+
+		// Sidebar rail stretches to the FULL terminal height so it spans
+		// top to bottom with its footer pinned at the bottom edge
 		// (REQ-TUI-APP-2).
-		sidebarStr := a.newSidebarViewFullHeight(strings.Count(mainPanel, "\n") + 1)
+		sidebarStr := a.newSidebarViewFullHeight(a.height)
 		// Title sequence for session (kui | {title}) vs home (kui) — emitted as escape, not counted in width
 		titleSeq := "\x1b]0;" + a.Title() + "\x07"
-		return titleSeq + lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
+		return titleSeq + fitFrame(lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr), a.height)
 	}
-	// Compose regions with newlines between them (narrow terminal, overlay sidebar)
-	var b strings.Builder
-	b.WriteString(header)
-	b.WriteString("\n")
-	b.WriteString(mainStr)
-	b.WriteString("\n")
-	if toolStr != "" {
-		b.WriteString(toolStr)
-		b.WriteString("\n")
-	}
-
-	// Toast overlay: rendered between tool view and input (session scroll area per REQ-TUI-APP-8)
-	toastStr := a.toast.View()
-	if toastStr != "" {
-		b.WriteString(toastStr)
-		b.WriteString("\n")
-	}
-
-	if popupStr != "" {
-		b.WriteString(popupStr)
-		b.WriteString("\n")
-	}
-	b.WriteString(inputLine)
-	b.WriteString("\n")
-	b.WriteString(a.footer.Render())
-
-	out := b.String()
+	out := buildPanel()
 	// Narrow (!wide): sidebar overlays the rightmost 42 columns over an
 	// RGBA(0,0,0,70) backdrop strip per REQ-TUI-APP-2 (session route only).
 	if !a.IsWide() && a.route != "home" {
@@ -1074,7 +1084,7 @@ func (a *App) View() string {
 	}
 	// Title sequence emitted outside width math (zero-width escape).
 	titleSeq := "\x1b]0;" + a.Title() + "\x07"
-	return titleSeq + out
+	return titleSeq + fitFrame(out, a.height)
 }
 
 // newSidebarModel builds the sidebar model from live controller state (shared
@@ -1173,7 +1183,10 @@ func (a *App) newSidebarViewFullHeight(height int) string {
 func (a *App) applySidebarOverlay(body string) string {
 	const sidebarWidth = 42
 	bodyLines := strings.Split(body, "\n")
-	overlay := trimToWidth(a.newSidebarViewFullHeight(len(bodyLines)), sidebarWidth)
+	// The rail stretches to the FULL terminal height (not the body's line
+	// count) so its footer stays pinned at the bottom edge even when the
+	// base frame is short; the max() below pads the shorter side.
+	overlay := trimToWidth(a.newSidebarViewFullHeight(a.height), sidebarWidth)
 	baseMax := a.width - sidebarWidth
 	backdropPad := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)"))
 	overlayLines := strings.Split(overlay, "\n")
@@ -1204,21 +1217,28 @@ func (a *App) applySidebarOverlay(body string) string {
 }
 
 func (a *App) renderHome() string {
+	// Autocomplete popup height is reserved BEFORE sizing so the centered
+	// base shrinks instead of pushing the footer off the fixed frame.
+	popupStr := ""
+	if a.autocomplete.IsActive() {
+		popup := a.autocomplete.View()
+		if popup != "" {
+			popupStr = lipgloss.PlaceHorizontal(a.width, lipgloss.Center, popup)
+		}
+	}
+
 	// Sync home view state before render — toast inside centered column per REQ-TUI-APP-8.
-	a.homeView.SetSize(a.width, a.height)
+	// The last terminal row is reserved for the home footer; the popup slot
+	// (if any) is reserved above that.
+	a.homeView.SetSize(a.width, a.height-1-lipgloss.Height(popupStr))
 	a.homeView.SetStyles(a.styles)
 	a.homeView.SetInput(a.input.Value())
 	a.homeView.SetToast(a.toast.View())
 
 	base := a.homeView.View()
 
-	// Autocomplete popup centered
-	if a.autocomplete.IsActive() {
-		popup := a.autocomplete.View()
-		if popup != "" {
-			centered := lipgloss.PlaceHorizontal(a.width, lipgloss.Center, popup)
-			base = base + "\n" + centered
-		}
+	if popupStr != "" {
+		base = base + "\n" + popupStr
 	}
 
 	// Home footer at bottom (empty plus plugin slot, muted NotAvailable when absent)
@@ -1232,7 +1252,7 @@ func (a *App) renderHome() string {
 	b.WriteString("\n")
 	b.WriteString(homeFooterStr)
 
-	return b.String()
+	return fitFrame(b.String(), a.height)
 }
 
 // rebuildViews synchronizes the view models with the controller state.
@@ -1291,8 +1311,14 @@ func (a *App) rebuildViews() {
 	if v, ok := a.ctrl.GetKV("diff_wrap_mode"); ok {
 		a.diff.SetWrapMode(v)
 	}
-	a.diff.SetWidth(a.width)
-	a.chat.SetWidth(a.width)
+	// Region widths are explicit: in wide mode the chat/diff column equals
+	// the main panel width so nothing is truncated after rendering.
+	regionW := a.width
+	if a.IsWide() {
+		regionW = a.ContentWidth()
+	}
+	a.diff.SetWidth(regionW)
+	a.chat.SetWidth(regionW)
 
 	// Update home view in-place
 	if a.homeView.IsZero() {
@@ -1385,6 +1411,40 @@ func trimToWidth(s string, maxWidth int) string {
 			}
 			lines[i] = trimmed
 		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fitVertical fits s into exactly n rows. Overflow keeps only the LAST n
+// rows (sticky-bottom: the newest content stays visible); shortfall pads
+// blank rows BELOW the content so pinned regions keep their position.
+func fitVertical(s string, n int) string {
+	if n < 1 {
+		n = 1
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	for len(lines) < n {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fitFrame clamps or pads s to exactly height rows so alt-screen frames are
+// stable frame to frame and never exceed the terminal height (overflow is
+// clipped from the bottom — a degenerate case only on tiny terminals).
+func fitFrame(s string, height int) string {
+	if height < 1 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
 }
