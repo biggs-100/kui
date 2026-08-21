@@ -127,9 +127,13 @@ func (m HomePromptModel) View(width int) string {
 		}
 	}
 
+	// Left SplitBorder only: the ╹ glyph is an end-cap of the vertical
+	// divider, not a horizontal band — the decorative ▀ row below closes the
+	// box (OpenCode prompt truth).
 	borderStyle := lipgloss.NewStyle().
 		Border(ui.SplitBorder).
 		BorderForeground(lipgloss.Color(borderColor)).
+		BorderBottom(false).
 		Background(lipgloss.Color(bgElement)).
 		Padding(0, 1).
 		Width(promptWidth)

@@ -245,6 +245,22 @@ func TestChatPerPartSplitBorder(t *testing.T) {
 	}
 }
 
+// TestChatNoFullWidthDottedBand proves the ╹ end-cap never repeats as a
+// full-width band (regression: lipgloss Border bottom rendered ╹ across the
+// whole block width after every part).
+func TestChatNoFullWidthDottedBand(t *testing.T) {
+	m := NewChatModel(testStyles())
+	m.AppendMessage("assistant", "part one", "", "")
+	m.AppendMessage("user", "part two", "coder", "gpt-4")
+	got := m.View(80)
+	for i, line := range strings.Split(got, "\n") {
+		trimmed := strings.Trim(line, " ")
+		if len(trimmed) > 3 && strings.Trim(trimmed, "╹") == "" {
+			t.Errorf("line %d is a full-width ╹ band, want single end-cap char:\n%q", i, line)
+		}
+	}
+}
+
 func TestChatQueuedBadge(t *testing.T) {
 	m := NewChatModel(testStyles())
 	m.AppendQueuedMessage("user", "hello", "coder", "gpt-4")

@@ -323,13 +323,17 @@ func (m ChatModel) View(width int) string {
 			innerStr = msg.Content
 		}
 
-		// Per-part SplitBorder: left ┃ via ui.SplitBorder, bottom ╹ terminator
+		// Per-part SplitBorder: left ┃ via ui.SplitBorder colored by agent.
+		// The ╹ glyph is an END-CAP of the vertical divider (single char at
+		// the left edge), never a full-width band — lipgloss would repeat
+		// Bottom across the whole block width, so it stays disabled here.
 		var rendered string
 		if m.styles != nil && m.styles.Theme != nil {
 			agentColor := m.agentColor(msg.Role)
 			style := lipgloss.NewStyle().
 				Border(ui.SplitBorder).
 				BorderForeground(lipgloss.Color(agentColor)).
+				BorderBottom(false).
 				Padding(0, 1)
 			if msg.Hover && m.styles.Theme.BackgroundElement != "" {
 				style = style.Background(lipgloss.Color(m.styles.Theme.BackgroundElement))
@@ -338,10 +342,9 @@ func (m ChatModel) View(width int) string {
 				style = style.Width(width - 2)
 			}
 			rendered = style.Render(innerStr)
-			// Ensure terminator ╹ is present even if lipgloss border bottom collapses on single line
-			if !strings.Contains(rendered, "╹") {
-				rendered += "\n╹"
-			}
+			rendered += "\n" + lipgloss.NewStyle().
+				Foreground(lipgloss.Color(agentColor)).
+				Render("╹")
 		} else {
 			// Fallback plain with explicit border chars
 			lines := strings.Split(innerStr, "\n")

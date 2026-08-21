@@ -32,14 +32,15 @@ The user MUST be able to type a prompt in the input and submit it with Enter. Th
 
 ### Requirement: REQ-TUI-CHAT-2 — Streaming Answer Rendering
 
-While provider streams, chat MUST render answer incrementally per-part (`text/reasoning/tool/file/compaction`) via `PART_MAPPING`. Each part MUST render with left `SplitBorder` (`┃` vertical, `╹` bottom) colored by agent, hover uses `backgroundElement`, `QUEUED` badge, compaction divider, `stickyScroll` with acceleration. Inline diagnostics MUST stay below affected lines without interrupting flow.
+While provider streams, chat MUST render answer incrementally per-part (`text/reasoning/tool/file/compaction`) via `PART_MAPPING`. Each part MUST render with left `SplitBorder` (`┃` vertical) colored by agent and a single `╹` end-cap row below the part — the `╹` terminates the vertical divider at the left edge and MUST NOT repeat as a full-width band. Hover uses `backgroundElement`, `QUEUED` badge, compaction divider, `stickyScroll` with acceleration. Inline diagnostics MUST stay below affected lines without interrupting flow.
 (Previously: regex markdown only, `(profile/model)` faint, `HomeMuted` status)
 
 #### Scenario: Per-part split border
 
 - GIVEN assistant answer with two parts
 - WHEN dumped
-- THEN each part has `┃` left border and `╹` terminator
+- THEN each part has `┃` left border and a single `╹` terminator at the left edge
+- AND no full-width repeated `╹` band spans the chat width
 
 #### Scenario: Queued badge shows
 
