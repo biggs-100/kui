@@ -175,6 +175,17 @@ func (m SidebarModel) ViewFullHeight(width, height int) string {
 	return rail.Render(b.String())
 }
 
+// railBg returns the rail's background color. Every style that renders
+// inside the rail must carry it explicitly: an internal SGR reset kills the
+// container background for the rest of the line, leaving terminal-default
+// holes behind any segment that lacks its own bg.
+func (m SidebarModel) railBg() lipgloss.Color {
+	if m.styles.Theme != nil && m.styles.Theme.BackgroundPanel != "" {
+		return lipgloss.Color(m.styles.Theme.BackgroundPanel)
+	}
+	return lipgloss.Color("")
+}
+
 // viewBody renders the sidebar sections without footer and without the outer
 // Sidebar style wrap.
 func (m SidebarModel) viewBody(width int) string {
@@ -190,7 +201,11 @@ func (m SidebarModel) viewBody(width int) string {
 	// Section headers follow the upstream language: plain bold words in the
 	// text color (never accent, never decorated), bodies in textMuted,
 	// sections separated by whitespace only — no rules, no glyphs.
-	headerStyle := lipgloss.NewStyle().Bold(true)
+	// EVERY style below carries the rail background explicitly: an internal
+	// SGR reset kills the container background for the rest of the line, so
+	// any segment without its own bg renders over terminal-default holes.
+	panelBg := m.railBg()
+	headerStyle := lipgloss.NewStyle().Bold(true).Background(panelBg)
 	if m.styles.Theme != nil && m.styles.Theme.Text != "" {
 		headerStyle = headerStyle.Foreground(lipgloss.Color(m.styles.Theme.Text))
 	}
@@ -199,9 +214,10 @@ func (m SidebarModel) viewBody(width int) string {
 	// No inner .Width(): lipgloss emits a Width-style's padding OUTSIDE its
 	// SGR run, which punches unpainted (terminal-default) holes through the
 	// rail's background fill. Lines are length-capped by truncation instead;
-	// the rail wrap paints every row uniformly.
+	// every style carries the rail bg so text runs self-paint.
 	bodyStyle := lipgloss.NewStyle().
-		Foreground(muted.GetForeground())
+		Foreground(muted.GetForeground()).
+		Background(panelBg)
 
 	var b strings.Builder
 
@@ -246,26 +262,28 @@ func (m SidebarModel) viewBody(width int) string {
 	if m.subSet && m.subRun+m.subDone+m.subErr > 0 {
 		success := ""
 		errColor := ""
+		warn := ""
 		if m.styles.Theme != nil {
 			success = m.styles.Theme.Success
 			errColor = m.styles.Theme.Error
+			warn = m.styles.Theme.Warning
 		}
 		glyph := func(s SubTask) string {
 			switch {
 			case s.Running:
-				return lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Warning)).Render("●")
+				return lipgloss.NewStyle().Foreground(lipgloss.Color(warn)).Background(panelBg).Render("●")
 			case s.Err:
-				return lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Render("×")
+				return lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Background(panelBg).Render("×")
 			default:
-				return lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("✓")
+				return lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Background(panelBg).Render("✓")
 			}
 		}
 		stats := fmt.Sprintf("%s %d run · %s %d done · %s %d err · Σ %d",
-			lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Warning)).Render("●"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(warn)).Background(panelBg).Render("●"),
 			m.subRun,
-			lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("✓"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Background(panelBg).Render("✓"),
 			m.subDone,
-			lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Render("×"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Background(panelBg).Render("×"),
 			m.subErr,
 			m.subRun+m.subDone+m.subErr,
 		)
@@ -310,12 +328,12 @@ func (m SidebarModel) viewBody(width int) string {
 			if s.Connected {
 				mcpLines = append(mcpLines, fmt.Sprintf("%s %s",
 					s.Name,
-					lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("Connected"),
+					lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Background(panelBg).Render("Connected"),
 				))
 			} else {
 				mcpLines = append(mcpLines, fmt.Sprintf("%s %s",
 					s.Name,
-					lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Render("Failed"),
+					lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Background(panelBg).Render("Failed"),
 				))
 			}
 		}
@@ -345,7 +363,8 @@ func (m SidebarModel) footerLines(width int) []string {
 
 	muted := m.styles.HomeMuted
 	bodyStyle := lipgloss.NewStyle().
-		Foreground(muted.GetForeground())
+		Foreground(muted.GetForeground()).
+		Background(m.railBg())
 
 	lines := []string{}
 
@@ -358,7 +377,7 @@ func (m SidebarModel) footerLines(width int) []string {
 		lines = append(lines, bodyStyle.Render(ws))
 	} else {
 		// NotAvailable muted when absent (never fabricate)
-		lines = append(lines, bodyStyle.Render(muted.Render("NotAvailable")))
+		lines = append(lines, bodyStyle.Render("NotAvailable"))
 	}
 
 	// Version line bottom-most via buildinfo: • kui <ver> when present else omitted
@@ -366,8 +385,14 @@ func (m SidebarModel) footerLines(width int) []string {
 		footer := fmt.Sprintf("• kui %s", ver)
 		// success dot uses accent? Use muted with success color if available
 		if m.styles.Theme != nil && m.styles.Theme.Success != "" {
-			dot := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Success)).Render("•")
-			footer = dot + " kui " + ver
+			dot := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(m.styles.Theme.Success)).
+				Background(m.railBg()).Render("•")
+			name := lipgloss.NewStyle().Bold(true).
+				Foreground(lipgloss.Color(m.styles.Theme.Text)).
+				Background(m.railBg()).Render("kui")
+			verText := bodyStyle.Render(ver)
+			footer = dot + " " + name + " " + verText
 		}
 		// Cap the visible width so a long buildinfo never wraps inside the
 		// rail (wrapping would spill onto a second unpainted row).

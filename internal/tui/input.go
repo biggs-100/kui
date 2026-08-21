@@ -177,19 +177,19 @@ func (m InputModel) redo() (InputModel, tea.Cmd) {
 
 // SetFieldColors overrides bubbles' default textarea styling, whose focused
 // styles carry an ANSI-black background that punches ugly dark boxes through
-// the prompt field's own fill. The base style passed in should carry the
-// field background so cursor-line runs blend with it.
+// the prompt field's own fill. Both styles should carry the field background:
+// foreground-only runs render over transparency after internal resets.
 func (m *InputModel) SetFieldColors(base lipgloss.Style, placeholder lipgloss.Style) {
-	neutral := lipgloss.NewStyle()
+	text := base.Copy()
 	ta := &m.textarea
 	ta.FocusedStyle.CursorLine = base
-	ta.FocusedStyle.Text = neutral
+	ta.FocusedStyle.Text = text
 	ta.FocusedStyle.Placeholder = placeholder
-	ta.FocusedStyle.EndOfBuffer = neutral
+	ta.FocusedStyle.EndOfBuffer = base
 	ta.BlurredStyle.CursorLine = base
-	ta.BlurredStyle.Text = neutral
+	ta.BlurredStyle.Text = text
 	ta.BlurredStyle.Placeholder = placeholder
-	ta.BlurredStyle.EndOfBuffer = neutral
+	ta.BlurredStyle.EndOfBuffer = base
 }
 
 // ViewWidth returns the visible width of the rendered input line.

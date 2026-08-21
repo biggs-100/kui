@@ -137,14 +137,22 @@ func (m HomePromptModel) View(width int) string {
 		Padding(0, 1).
 		Width(promptWidth)
 
-	cursor := m.styles.LogoAccent.Render("▏")
+	// The cursor carries the field background so its cell never shows
+	// terminal-default through the element fill.
+	cursor := lipgloss.NewStyle().
+		Background(lipgloss.Color(bgElement)).
+		Render(m.styles.LogoAccent.Render("▏"))
 	var text string
 	if m.value == "" {
 		poolIdx := int(atomic.AddUint64(&placeholderCounter, 1)-1) % len(placeholderPool)
 		ph := placeholderPool[poolIdx]
+		// The placeholder carries the field background explicitly: after its
+		// SGR run resets, the cursor glyph follows and anything without its
+		// own bg would render over transparency inside the element fill.
 		placeholder := lipgloss.NewStyle().
 			Foreground(m.styles.HomeMuted.GetForeground()).
 			Faint(true).
+			Background(lipgloss.Color(bgElement)).
 			Render(ph)
 		text = placeholder + cursor
 	} else {

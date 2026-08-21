@@ -1135,14 +1135,17 @@ func (a *App) View() string {
 
 	var metaLine string
 	if profile := a.ctrl.ActiveProfile(); profile != "" {
-		name := lipgloss.NewStyle().Bold(true).
+		// Every segment carries the field background explicitly: inner SGR
+		// resets kill the wrapper's bg for the rest of the row.
+		metaBg := lipgloss.NewStyle().Background(lipgloss.Color(a.styles.Theme.BackgroundElement))
+		name := metaBg.Copy().Bold(true).
 			Foreground(lipgloss.Color(a.styles.Theme.Primary)).Render(profile)
 		model := a.ctrl.ModelName()
-		dot := lipgloss.NewStyle().
+		dot := metaBg.Copy().
 			Foreground(lipgloss.Color(a.styles.Theme.TextMuted)).Render(" · ")
 		var modelName string
 		if model != "" {
-			modelName = lipgloss.NewStyle().
+			modelName = metaBg.Copy().
 				Foreground(lipgloss.Color(a.styles.Theme.Text)).Render(model)
 		}
 		metaLine = name + dot + modelName
@@ -1489,10 +1492,13 @@ func (a *App) rebuildViews() {
 
 	// Prompt field colors: override bubbles' ANSI-black textarea defaults so
 	// the cursor line and placeholder blend with the element fill instead of
-	// painting dark boxes through it.
+	// painting dark boxes through it. Every state carries the field bg —
+	// foreground-only styles would render over transparency after resets.
 	if t := a.styles.Theme; t != nil {
 		fieldBg := lipgloss.NewStyle().Background(lipgloss.Color(t.BackgroundElement))
-		ph := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextMuted))
+		ph := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.TextMuted)).
+			Background(lipgloss.Color(t.BackgroundElement))
 		a.input.SetFieldColors(fieldBg, ph)
 	}
 	// Wire sync.data.provider/mcp/lsp with nil→muted NotAvailable (PR3)
