@@ -51,6 +51,8 @@ type Styles struct {
 	Sidebar        lipgloss.Style
 	InputBar       lipgloss.Style
 	InputBarAccent lipgloss.Style
+	PromptBox      lipgloss.Style
+	Toast          lipgloss.Style
 	CodeBlock      lipgloss.Style
 	Thought        lipgloss.Style
 }
@@ -185,6 +187,22 @@ func NewStyles(t *Theme) *Styles {
 			Border(lipgloss.Border{Left: "▏"}, false, false, false, true).
 			BorderForeground(lipgloss.Color(t.Primary)).
 			Background(lipgloss.Color(t.BackgroundElement)).
+			Padding(0, 1),
+
+		// PromptBox — full bordered prompt container pinned above the
+		// footer: rounded border, primary accent, backgroundElement fill.
+		PromptBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.Primary)).
+			Background(lipgloss.Color(t.BackgroundElement)).
+			Padding(0, 1),
+
+		// Toast — floating notification chip pasted over the conversation
+		// (bottom-right): rounded subtle border on backgroundPanel.
+		Toast: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.BorderSubtle)).
+			Background(lipgloss.Color(t.BackgroundPanel)).
 			Padding(0, 1),
 
 		// CodeBlock — backgroundElement for fenced code

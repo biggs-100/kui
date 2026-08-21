@@ -1010,12 +1010,13 @@ func (a *App) View() string {
 		mainStr = a.chat.Render()
 	}
 
-	// Input: full-width bar with backgroundElement and primary accent
+	// Input: full bordered prompt box pinned above the footer (opencode style)
 	inputInner := a.input.View()
-	inputBar := a.styles.InputBarAccent.Copy().Width(mainWidth - 2).Render(inputInner)
+	inputBar := a.styles.PromptBox.Copy().Width(mainWidth - 2).Render(inputInner)
 	inputLine := inputBar
 
-	// Autocomplete popup above input, left-aligned to input bar (not centered)
+	// Autocomplete popup: floats OVER the conversation just above the
+	// prompt box instead of occupying its own budget slot.
 	var popupStr string
 	if a.autocomplete.IsActive() {
 		popup := a.autocomplete.View()
@@ -1027,28 +1028,26 @@ func (a *App) View() string {
 		}
 	}
 
-	// Toast: transient notice rendered as its own slot inside the budget.
-	toastStr := trimToWidth(a.toast.View(), mainWidth)
+	// Toast: floating notification chip pasted over the conversation
+	// (bottom-right) instead of occupying its own budget slot.
+	toastStr := ""
+	if raw := a.toast.View(); raw != "" {
+		toastStr = trimToWidth(a.styles.Toast.Render(raw), mainWidth)
+	}
 
 	footerStr := a.footer.Render()
 
 	// --- Height budget (REQ-TUI-APP-2): assign every terminal row to ---
 	// --- exactly one slot so the frame fills a.height and the input ---
-	// --- bar plus footer stay pinned at the bottom edge.               ---
+	// --- box plus footer stay pinned at the bottom edge.               ---
 	headerH := lipgloss.Height(header)
 	inputH := lipgloss.Height(inputLine)
 	footerH := lipgloss.Height(footerStr)
-	toolH, toastH, popupH := 0, 0, 0
+	toolH := 0
 	if toolStr != "" {
 		toolH = lipgloss.Height(toolStr)
 	}
-	if toastStr != "" {
-		toastH = lipgloss.Height(toastStr)
-	}
-	if popupStr != "" {
-		popupH = lipgloss.Height(popupStr)
-	}
-	fixed := headerH + inputH + footerH + toolH + toastH + popupH
+	fixed := headerH + inputH + footerH + toolH
 	chatH := a.height - fixed
 	if chatH < 1 {
 		chatH = 1
@@ -1077,14 +1076,6 @@ func (a *App) View() string {
 			mb.WriteString("\n")
 			mb.WriteString(toolStr)
 		}
-		if toastH > 0 {
-			mb.WriteString("\n")
-			mb.WriteString(toastStr)
-		}
-		if popupH > 0 {
-			mb.WriteString("\n")
-			mb.WriteString(popupStr)
-		}
 		mb.WriteString("\n")
 		mb.WriteString(inputLine)
 		mb.WriteString("\n")
@@ -1092,27 +1083,57 @@ func (a *App) View() string {
 		return mb.String()
 	}
 
-	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
-	if a.IsWide() {
-		mainPanel := buildPanel()
+	// Floating overlay heights (computed after the budget: they never own
+	// slots — they paste over the conversation above the prompt box).
+	toastH, popupH := 0, 0
+	if toastStr != "" {
+		toastH = lipgloss.Height(toastStr)
+	}
+	if popupStr != "" {
+		popupH = lipgloss.Height(popupStr)
+	}
 
+	frame := buildPanel()
+
+	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
+	var titleSeq string
+	if a.IsWide() {
 		// Sidebar rail stretches to the FULL terminal height so it spans
 		// top to bottom with its footer pinned at the bottom edge
 		// (REQ-TUI-APP-2).
 		sidebarStr := a.newSidebarViewFullHeight(a.height)
-		// Title sequence for session (kui | {title}) vs home (kui) — emitted as escape, not counted in width
-		titleSeq := "\x1b]0;" + a.Title() + "\x07"
-		return titleSeq + fitFrame(lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr), a.height)
+		titleSeq = "\x1b]0;" + a.Title() + "\x07"
+		frame = lipgloss.JoinHorizontal(lipgloss.Top, frame, " ", sidebarStr)
+	} else {
+		// Narrow: sidebar overlays the rightmost 42 columns over an
+		// RGBA(0,0,0,70) backdrop strip per REQ-TUI-APP-2.
+		if a.route != "home" {
+			frame = a.applySidebarOverlay(frame)
+		}
+		titleSeq = "\x1b]0;" + a.Title() + "\x07"
 	}
-	out := buildPanel()
-	// Narrow (!wide): sidebar overlays the rightmost 42 columns over an
-	// RGBA(0,0,0,70) backdrop strip per REQ-TUI-APP-2 (session route only).
-	if !a.IsWide() && a.route != "home" {
-		out = a.applySidebarOverlay(out)
+
+	// Floating overlays are composited as the last pass so they hover over
+	// the final frame: popup left-aligned above the prompt box, toast
+	// stacked above it (right-aligned to the conversation column in wide
+	// mode so it never covers the rail footer).
+	if popupH > 0 || toastH > 0 {
+		rows := strings.Split(frame, "\n")
+		inputStart := len(rows) - footerH - inputH
+		toastAlignW := a.width
+		if a.IsWide() {
+			toastAlignW = mainWidth
+		}
+		if popupH > 0 {
+			rows = pasteBlockLeft(rows, strings.Split(popupStr, "\n"), inputStart, a.width)
+		}
+		if toastH > 0 {
+			rows = pasteBlockRight(rows, strings.Split(toastStr, "\n"), inputStart-popupH, toastAlignW)
+		}
+		frame = strings.Join(rows, "\n")
 	}
-	// Title sequence emitted outside width math (zero-width escape).
-	titleSeq := "\x1b]0;" + a.Title() + "\x07"
-	return titleSeq + fitFrame(out, a.height)
+
+	return titleSeq + fitFrame(frame, a.height)
 }
 
 // newSidebarModel builds the sidebar model from live controller state (shared
@@ -1458,4 +1479,50 @@ func fitFrame(s string, height int) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// padToWidth pads s with trailing spaces to exactly w visible columns.
+func padToWidth(s string, w int) string {
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		return s + strings.Repeat(" ", gap)
+	}
+	return s
+}
+
+// pasteBlockLeft replaces the rows [endRow-len(lines), endRow) with lines,
+// padding each to width w so frame row widths stay stable. endRow is
+// exclusive; rows outside the frame are skipped.
+func pasteBlockLeft(rows []string, lines []string, endRow, w int) []string {
+	start := endRow - len(lines)
+	for i, ln := range lines {
+		row := start + i
+		if row < 0 || row >= len(rows) {
+			continue
+		}
+		rows[row] = padToWidth(trimToWidth(ln, w), w)
+	}
+	return rows
+}
+
+// pasteBlockRight right-aligns lines into rows [endRow-len(lines), endRow),
+// preserving each covered row's left content up to the block column and
+// re-padding the tail to w. endRow is exclusive.
+func pasteBlockRight(rows []string, lines []string, endRow, w int) []string {
+	for i, ln := range lines {
+		row := endRow - len(lines) + i
+		if row < 0 || row >= len(rows) {
+			continue
+		}
+		lw := lipgloss.Width(ln)
+		col := w - lw
+		if col < 0 {
+			col = 0
+		}
+		left := trimToWidth(rows[row], col)
+		if gap := col - lipgloss.Width(left); gap > 0 {
+			left += strings.Repeat(" ", gap)
+		}
+		rows[row] = padToWidth(left+ln, w)
+	}
+	return rows
 }

@@ -23,8 +23,8 @@ start a conversation...                profile  coder
                                                                                 
                                                                                 
                                                                                 
-                                                                                
-                                                                                
 no tool calls                                                                   
-▏ Ask kui...                                                                    
+╭─────────────────────────────────────                                          
+│ Ask kui...                                                                    
+╰─────────────────────────────────────                                          
 Get started                            ~/dev-biggz/kui                          
