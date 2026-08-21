@@ -80,13 +80,11 @@ func CollapseOutput(s string, maxLines int) string {
 
 // Render produces the full tool view string (REQ-TUI-TOOL-1/2).
 // Supports collapseToolOutput and showDetails toggles, and diff highlight
-// backgrounds via theme Diff*Bg tokens.
+// backgrounds via theme Diff*Bg tokens. With no events it renders "" so the
+// app's height budget reclaims the slot instead of showing a placeholder.
 func (m ToolModel) Render() string {
 	if len(m.events) == 0 {
-		if m.styles != nil {
-			return m.styles.HomeMuted.Render("no tool calls")
-		}
-		return "no tool calls"
+		return ""
 	}
 
 	var parts []string

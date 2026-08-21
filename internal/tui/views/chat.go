@@ -45,20 +45,18 @@ type Message struct {
 // streaming answer chunks, error state, and a status line for reload feedback
 // (REQ-TUI-CHAT-1/2, REQ-RELOAD-12). PR3 adds per-part SplitBorder rendering.
 type ChatModel struct {
-	messages     []Message
-	lastError    string
-	status       string   // REQ-RELOAD-12: neutral status line
-	diagnostics  []string // inline diagnostic annotations
-	styles       *theme.Styles
-	stickyScroll bool
-	width        int
+	messages    []Message
+	lastError   string
+	status      string   // REQ-RELOAD-12: neutral status line
+	diagnostics []string // inline diagnostic annotations
+	styles      *theme.Styles
+	width       int
 }
 
 // NewChatModel creates an empty ChatModel.
 func NewChatModel(styles *theme.Styles) ChatModel {
 	return ChatModel{
-		styles:       styles,
-		stickyScroll: true,
+		styles: styles,
 	}
 }
 
@@ -126,14 +124,6 @@ func (m *ChatModel) SetQueued(idx int, queued bool) {
 		m.messages[idx].Queued = queued
 	}
 }
-
-// SetStickyScroll sets sticky scroll (auto-follow) state.
-func (m *ChatModel) SetStickyScroll(v bool) {
-	m.stickyScroll = v
-}
-
-// StickyScroll returns whether sticky scroll is enabled.
-func (m ChatModel) StickyScroll() bool { return m.stickyScroll }
 
 // SetWidth sets viewport width for word-wrap calculations.
 func (m *ChatModel) SetWidth(w int) { m.width = w }
