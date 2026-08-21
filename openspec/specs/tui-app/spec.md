@@ -140,7 +140,7 @@ The app MUST include theme "opencode" with 40+ fields matching `assets/opencode.
 
 ### Requirement: REQ-TUI-APP-8 — Border Primitives and Toast/Title
 
-System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` (`┃ left, ╹ bottom` vs `│/└` drift must be exact) and decorative bottom `▀` for prompt. It MUST set terminal title to `OpenCode` on home and `OC | {title}` on session. Toast MUST live inside home centered column and session scroll area.
+System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` (`┃ left, ╹ bottom` vs `│/└` drift must be exact) and decorative bottom `▀` for prompt. It MUST set terminal title to `kui` on home and `kui | {title}` on session. Toast MUST live inside home centered column and session scroll area.
 
 #### Scenario: Chat uses ┃ not │
 
@@ -152,7 +152,7 @@ System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` (`┃ left,
 
 - GIVEN route home
 - WHEN title sequence emitted
-- THEN title is `OpenCode`
+- THEN title is `kui`
 
 ### Requirement: REQ-TUI-APP-9 — Locale and Formatting Invariants
 

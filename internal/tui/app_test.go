@@ -1255,9 +1255,9 @@ func TestAppTitle(t *testing.T) {
 	c := NewController([]string{"coder"}, nil, nil)
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	// Home route title is OpenCode
-	if got := app.Title(); got != "OpenCode" {
-		t.Errorf("Title on home should be 'OpenCode', got %q", got)
+	// Home route title is kui
+	if got := app.Title(); got != "kui" {
+		t.Errorf("Title on home should be 'kui', got %q", got)
 	}
 	// Switch to session
 	for _, r := range "hello" {
@@ -1266,8 +1266,8 @@ func TestAppTitle(t *testing.T) {
 	}
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	app = msg.(*App)
-	if got := app.Title(); got != "OC | coder" {
-		t.Errorf("Title on session should be 'OC | coder', got %q", got)
+	if got := app.Title(); got != "kui | coder" {
+		t.Errorf("Title on session should be 'kui | coder', got %q", got)
 	}
 }
 

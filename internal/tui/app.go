@@ -1028,7 +1028,7 @@ func (a *App) View() string {
 
 		// Trim main panel to mainWidth columns per line for clean join
 		mainPanel = trimToWidth(mainPanel, mainWidth)
-		// Title sequence for session (OC | {title}) vs home (OpenCode) — emitted as escape, not counted in width
+		// Title sequence for session (kui | {title}) vs home (kui) — emitted as escape, not counted in width
 		titleSeq := "\x1b]0;" + a.Title() + "\x07"
 		return titleSeq + lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
 	}
@@ -1138,7 +1138,7 @@ func (a *App) renderHome() string {
 	homeFooterStr := a.homeFooter.Render()
 
 	var b strings.Builder
-	// Title sequence for home: OpenCode
+	// Title sequence for home: kui
 	titleSeq := "\x1b]0;" + a.Title() + "\x07"
 	b.WriteString(titleSeq)
 	b.WriteString(base)
@@ -1263,16 +1263,16 @@ func (a *App) ContentWidth() int {
 	return a.width - 4
 }
 
-// Title returns terminal title: OpenCode on home, OC | {title} on session per REQ-TUI-APP-8.
+// Title returns terminal title: kui on home, kui | {title} on session per REQ-TUI-APP-8.
 func (a *App) Title() string {
 	if a.route == "home" {
-		return "OpenCode"
+		return "kui"
 	}
 	t := a.ctrl.ActiveProfile()
 	if t == "" {
 		t = "session"
 	}
-	return "OC | " + t
+	return "kui | " + t
 }
 
 // trimToWidth truncates each line of s to maxWidth columns so it can be

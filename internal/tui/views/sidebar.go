@@ -165,13 +165,13 @@ func (m SidebarModel) View(width int) string {
 		section("Session", sessLines)
 	}
 
-	// Footer version via buildinfo: • Open Code <ver> when present else omitted
+	// Footer version via buildinfo: • kui <ver> when present else omitted
 	if ver := getVersion(); ver != "" {
-		footer := fmt.Sprintf("• Open Code %s", ver)
+		footer := fmt.Sprintf("• kui %s", ver)
 		// success dot uses accent? Use muted with success color if available
 		if m.styles.Theme != nil && m.styles.Theme.Success != "" {
 			dot := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Success)).Render("•")
-			footer = dot + " Open Code " + ver
+			footer = dot + " kui " + ver
 		}
 		b.WriteString(bodyStyle.Render(footer))
 		b.WriteString("\n")

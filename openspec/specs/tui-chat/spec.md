@@ -103,7 +103,7 @@ System MUST show timestamps via `Locale.todayTimeOrDateTime` (today → time, ol
 
 ### Requirement: REQ-TUI-CHAT-6 — NotAvailable vs Fabrication
 
-System MUST render `workspace`/`permission`/`editor` as muted `NotAvailable` placeholder when backing stores absent. It MUST never fabricate literals `mimo/319k/context7`. `InstallationVersion` only shows `• Open Code <ver>` when `debug.ReadBuildInfo` present else omitted.
+System MUST render `workspace`/`permission`/`editor` as muted `NotAvailable` placeholder when backing stores absent. It MUST never fabricate literals `mimo/319k/context7`. `InstallationVersion` only shows `• kui <ver>` when `debug.ReadBuildInfo` present else omitted.
 
 #### Scenario: Missing workspace shows muted
 
@@ -115,7 +115,7 @@ System MUST render `workspace`/`permission`/`editor` as muted `NotAvailable` pla
 
 - GIVEN `ReadBuildInfo` Main.Version == ""
 - WHEN footer renders
-- THEN no `• Open Code` version line appears
+- THEN no `• kui` version line appears
 
 #### Scenario: Goldens lock chat
 
