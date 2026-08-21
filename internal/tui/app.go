@@ -999,24 +999,8 @@ func (a *App) View() string {
 
 	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
 	if a.IsWide() {
-		sb := views.NewSidebarModel(a.styles)
-		sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
-		sb.SetCost(a.ctrl.Cost())
-		sb.SetProfile(a.ctrl.ActiveProfile())
-		sb.SetModel(a.ctrl.ModelName())
-		// 42 locale header: title+sessionID+workspace, footer version via buildinfo
-		if t, ok := a.ctrl.GetKV("sidebar_title"); ok && t != "" {
-			sb.SetTitle(t)
-		} else {
-			sb.SetTitle(a.ctrl.ActiveProfile())
-		}
-		sb.SetSessionID(a.ctrl.SessionID())
-		if ws, ok := a.ctrl.GetKV("workspace"); ok {
-			sb.SetWorkspace(ws)
-		}
-		sideWidth := 42
 		mainWidth := a.ContentWidth()
-		sidebarStr := sb.View(sideWidth)
+		sidebarStr := a.newSidebarView()
 
 		// Build main panel string at mainWidth
 		var mb strings.Builder
@@ -1048,42 +1032,8 @@ func (a *App) View() string {
 		titleSeq := "\x1b]0;" + a.Title() + "\x07"
 		return titleSeq + lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
 	}
-	// Narrow (!wide): sidebar as overlay with backdrop RGBA(0,0,0,70)
-	{
-		isOverlayVisible := false
-		// Sidebar overlay when narrow — show if we have tokens or profile (always for demo)
-		// For now, render overlay if width>0 (session route)
-		if a.route != "home" {
-			isOverlayVisible = true
-		}
-		if isOverlayVisible {
-			sb := views.NewSidebarModel(a.styles)
-			sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
-			sb.SetCost(a.ctrl.Cost())
-			sb.SetProfile(a.ctrl.ActiveProfile())
-			sb.SetModel(a.ctrl.ModelName())
-			if t, ok := a.ctrl.GetKV("sidebar_title"); ok && t != "" {
-				sb.SetTitle(t)
-			} else {
-				sb.SetTitle(a.ctrl.ActiveProfile())
-			}
-			sb.SetSessionID(a.ctrl.SessionID())
-			if ws, ok := a.ctrl.GetKV("workspace"); ok {
-				sb.SetWorkspace(ws)
-			}
-			sideWidth := 42
-			_ = sideWidth
-			overlayBackdrop := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)")).Width(a.width).Height(a.height).Render("")
-			_ = overlayBackdrop
-			// Content width for narrow is width-4
-			_ = a.ContentWidth()
-		}
-	}
-
 	// Compose regions with newlines between them (narrow terminal, overlay sidebar)
 	var b strings.Builder
-	titleSeq := "\x1b]0;" + a.Title() + "\x07"
-	b.WriteString(titleSeq)
 	b.WriteString(header)
 	b.WriteString("\n")
 	b.WriteString(mainStr)
@@ -1107,18 +1057,63 @@ func (a *App) View() string {
 	b.WriteString(inputLine)
 	b.WriteString("\n")
 	b.WriteString(a.footer.Render())
-	// Narrow overlay backdrop for sidebar when !wide (session only) — contentWidth = width-4
-	if !a.IsWide() && a.route != "home" {
-		// Sidebar overlay with backdrop RGBA(0,0,0,70) — visible as overlay, not inline
-		overlayWidth := 42
-		_ = overlayWidth
-		backdrop := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)")).Width(a.width).Render("")
-		_ = backdrop
-		// Content width for narrow is width-4 (e.g., 96 at 100)
-		_ = a.ContentWidth()
-	}
 
-	return b.String()
+	out := b.String()
+	// Narrow (!wide): sidebar overlays the rightmost 42 columns over an
+	// RGBA(0,0,0,70) backdrop strip per REQ-TUI-APP-2 (session route only).
+	if !a.IsWide() && a.route != "home" {
+		out = a.applySidebarOverlay(out)
+	}
+	// Title sequence emitted outside width math (zero-width escape).
+	titleSeq := "\x1b]0;" + a.Title() + "\x07"
+	return titleSeq + out
+}
+
+// newSidebarView builds the opencode-style 42-col sidebar from live controller
+// state (shared by wide inline layout and narrow overlay).
+func (a *App) newSidebarView() string {
+	sb := views.NewSidebarModel(a.styles)
+	sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
+	sb.SetCost(a.ctrl.Cost())
+	sb.SetProfile(a.ctrl.ActiveProfile())
+	sb.SetModel(a.ctrl.ModelName())
+	if t, ok := a.ctrl.GetKV("sidebar_title"); ok && t != "" {
+		sb.SetTitle(t)
+	} else {
+		sb.SetTitle(a.ctrl.ActiveProfile())
+	}
+	sb.SetSessionID(a.ctrl.SessionID())
+	if ws, ok := a.ctrl.GetKV("workspace"); ok {
+		sb.SetWorkspace(ws)
+	}
+	return sb.View(42)
+}
+
+// applySidebarOverlay composes body with the sidebar drawn over the rightmost
+// 42 visible columns, keeping total visible width == a.width. The strip behind
+// the sidebar uses the RGBA(0,0,0,70) backdrop per REQ-TUI-APP-2.
+func (a *App) applySidebarOverlay(body string) string {
+	const sidebarWidth = 42
+	overlay := trimToWidth(a.newSidebarView(), sidebarWidth)
+	baseMax := a.width - sidebarWidth
+	backdropPad := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)"))
+	bodyLines := strings.Split(body, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+	for i := range bodyLines {
+		left := trimToWidth(bodyLines[i], baseMax)
+		if gap := baseMax - lipgloss.Width(left); gap > 0 {
+			left += strings.Repeat(" ", gap)
+		}
+		right := ""
+		if i < len(overlayLines) {
+			right = overlayLines[i]
+		}
+		if gap := sidebarWidth - lipgloss.Width(right); gap > 0 {
+			right += backdropPad.Render(strings.Repeat(" ", gap))
+		}
+		bodyLines[i] = left + right
+	}
+	return strings.Join(bodyLines, "\n")
 }
 
 func (a *App) renderHome() string {
