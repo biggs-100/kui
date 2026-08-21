@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"log"
+	"sort"
 	"sync"
 
 	"github.com/biggs-100/kui/internal/core"
@@ -20,12 +21,13 @@ func defaultClientFactory(ctx context.Context, name string, cfg ServerConfig) (*
 // MCPManager manages the lifecycle of all configured MCP servers.
 // It provides concurrent connection, tool discovery, and shutdown.
 type MCPManager struct {
-	config       *Config
-	clients      map[string]*Client
-	tools        []core.Tool
+	config        *Config
+	clients       map[string]*Client
+	tools         []core.Tool
 	clientFactory ClientFactory
-	failedCount  int
-	mu           sync.Mutex
+	failedCount   int
+	failedNames   []string // servers that failed to connect (status display)
+	mu            sync.Mutex
 }
 
 // NewMCPManager creates a new manager with the given configuration.
@@ -68,6 +70,7 @@ func (m *MCPManager) ConnectAll(ctx context.Context) error {
 				log.Printf("mcp manager: failed to start server %q: %v", name, err)
 				mu.Lock()
 				m.failedCount++
+				m.failedNames = append(m.failedNames, name)
 				mu.Unlock()
 				return
 			}
@@ -77,6 +80,7 @@ func (m *MCPManager) ConnectAll(ctx context.Context) error {
 				client.Close()
 				mu.Lock()
 				m.failedCount++
+				m.failedNames = append(m.failedNames, name)
 				mu.Unlock()
 				return
 			}
@@ -115,6 +119,31 @@ func (m *MCPManager) Status() (connected, failed int) {
 	return len(m.clients), m.failedCount
 }
 
+// ServerStatus reports the runtime state of one configured MCP server.
+type ServerStatus struct {
+	Name      string
+	Connected bool
+}
+
+// ServerStatuses returns per-server connection state for every server that
+// was attempted (connected or failed), sorted by name. Disabled servers are
+// never attempted and therefore not included. It exists so status surfaces
+// can report real server names instead of fabricating them.
+func (m *MCPManager) ServerStatuses() []ServerStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	statuses := make([]ServerStatus, 0, len(m.clients)+len(m.failedNames))
+	for name := range m.clients {
+		statuses = append(statuses, ServerStatus{Name: name, Connected: true})
+	}
+	for _, name := range m.failedNames {
+		statuses = append(statuses, ServerStatus{Name: name, Connected: false})
+	}
+	sort.Slice(statuses, func(i, j int) bool { return statuses[i].Name < statuses[j].Name })
+	return statuses
+}
+
 // Shutdown stops all connected servers and cleans up resources.
 // It is idempotent per REQ-MCP-13.
 func (m *MCPManager) Shutdown() {
@@ -128,6 +157,7 @@ func (m *MCPManager) Shutdown() {
 	}
 
 	m.failedCount = 0
+	m.failedNames = nil
 	m.tools = nil
 }
 
