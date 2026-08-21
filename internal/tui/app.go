@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -87,11 +90,6 @@ type App struct {
 	// currentTheme tracks the active theme name for cycling.
 	currentTheme string
 
-	// lspPendingG tracks whether 'g' was pressed and we're waiting for the
-	// second key in a gd/gr sequence. When true, the next key press is checked
-	// for 'd' or 'r' to complete the LSP keybinding.
-	lspPendingG bool
-
 	// keymap stack base→modal
 	km *keymap.Keymap
 
@@ -172,6 +170,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamChunkMsg:
 		a.chat.AppendChunk(msg.delta)
+		return a, nil
+
+	case shellDoneMsg:
+		a.chat.AppendShell(msg.script, msg.output, msg.err)
+		a.chat.SetStatus("shell: " + msg.script)
 		return a, nil
 
 	case streamDoneMsg:
@@ -412,7 +415,15 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		_ = a.ctrl.SaveSession()
 		a.quitting = true
 		return a, tea.Quit
+
+	case tea.KeyCtrlD:
+		a.diffVisible = !a.diffVisible
+		return a, nil
 	}
+
+	// No bare-letter interceptions here on purpose: with the input focused,
+	// every rune belongs to the prompt. (The old empty-input d/g/K hooks made
+	// prompts starting with those letters impossible to type.)
 
 	// --- Autocomplete-aware keys ---
 	if a.autocomplete.IsActive() {
@@ -434,6 +445,9 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.homeView.SetInput("")
 				if strings.HasPrefix(submitted, "/") {
 					return a.handleCommand(submitted)
+				}
+				if strings.HasPrefix(submitted, "!") {
+					return a.submitShell(submitted)
 				}
 				if a.route == "home" {
 					a.route = "session"
@@ -467,49 +481,16 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(submitted, "/") {
 			return a.handleCommand(submitted)
 		}
+		// Shell mode: "!cmd" executes LOCALLY — it never reaches the LLM.
+		if strings.HasPrefix(submitted, "!") {
+			return a.submitShell(submitted)
+		}
 		if a.route == "home" {
 			a.route = "session"
 		}
 		a.chat.AppendMessage("user", submitted, a.ctrl.ActiveProfile(), "")
 		a.ctrl.SubmitPrompt(submitted)
 		return a, nil
-	}
-
-	if msg.Type == tea.KeyRunes {
-		runes := msg.Runes
-
-		// --- LSP keybindings (only when input is empty) ---
-		// Must be checked BEFORE single-key handlers like 'd' to avoid conflicts.
-		if a.input.Value() == "" && len(runes) == 1 {
-			r := runes[0]
-			if a.lspPendingG {
-				// Complete the gd/gr sequence.
-				a.lspPendingG = false
-				switch r {
-				case 'd':
-					return a.dispatchLspTool("lsp_definition")
-				case 'r':
-					return a.dispatchLspTool("lsp_references")
-				default:
-					return a, nil
-				}
-			}
-			// Start of gd/gr sequence — intercept 'g' so it doesn't type into input.
-			if r == 'g' {
-				a.lspPendingG = true
-				return a, nil
-			}
-			// 'K' for hover — intercept so it doesn't type into input.
-			if r == 'K' {
-				return a.dispatchLspTool("lsp_hover")
-			}
-		}
-
-		// --- 'd' to toggle diff view (only when input is empty) ---
-		if len(runes) == 1 && runes[0] == 'd' && a.input.Value() == "" {
-			a.diffVisible = !a.diffVisible
-			return a, nil
-		}
 	}
 
 	// --- Scroll keys: page the conversation viewport (chat/diff slot) ---
@@ -586,7 +567,9 @@ func (a *App) executeCommandByName(name string) (tea.Model, tea.Cmd) {
 		a.handleStatusCommand()
 		return a, nil
 	case "/clear":
-		a.chat.SetStatus("chat cleared")
+		a.chat.Clear()
+		a.vpContentHeight = 0 // viewport re-sticks from empty content
+		a.chat.SetStatus("conversation view cleared")
 		return a, nil
 	case "/undo":
 		a.handleUndoCommand()
@@ -637,11 +620,13 @@ func (a *App) handleCommand(text string) (tea.Model, tea.Cmd) {
 		a.quitting = true
 		return a, tea.Quit
 	case "/theme":
-		a.handleThemeCommand(parts)
+		return a, a.handleThemeCommand(parts)
 	case "/status":
 		a.handleStatusCommand()
 	case "/clear":
-		a.chat.SetStatus("chat cleared")
+		a.chat.Clear()
+		a.vpContentHeight = 0
+		a.chat.SetStatus("conversation view cleared")
 	case "/rename":
 		a.handleRenameCommand(parts)
 	case "/undo":
@@ -768,28 +753,28 @@ func tuiValidateKey(key string) error {
 	return nil
 }
 
-// handleThemeCommand switches the active theme.
-func (a *App) handleThemeCommand(parts []string) {
+// handleThemeCommand switches the active theme and schedules its toast dismissal.
+func (a *App) handleThemeCommand(parts []string) tea.Cmd {
 	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
 		a.chat.SetStatus("usage: /theme <name|next|prev>")
-		return
+		return nil
 	}
 	sub := strings.TrimSpace(parts[1])
 
 	switch sub {
 	case "next", "prev":
-		a.cycleTheme(sub == "next")
+		return a.cycleTheme(sub == "next")
 	default:
-		a.switchTheme(sub)
+		return a.switchTheme(sub)
 	}
 }
 
 // cycleTheme moves to the next or previous theme in the list.
-func (a *App) cycleTheme(forward bool) {
+func (a *App) cycleTheme(forward bool) tea.Cmd {
 	names := theme.ThemeNames()
 	if len(names) == 0 {
 		a.chat.SetStatus("no themes found")
-		return
+		return nil
 	}
 
 	// Find current index
@@ -808,16 +793,17 @@ func (a *App) cycleTheme(forward bool) {
 		idx = (idx - 1 + len(names)) % len(names)
 	}
 
-	a.switchTheme(names[idx])
+	return a.switchTheme(names[idx])
 }
 
-// switchTheme loads a theme by name and updates all views.
-func (a *App) switchTheme(name string) {
+// switchTheme loads a theme by name, updates all views, and schedules the toast dismissal.
+func (a *App) switchTheme(name string) tea.Cmd {
 	t := theme.Load(name)
 	a.styles = theme.NewStyles(t)
 	a.currentTheme = name
-	a.toast.Push("theme: "+name, toast.LevelSuccess, 3*time.Second)
+	cmd := a.toast.Notify("theme: "+name, toast.LevelSuccess, 3*time.Second)
 	a.rebuildViews()
+	return cmd
 }
 
 // handleStatusCommand shows current app status via DialogStatus (MCP/LSP dots) and also chat status.
@@ -917,6 +903,43 @@ func (a *App) handleSessionsCommand() {
 	a.listMode = true
 	if a.km != nil {
 		a.km.Push(keymap.ModalLayer)
+	}
+}
+
+// shellDoneMsg carries the result of a real local "!"-shell execution.
+type shellDoneMsg struct {
+	script string
+	output string
+	err    error
+}
+
+// submitShell routes a "!command" submission to real local execution.
+func (a *App) submitShell(submitted string) (tea.Model, tea.Cmd) {
+	script := strings.TrimSpace(strings.TrimPrefix(submitted, "!"))
+	if script == "" {
+		a.chat.SetStatus("usage: !<command>")
+		return a, nil
+	}
+	if a.route == "home" {
+		a.route = "session"
+	}
+	return a, a.execShell(script)
+}
+
+// execShell runs the script through the platform shell with a 30s cap and
+// returns the combined output as a message.
+func (a *App) execShell(script string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.CommandContext(ctx, "cmd", "/C", script)
+		} else {
+			cmd = exec.CommandContext(ctx, "sh", "-c", script)
+		}
+		out, err := cmd.CombinedOutput()
+		return shellDoneMsg{script: script, output: string(out), err: err}
 	}
 }
 
@@ -1437,33 +1460,6 @@ func (a *App) rebuildViews() {
 // chat returns the chat model for inspection.
 func (a *App) chatView() *views.ChatModel {
 	return &a.chat
-}
-
-// dispatchLspTool dispatches an LSP tool call via the controller and shows
-// the result in the chat. When the dispatcher is not configured, it shows
-// an error status. The file URI and cursor position are extracted from the
-// last user message context (line 0, character 0 defaults).
-func (a *App) dispatchLspTool(toolName string) (tea.Model, tea.Cmd) {
-	// Default to a placeholder URI — real implementation would extract
-	// from the editor context or last file read.
-	uri := "file:///."
-	line := 0
-	character := 0
-
-	args := map[string]interface{}{
-		"uri":       uri,
-		"line":      line,
-		"character": character,
-	}
-
-	result, err := a.ctrl.DispatchLsp(toolName, args)
-	if err != nil {
-		a.chat.SetStatus(toolName + ": " + err.Error())
-		return a, nil
-	}
-
-	a.chat.AppendMessage("assistant", result, a.ctrl.ActiveProfile(), "")
-	return a, nil
 }
 
 // IsWide reports whether the terminal is wide (>120 cols) per REQ-TUI-APP-2.

@@ -69,7 +69,7 @@ type Controller struct {
 
 	// Token and cost tracking for the status footer.
 	totalTokens   int
-	contextWindow int // default 128000
+	contextWindow int // 0 = unknown until real model metadata provides a limit; UI omits percentages rather than inventing one
 	modelName     string
 	modelPricing  map[string]modelPrice
 
@@ -160,7 +160,7 @@ func NewController(profiles []string, runner Runner, resolver ModelResolver) *Co
 		active:        0,
 		events:        make(chan any, 64),
 		eventsBuf:     64,
-		contextWindow: 128000,
+		contextWindow: 0,
 		modelPricing:  defaultModelPricing(),
 		kv:            make(map[string]string),
 	}

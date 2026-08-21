@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"strings"
 	"sync/atomic"
 
@@ -151,11 +150,10 @@ func (m HomePromptModel) View(width int) string {
 	} else {
 		// Shell mode indicator already in value ("!"); keep it visible.
 		text = m.value + cursor
-		// Extmarks virtual text for ● [File]/[Image]/[Pasted ~N lines] as muted NotAvailable.
-		if ext := m.extmarkText(); ext != "" {
-			text = text + ext
-		}
 	}
+	// No extmarks: attachment/paste badges are only rendered when real
+	// attachments exist, and none are wired yet — decorating typed text that
+	// merely contains words like "file" fabricated state that isn't there.
 
 	content := borderStyle.Render(text)
 	// Decorative bottom ▀ (EmptyBorder style) spans promptWidth+2 (border padding).
@@ -164,29 +162,4 @@ func (m HomePromptModel) View(width int) string {
 		Render(strings.Repeat(ui.PromptBottom, promptWidth+2))
 
 	return content + "\n" + decorative
-}
-
-func (m HomePromptModel) extmarkText() string {
-	if m.styles == nil {
-		return ""
-	}
-	v := strings.ToLower(m.value)
-	var marks []string
-	if strings.Contains(v, "file") || strings.Contains(m.value, "@") || strings.Contains(m.value, "[File]") {
-		marks = append(marks, "● [File]")
-	}
-	if strings.Contains(v, "image") || strings.Contains(m.value, "[Image]") {
-		marks = append(marks, "● [Image]")
-	}
-	if strings.Contains(v, "paste") || strings.Contains(m.value, "[Pasted") {
-		lines := strings.Count(m.value, "\n") + 1
-		if lines == 1 {
-			lines = 5
-		}
-		marks = append(marks, fmt.Sprintf("● [Pasted ~%d lines]", lines))
-	}
-	if len(marks) == 0 {
-		return ""
-	}
-	return m.styles.HomeMuted.Render(" " + strings.Join(marks, " "))
 }

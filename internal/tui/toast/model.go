@@ -51,6 +51,16 @@ func (m *Model) Push(text string, level Level, duration time.Duration) {
 	})
 }
 
+// Notify pushes a toast AND returns the command scheduling its dismissal.
+// Without running that command the toast would render forever.
+func (m *Model) Notify(text string, level Level, duration time.Duration) tea.Cmd {
+	m.Push(text, level, duration)
+	if duration <= 0 {
+		return nil
+	}
+	return tea.Tick(duration, func(time.Time) tea.Msg { return TickMsg{} })
+}
+
 // Toasts returns the current toast slice (for testing).
 func (m *Model) Toasts() []Toast {
 	return m.toasts

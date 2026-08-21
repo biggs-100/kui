@@ -81,7 +81,8 @@ func (a *AutocompleteModel) Filter(input string) {
 	a.prefix = input
 	trimmed := strings.TrimSpace(input)
 
-	// Shell ! mode: input starting with "!" at offset 0 triggers Warning border and file completions with ●File extmarks
+	// Shell ! mode: input starting with "!" at offset 0 triggers Warning border
+	// and real file-path completions for command arguments.
 	if strings.HasPrefix(trimmed, "!") {
 		shellPrefix := strings.TrimSpace(strings.TrimPrefix(trimmed, "!"))
 		items := fileCompletions(shellPrefix)
@@ -89,11 +90,12 @@ func (a *AutocompleteModel) Filter(input string) {
 			if shellPrefix == "" {
 				items = fileCompletions("")
 			}
-			// Transform to shell items with ●File extmark and without @ prefix for insertion after "!"
+			// Plain path suggestions for shell arguments (no @ prefix, no
+			// attachment extmarks — nothing is being attached).
 			shellItems := make([]AutocompleteItem, len(items))
 			for i, it := range items {
 				v := strings.TrimPrefix(it.Value, "@")
-				shellItems[i] = AutocompleteItem{Value: v, Label: it.Label, Description: "●File"}
+				shellItems[i] = AutocompleteItem{Value: v, Label: it.Label, Description: "file"}
 			}
 			a.items = shellItems
 			a.filtered = make([]string, len(shellItems))

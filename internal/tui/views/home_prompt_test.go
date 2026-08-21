@@ -144,26 +144,18 @@ func TestHomePromptShellMode(t *testing.T) {
 	}
 }
 
-func TestHomePromptExtmarks(t *testing.T) {
+// TestHomePromptNoFabricatedExtmarks proves the honesty contract: typing
+// words like "file"/"image"/"paste" must NOT conjure attachment badges —
+// extmarks render only when real attachments exist (none wired yet).
+func TestHomePromptNoFabricatedExtmarks(t *testing.T) {
 	styles := theme.NewStyles(theme.DefaultTheme())
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"file", "check file.go", "● [File]"},
-		{"image", "show image", "● [Image]"},
-		{"pasted", "pasted content", "● [Pasted"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := NewHomePromptModel(styles)
-			m.SetValue(tt.input)
-			got := m.View(60)
-			if !strings.Contains(got, tt.want) {
-				t.Errorf("extmark for %q should contain %q, got: %q", tt.input, tt.want, got)
-			}
-		})
+	for _, input := range []string{"check file.go", "show image", "pasted content", "see @readme"} {
+		m := NewHomePromptModel(styles)
+		m.SetValue(input)
+		got := m.View(60)
+		if strings.Contains(got, "●") {
+			t.Errorf("input %q must not fabricate attachment extmarks, got: %q", input, got)
+		}
 	}
 }
 

@@ -8,8 +8,8 @@
  │                                                                                                                    │ 
  │   > _                                                                                                              │ 
  │   claude-3.5-sonnet                                                                                                │ 
- │ > gpt-4o ●                                                                                                         │ 
  │   gemini-2.0-flash                                                                                                 │ 
+ │ > gpt-4o ●                                                                                                         │ 
  │   opencode/gpt-nano  disabled                                                                                      │ 
  │                                                                                                                    │ 
  │ ↑↓ navigate • Enter select • Esc filter→close                                                                      │ 

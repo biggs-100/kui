@@ -372,30 +372,12 @@ func sortModelsFreeTitle(models []string) []string {
 }
 
 func buildModelSelectItems(models []string, current string) []ui.SelectItem[string] {
-	// favorites/recent/provider sections: for now, treat first as favorites if name in fav set, second as recent if in recent set
-	// Hardcode favorites for demo: gpt-4o, claude-3.5-sonnet
-	favorites := map[string]bool{"gpt-4o": true, "claude-3.5-sonnet": true}
-	recent := map[string]bool{}
-	// recent could be populated from controller; empty for now
-
-	// Sort models by free→title but preserve favorites/recent grouping order
+	// Flat list in free→title order. No favorites/recent fabrication: those
+	// sections only appear once real usage data exists to back them.
 	sorted := sortModelsFreeTitle(models)
 
-	// Reorder: favorites first, then recent, then rest by provider
-	var favItems, recentItems, rest []string
-	for _, m := range sorted {
-		if favorites[m] {
-			favItems = append(favItems, m)
-		} else if recent[m] {
-			recentItems = append(recentItems, m)
-		} else {
-			rest = append(rest, m)
-		}
-	}
-	ordered := append(append(favItems, recentItems...), rest...)
-
-	items := make([]ui.SelectItem[string], 0, len(ordered))
-	for _, name := range ordered {
+	items := make([]ui.SelectItem[string], 0, len(sorted))
+	for _, name := range sorted {
 		cat := providerForModel(name)
 		// Determine section for display when flat false? But spec says flat:true, so category still provider for fuzzy
 		title := name

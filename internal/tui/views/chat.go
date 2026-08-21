@@ -25,6 +25,7 @@ const (
 	PartKindTool       PartKind = "tool"
 	PartKindFile       PartKind = "file"
 	PartKindCompaction PartKind = "compaction"
+	PartKindShell      PartKind = "shell" // real local shell execution + output
 )
 
 // Message represents a single conversation entry: user prompt or assistant
@@ -89,6 +90,40 @@ func (m *ChatModel) AppendPart(kind PartKind, content, profile, model string) {
 		Kind:      kind,
 		Timestamp: ChatNow(),
 	})
+}
+
+// AppendShell records a REAL local shell execution and its combined output.
+// The entry renders as a plain muted block — it is not a conversation turn
+// and carries no agent identity.
+func (m *ChatModel) AppendShell(script, output string, execErr error) {
+	var b strings.Builder
+	b.WriteString("$ ")
+	b.WriteString(script)
+	if execErr != nil {
+		b.WriteString("\n(error: ")
+		b.WriteString(execErr.Error())
+		b.WriteString(")")
+	}
+	if output != "" {
+		b.WriteString("\n")
+		b.WriteString(output)
+	}
+	m.messages = append(m.messages, Message{
+		Role:      "system",
+		Kind:      PartKindShell,
+		Content:   b.String(),
+		Timestamp: ChatNow(),
+	})
+}
+
+// Clear removes all rendered conversation state: messages, error, status and
+// diagnostics. It clears the display only — persisted session history is
+// untouched.
+func (m *ChatModel) Clear() {
+	m.messages = nil
+	m.lastError = ""
+	m.status = ""
+	m.diagnostics = nil
 }
 
 // AppendQueuedMessage adds a queued prompt part with QUEUED badge.
@@ -238,6 +273,17 @@ func (m ChatModel) View(width int) string {
 	}
 	var parts []string
 	for _, msg := range m.messages {
+		// Real local shell execution: plain muted block, no border and no
+		// agent identity — it is utility output, not a conversation turn.
+		if msg.Kind == PartKindShell {
+			text := msg.Content
+			if m.styles != nil {
+				text = m.styles.HomeMuted.Render(text)
+			}
+			parts = append(parts, text)
+			continue
+		}
+
 		// Compaction divider
 		if msg.Kind == PartKindCompaction {
 			div := "── compaction ──"
