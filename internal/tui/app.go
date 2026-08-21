@@ -14,6 +14,7 @@ import (
 	"github.com/biggs-100/kui/internal/tui/toast"
 	"github.com/biggs-100/kui/internal/tui/views"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -41,6 +42,15 @@ type App struct {
 
 	// Diff view toggle: when true, the diff panel is rendered instead of chat.
 	diffVisible bool
+
+	// scrollVP scrolls the conversation (chat or diff) inside its budgeted
+	// slot so long content never pushes the pinned input/footer around.
+	scrollVP viewport.Model
+
+	// vpContentHeight tracks the previous rendered content height so the
+	// viewport can stick to the bottom when new content arrives while it
+	// was already pinned there.
+	vpContentHeight int
 
 	// Session list mode: when non-nil, the session list view is active.
 	sessionList *views.SessionListModel
@@ -499,6 +509,13 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.diffVisible = !a.diffVisible
 			return a, nil
 		}
+	}
+
+	// --- Scroll keys: page the conversation viewport (chat/diff slot) ---
+	if msg.Type == tea.KeyPgUp || msg.Type == tea.KeyPgDown {
+		var cmd tea.Cmd
+		a.scrollVP, cmd = a.scrollVP.Update(msg)
+		return a, cmd
 	}
 
 	// --- Delegate everything else to InputModel ---
@@ -1036,9 +1053,20 @@ func (a *App) View() string {
 	if chatH < 1 {
 		chatH = 1
 	}
-	// Overflow keeps the newest rows (sticky-bottom); shortfall pads blank
-	// rows below so pinned regions never shift between frames.
-	mainStr = fitVertical(mainStr, chatH)
+	// The conversation slot is a real viewport: long content scrolls inside
+	// its budget instead of pushing pinned regions around. When the viewport
+	// was already at the bottom (or this is the first frame) it sticks to
+	// the bottom as content grows; a scrolled-up position is preserved.
+	wasAtBottom := a.vpContentHeight == 0 ||
+		a.scrollVP.YOffset+a.scrollVP.Height >= a.vpContentHeight
+	a.scrollVP.Width = mainWidth
+	a.scrollVP.Height = chatH
+	a.scrollVP.SetContent(mainStr)
+	a.vpContentHeight = lipgloss.Height(mainStr)
+	if wasAtBottom {
+		a.scrollVP.GotoBottom()
+	}
+	mainStr = a.scrollVP.View()
 
 	buildPanel := func() string {
 		var mb strings.Builder
@@ -1411,23 +1439,6 @@ func trimToWidth(s string, maxWidth int) string {
 			}
 			lines[i] = trimmed
 		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-// fitVertical fits s into exactly n rows. Overflow keeps only the LAST n
-// rows (sticky-bottom: the newest content stays visible); shortfall pads
-// blank rows BELOW the content so pinned regions keep their position.
-func fitVertical(s string, n int) string {
-	if n < 1 {
-		n = 1
-	}
-	lines := strings.Split(s, "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	for len(lines) < n {
-		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
 }
