@@ -62,6 +62,21 @@ The app MUST support two layouts: home (flex-spacer centered logo + prompt + foo
 - WHEN session renders
 - THEN contentWidth is 96 and sidebar renders as overlay with backdrop
 
+#### Scenario: Sidebar sections render only real state
+
+- GIVEN the session sidebar renders sections for Subagents, MCP, and LSP
+- WHEN no subagent source is attached or no MCP servers were attempted
+- THEN the Subagents/MCP sections are omitted entirely (never a fabricated zero-state or invented server names)
+- AND the LSP section shows its truthful state ("LSPs are disabled" while no LSP management is wired)
+- AND when sources ARE attached, stats (run/done/err/Σ) and per-server states render from live data only
+
+#### Scenario: Background subagent changes refresh the rail
+
+- GIVEN a background subagent launches or finishes
+- WHEN the change fires
+- THEN the controller emits a change message through the event pump
+- AND the next View renders updated subagent stats without polling
+
 #### Scenario: Resize reflows
 
 - GIVEN running TUI width 120

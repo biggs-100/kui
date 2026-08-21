@@ -10,9 +10,24 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// SubTask is one background sub-agent row for the sidebar.
+type SubTask struct {
+	Title   string
+	Running bool
+	Err     bool
+	At      string // formatted HH:MM of start (running) or finish (done/err)
+}
+
+// MCPServerState is the runtime connection state of one MCP server.
+type MCPServerState struct {
+	Name      string
+	Connected bool
+}
+
 // SidebarModel renders the opencode-style right sidebar.
 // Width MUST be 42 cols (REQ-TUI-APP-2). Uses locale FormatNumber, header
-// title+sessionID+workspace, footer version via buildinfo.
+// title+sessionID+workspace, footer version via buildinfo. Section data is
+// real-state-only: sources absent → sections omitted, never fabricated.
 type SidebarModel struct {
 	styles     *theme.Styles
 	tokens     int
@@ -24,6 +39,12 @@ type SidebarModel struct {
 	title      string
 	sessionID  string
 	workspace  string
+	subSet     bool
+	subRun     int
+	subDone    int
+	subErr     int
+	subTasks   []SubTask
+	mcpServers []MCPServerState
 }
 
 // NewSidebarModel creates a SidebarModel with theme styles.
@@ -63,6 +84,22 @@ func (m *SidebarModel) SetWorkspace(ws string) { m.workspace = ws }
 
 // SetWidth sets sidebar width (should be 42 per spec).
 func (m *SidebarModel) SetWidth(w int) { m.width = w }
+
+// SetSubagents sets real background sub-agent stats and rows. Call only when
+// a live source exists — it marks the section as present.
+func (m *SidebarModel) SetSubagents(run, done, errCount int, tasks []SubTask) {
+	m.subSet = true
+	m.subRun = run
+	m.subDone = done
+	m.subErr = errCount
+	m.subTasks = tasks
+}
+
+// SetMCPServers sets real per-server MCP connection states. Empty slice
+// omits the section.
+func (m *SidebarModel) SetMCPServers(servers []MCPServerState) {
+	m.mcpServers = servers
+}
 
 // getVersion returns InstallationVersion via buildinfo if present else empty.
 func getVersion() string {
@@ -187,6 +224,43 @@ func (m SidebarModel) viewBody(width int) string {
 		section("Session", sessLines)
 	}
 
+	// Subagents section — real background task state only (source absent or
+	// zero tasks → omitted). Matches OpenCode rail order: above Context.
+	if m.subSet && m.subRun+m.subDone+m.subErr > 0 {
+		success := ""
+		errColor := ""
+		if m.styles.Theme != nil {
+			success = m.styles.Theme.Success
+			errColor = m.styles.Theme.Error
+		}
+		glyph := func(s SubTask) string {
+			switch {
+			case s.Running:
+				return lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Warning)).Render("●")
+			case s.Err:
+				return lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Render("×")
+			default:
+				return lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("✓")
+			}
+		}
+		stats := fmt.Sprintf("%s %d run · %s %d done · %s %d err · Σ %d",
+			lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Warning)).Render("●"),
+			m.subRun,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("✓"),
+			m.subDone,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Render("×"),
+			m.subErr,
+			m.subRun+m.subDone+m.subErr,
+		)
+		var subLines []string
+		subLines = append(subLines, stats)
+		for _, t := range m.subTasks {
+			row := fmt.Sprintf("%s %s ↳ %s", glyph(t), t.Title, t.At)
+			subLines = append(subLines, row)
+		}
+		section("▼ Subagents", subLines)
+	}
+
 	// Context section — real tokens, percent, cost from the controller via locale.
 	var ctxLines []string
 	if m.tokens > 0 {
@@ -204,6 +278,46 @@ func (m SidebarModel) viewBody(width int) string {
 		ctxLines = append(ctxLines, "0 tokens 0% $0.00")
 	}
 	section("Context", ctxLines)
+
+	// MCP section — real per-server connection states only (none configured
+	// or attempted → omitted; never a fabricated zero-state).
+	if len(m.mcpServers) > 0 {
+		errColor := ""
+		success := ""
+		if m.styles.Theme != nil {
+			errColor = m.styles.Theme.Error
+			success = m.styles.Theme.Success
+		}
+		var mcpLines []string
+		for _, s := range m.mcpServers {
+			if s.Connected {
+				mcpLines = append(mcpLines, fmt.Sprintf("%s %s",
+					s.Name,
+					lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("Connected"),
+				))
+			} else {
+				mcpLines = append(mcpLines, fmt.Sprintf("%s %s",
+					s.Name,
+					lipgloss.NewStyle().Foreground(lipgloss.Color(errColor)).Render("Failed"),
+				))
+			}
+		}
+		section("MCP", mcpLines)
+	}
+
+	// LSP section — kui's TUI has no LSP server management wired today, so
+	// the honest state is "disabled" (mirrors OpenCode's disabled rail line).
+	// Update when real LSP tracking lands; do not fabricate server rows.
+	lspLine := muted.Render("LSPs are disabled")
+	b.WriteString(headerStyle.Render("LSP"))
+	b.WriteString("\n")
+	if lipgloss.Width(lspLine) > width-2 {
+		lspLine = truncateSidebarLine(lspLine, width-2)
+	}
+	b.WriteString(bodyStyle.Render(lspLine))
+	b.WriteString("\n")
+	b.WriteString(sep)
+	b.WriteString("\n")
 
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -226,9 +340,8 @@ func (m SidebarModel) footerLines(width int) []string {
 		Foreground(muted.GetForeground()).
 		Faint(true).
 		Width(width - 2)
-	sep := muted.Render(strings.Repeat("─", width-2))
 
-	lines := []string{sep}
+	lines := []string{}
 
 	// Workspace path near the bottom (OpenCode rail layout)
 	if m.workspace != "" {
