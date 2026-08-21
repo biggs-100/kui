@@ -139,23 +139,19 @@ func (m SidebarModel) View(width int) string {
 // ViewFullHeight renders the sidebar stretched to exactly height rows: the
 // section blocks stay pinned at the top, blank filler fills the middle, and
 // the footer lines (workspace path above version line) are pinned at the very
-// bottom. The whole block is wrapped ONCE in a continuous rounded-border box
-// over the Sidebar style so every row — including filler — carries the rail
-// background and the rail reads as one long box spanning exactly width
-// columns and height rows. lipgloss Width() includes horizontal padding but
-// excludes borders, so the block is width-2 wide (padding eats 2 of those
-// columns, leaving width-4 for text) plus one border column per side.
-// When the content is taller than height the block renders at natural height.
+// bottom. Following the upstream design language, the rail is a PURE
+// background panel: no border anywhere — elevation comes from the
+// backgroundPanel fill being one step lighter than the terminal background.
+// The block spans exactly width columns and height rows with padding 1 row
+// top/bottom and 2 columns left/right (the left padding doubles as the
+// gutter against the main column). When the content is taller than height
+// the block renders at natural height.
 func (m SidebarModel) ViewFullHeight(width, height int) string {
 	if m.styles == nil || width < 10 {
 		return ""
 	}
-	if height < 3 {
+	if height < 1 {
 		return m.View(width)
-	}
-	borderColor := "444444"
-	if m.styles.Theme != nil && m.styles.Theme.BorderSubtle != "" {
-		borderColor = m.styles.Theme.BorderSubtle
 	}
 	body := m.viewBody(width - 2)
 	footer := m.footerLines(width - 2)
@@ -173,11 +169,10 @@ func (m SidebarModel) ViewFullHeight(width, height int) string {
 		b.WriteString("\n")
 		b.WriteString(l)
 	}
-	box := m.styles.Sidebar.Copy().
-		Width(width - 2).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(borderColor))
-	return box.Render(b.String())
+	rail := m.styles.Sidebar.Copy().
+		Width(width).
+		Padding(1, 2)
+	return rail.Render(b.String())
 }
 
 // viewBody renders the sidebar sections without footer and without the outer
@@ -192,20 +187,27 @@ func (m SidebarModel) viewBody(width int) string {
 		}
 	}
 
-	// Header style: accent blue bold (theme token, not a literal)
-	headerStyle := m.styles.LogoAccent
+	// Section headers follow the upstream language: plain bold words in the
+	// text color (never accent, never decorated), bodies in textMuted,
+	// sections separated by whitespace only — no rules, no glyphs.
+	headerStyle := lipgloss.NewStyle().Bold(true)
+	if m.styles.Theme != nil && m.styles.Theme.Text != "" {
+		headerStyle = headerStyle.Foreground(lipgloss.Color(m.styles.Theme.Text))
+	}
 
 	muted := m.styles.HomeMuted
 	bodyStyle := lipgloss.NewStyle().
 		Foreground(muted.GetForeground()).
-		Faint(true).
 		Width(width - 2)
-
-	sep := muted.Render(strings.Repeat("─", width-2))
 
 	var b strings.Builder
 
+	firstSection := true
 	section := func(title string, lines []string) {
+		if !firstSection {
+			b.WriteString("\n")
+		}
+		firstSection = false
 		b.WriteString(headerStyle.Render(title))
 		b.WriteString("\n")
 		for _, l := range lines {
@@ -215,8 +217,6 @@ func (m SidebarModel) viewBody(width int) string {
 			b.WriteString(bodyStyle.Render(l))
 			b.WriteString("\n")
 		}
-		b.WriteString(sep)
-		b.WriteString("\n")
 	}
 
 	// Session section: title + sessionID + profile/model (REQ-TUI-APP-2,
@@ -272,7 +272,7 @@ func (m SidebarModel) viewBody(width int) string {
 			row := fmt.Sprintf("%s %s ↳ %s", glyph(t), t.Title, t.At)
 			subLines = append(subLines, row)
 		}
-		section("▼ Subagents", subLines)
+		section("Subagents", subLines)
 	}
 
 	// Context section — real tokens, percent, cost from the controller via locale.
@@ -322,16 +322,7 @@ func (m SidebarModel) viewBody(width int) string {
 	// LSP section — kui's TUI has no LSP server management wired today, so
 	// the honest state is "disabled" (mirrors OpenCode's disabled rail line).
 	// Update when real LSP tracking lands; do not fabricate server rows.
-	lspLine := muted.Render("LSPs are disabled")
-	b.WriteString(headerStyle.Render("LSP"))
-	b.WriteString("\n")
-	if lipgloss.Width(lspLine) > width-2 {
-		lspLine = truncateSidebarLine(lspLine, width-2)
-	}
-	b.WriteString(bodyStyle.Render(lspLine))
-	b.WriteString("\n")
-	b.WriteString(sep)
-	b.WriteString("\n")
+	section("LSP", []string{"LSPs are disabled"})
 
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -352,7 +343,6 @@ func (m SidebarModel) footerLines(width int) []string {
 	muted := m.styles.HomeMuted
 	bodyStyle := lipgloss.NewStyle().
 		Foreground(muted.GetForeground()).
-		Faint(true).
 		Width(width - 2)
 
 	lines := []string{}

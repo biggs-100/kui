@@ -1242,8 +1242,10 @@ func TestAppContentWidth(t *testing.T) {
 	c := NewController([]string{"coder"}, nil, nil)
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 130, Height: 24})
-	if got := app.ContentWidth(); got != 84 {
-		t.Errorf("ContentWidth at 130 wide should be 84, got %d", got)
+	// Wide: rail 42 + one gutter column → main column = width-43 so the
+	// joined frame is flush with the terminal's right edge.
+	if got := app.ContentWidth(); got != 87 {
+		t.Errorf("ContentWidth at 130 wide should be 87, got %d", got)
 	}
 	app.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	if got := app.ContentWidth(); got != 96 {

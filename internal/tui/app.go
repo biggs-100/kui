@@ -1416,11 +1416,11 @@ func (a *App) IsWide() bool {
 	return a.width > 120
 }
 
-// ContentWidth returns width - (sidebarVisible?42:0) -4 per REQ-TUI-APP-2.
-// When wide, sidebar 42 is visible inline; when narrow, sidebar overlays.
+// ContentWidth returns the main-column width: terminal width minus the
+// inline rail (42) and one gutter column when wide; width-4 when narrow.
 func (a *App) ContentWidth() int {
 	if a.IsWide() {
-		return a.width - 42 - 4
+		return a.width - 42 - 1
 	}
 	return a.width - 4
 }

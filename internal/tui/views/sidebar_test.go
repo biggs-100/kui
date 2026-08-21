@@ -17,8 +17,9 @@ func stripANSI(s string) string {
 
 // TestSidebarFullHeightPinsFooter proves REQ-TUI-APP-2 full-height rail:
 // GIVEN a target height WHEN ViewFullHeight renders THEN the block is exactly
-// height rows wide-padded to 42, wrapped as one continuous bordered box, with
-// the workspace path pinned INSIDE the box directly above the bottom border.
+// height rows wide-padded to 42, rendered as a PURE background panel (no
+// border anywhere — elevation comes from the fill), with the workspace path
+// pinned inside directly above the bottom padding row.
 func TestSidebarFullHeightPinsFooter(t *testing.T) {
 	m := NewSidebarModel(testStyles())
 	m.SetTokens(1234, 10000)
@@ -39,32 +40,30 @@ func TestSidebarFullHeightPinsFooter(t *testing.T) {
 		}
 	}
 
-	// One continuous box: top and bottom rounded borders enclose the rail.
-	first := stripANSI(lines[0])
-	if !strings.HasPrefix(first, "╭") {
-		t.Errorf("first line should start with the top-left border corner, got %q", first)
-	}
-	last := stripANSI(lines[len(lines)-1])
-	if !strings.HasPrefix(last, "╰") {
-		t.Errorf("last line should start with the bottom-left border corner, got %q", last)
+	// Border-free contract: no box-drawing glyphs anywhere in the rail —
+	// elevation comes from the backgroundPanel fill alone.
+	for i, l := range lines {
+		plain := stripANSI(l)
+		if strings.ContainsAny(plain, "╭╰╮╯│┌┐└┘─") {
+			t.Errorf("line %d contains border glyphs but the rail must be a pure background panel: %q", i, plain)
+		}
 	}
 
-	// Footer pinned inside the box: workspace path is the row above the
-	// bottom border. When a buildinfo version exists it renders between
-	// the path and the border.
+	// Footer pinned inside the padding: workspace path is the row above the
+	// bottom padding row. When a buildinfo version exists it renders between
+	// the path and that row.
 	aboveBottom := stripANSI(lines[len(lines)-2])
 	if !strings.Contains(aboveBottom, "~/dev-biggz/kui") {
-		t.Errorf("row above the bottom border should be the workspace path, got %q", aboveBottom)
+		t.Errorf("row above the bottom padding should be the workspace path, got %q", aboveBottom)
 	}
 
-	// Blank filler in the middle keeps the rail visually continuous: it is
-	// a blank interior row of the box (border + padding + spaces). Under
+	// Blank filler in the middle keeps the rail visually continuous. Under
 	// `go test` the color profile is Ascii (no TTY) and lipgloss strips
 	// every escape, so the background is proven in
 	// TestSidebarFullHeightBackgroundStrip with TrueColor forced.
 	mid := stripANSI(lines[height/2])
-	if strings.TrimSpace(strings.Trim(mid, "│ ")) != "" {
-		t.Errorf("middle filler line should be a blank interior row, got %q", mid)
+	if strings.TrimSpace(mid) != "" {
+		t.Errorf("middle filler line should be visually blank, got %q", mid)
 	}
 }
 

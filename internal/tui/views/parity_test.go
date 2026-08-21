@@ -72,7 +72,7 @@ func TestParitySidebarRealSectionsRender(t *testing.T) {
 	})
 	got := m.View(42)
 	for _, want := range []string{
-		"▼ Subagents",
+		"Subagents",
 		"1 run", "2 done", "1 err", "Σ 4",
 		"write tests ↳ 13:01",
 		"fix bug ↳ 13:05",
