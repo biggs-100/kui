@@ -230,8 +230,10 @@ func TestDiffLineNumbersStyled(t *testing.T) {
 
 func TestChatPerPartSplitBorder(t *testing.T) {
 	m := NewChatModel(testStyles())
-	m.AppendMessage("assistant", "part one", "", "")
-	m.AppendMessage("assistant", "part two", "", "")
+	// The left ┃ bar belongs to user prompt blocks; assistant answers are
+	// naked indented text closed by an ▣ end-cap (upstream message language).
+	m.AppendMessage("user", "part one", "coder", "gpt-4")
+	m.AppendMessage("user", "part two", "coder", "gpt-4")
 	got := m.View(80)
 	if !strings.Contains(got, "┃") {
 		t.Error("chat per-part should contain ┃ left border")

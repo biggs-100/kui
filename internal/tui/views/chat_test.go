@@ -142,17 +142,19 @@ func TestChatMultipleChunksGrowMessage(t *testing.T) {
 
 func TestChatPerPromptContextStability(t *testing.T) {
 	m := NewChatModel(testStyles())
+	// Identity moved from inline user headers to the assistant end-cap:
+	// ▣ {profile} · {model} closes each turn.
 	m.AppendMessage("user", "First", "coder", "gpt-4")
-	m.AppendChunk("Answer 1")
+	m.AppendMessage("assistant", "Answer 1", "coder", "gpt-4")
 	m.AppendMessage("user", "Second", "writer", "gpt-3.5")
-	m.AppendChunk("Answer 2")
+	m.AppendMessage("assistant", "Answer 2", "writer", "gpt-3.5")
 	got := m.Render()
 
 	if !strings.Contains(got, "coder") {
-		t.Error("first message should show coder profile")
+		t.Error("assistant end-cap should show coder profile")
 	}
 	if !strings.Contains(got, "writer") {
-		t.Error("second message should show writer profile")
+		t.Error("assistant end-cap should show writer profile")
 	}
 }
 
