@@ -2,15 +2,18 @@ package views
 
 import (
 	"github.com/biggs-100/kui/internal/tui/theme"
+	"github.com/charmbracelet/lipgloss"
 )
 
-// HomeFooterModel renders the minimal footer for the home screen.
-// It is empty plus home_bottom plugin slot (muted NotAvailable when absent).
-// It MUST NOT show fabricated dir • LSP ○/● • MCP ○/● invention.
-// If backing sync.data.lsp/mcp absent, footer omits counts as muted.
+// HomeFooterModel renders the grounding footer for the home screen,
+// mirroring feature-plugins/home/footer.tsx: a space-between row with the
+// working directory in textMuted on the left and "• kui <version>" (success
+// dot, bold text name, muted version) on the right. The home_bottom plugin
+// slot replaces the row content when present.
 type HomeFooterModel struct {
 	styles        *theme.Styles
 	dir           string
+	width         int
 	pluginContent string
 	// Retained for compatibility but not rendered as fabricated LSP/MCP.
 	lspConnected bool
@@ -25,6 +28,11 @@ func NewHomeFooterModel(styles *theme.Styles, dir string) HomeFooterModel {
 	}
 }
 
+// SetWidth sets the row width used for the space-between composition.
+func (m *HomeFooterModel) SetWidth(w int) {
+	m.width = w
+}
+
 // SetLSPConnected retains compatibility but does not fabricate LSP display (home is empty).
 func (m *HomeFooterModel) SetLSPConnected(connected bool) {
 	m.lspConnected = connected
@@ -35,13 +43,14 @@ func (m *HomeFooterModel) SetMCPConnected(connected bool) {
 	m.mcpConnected = connected
 }
 
-// SetPluginContent sets the home_bottom plugin slot content. When empty, footer is muted placeholder.
+// SetPluginContent sets the home_bottom plugin slot content. When set, it
+// replaces the standard dir/version row.
 func (m *HomeFooterModel) SetPluginContent(content string) {
 	m.pluginContent = content
 }
 
-// Render produces the minimal home footer string.
-// When no plugin slot and no sync data, it returns empty or muted placeholder, not "• LSP".
+// Render produces the home footer string: dir on the left, version badge on
+// the right, or the plugin slot content when present.
 func (m HomeFooterModel) Render() string {
 	if m.styles == nil {
 		return ""
@@ -49,8 +58,20 @@ func (m HomeFooterModel) Render() string {
 	if m.pluginContent != "" {
 		return m.styles.HomeMuted.Render(m.pluginContent)
 	}
-	// No plugin slot and no sync data → empty or muted placeholder (NotAvailable)
-	// Return empty to satisfy "empty plus plugin slot (muted NotAvailable when absent)"
-	// We return a faint dash as muted placeholder to be visible but not fabricated.
-	return ""
+	left := ""
+	if m.dir != "" {
+		left = m.styles.HomeMuted.Render(m.dir)
+	}
+	right := ""
+	if m.styles.Theme != nil {
+		if ver := getVersion(); ver != "" {
+			dot := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Success)).Render("•")
+			name := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(m.styles.Theme.Text)).Render("kui")
+			right = dot + " " + name + " " + m.styles.HomeMuted.Render(ver)
+		}
+	}
+	if left == "" && right == "" {
+		return ""
+	}
+	return joinSpaceBetween(left, right, m.width)
 }

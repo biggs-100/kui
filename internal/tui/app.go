@@ -1075,6 +1075,15 @@ func (a *App) View() string {
 		toastStr = trimToWidth(a.styles.Toast.Render(raw), mainWidth)
 	}
 
+	// Footer composes inside its VISIBLE column: wide mode renders it
+	// inside the main column (mainWidth); narrow mode keeps it within the
+	// strip left of the overlaid rail or the status cluster would hide
+	// underneath.
+	footerW := mainWidth
+	if !a.IsWide() {
+		footerW = a.width - 42
+	}
+	a.footer.SetWidth(footerW)
 	footerStr := a.footer.Render()
 
 	// --- Height budget (REQ-TUI-APP-2): assign every terminal row to ---
@@ -1358,6 +1367,15 @@ func (a *App) rebuildViews() {
 	a.footer.SetModel(a.ctrl.ModelName())
 	a.footer.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
 	a.footer.SetCost(a.ctrl.Cost())
+	// Space-between row: real working directory on the left (workspace KV
+	// first, process cwd as honest fallback), full terminal width.
+	if ws, ok := a.ctrl.GetKV("workspace"); ok && ws != "" {
+		a.footer.SetDir(ws)
+	} else if wd, err := os.Getwd(); err == nil {
+		a.footer.SetDir(shortenHome(wd))
+	}
+	a.footer.SetWidth(a.width)
+	a.homeFooter.SetWidth(a.width)
 	// Wire sync.data.provider/mcp/lsp with nil→muted NotAvailable (PR3)
 	if lsp, ok := a.ctrl.SyncLSP(); ok {
 		a.footer.SetLSP(lsp)

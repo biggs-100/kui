@@ -37,33 +37,28 @@ func NewLogoModel(styles *theme.Styles) LogoModel {
 	return LogoModel{styles: styles}
 }
 
-// View renders the logo centered within the given width using two-tone tint shadow.
-// Shadow is computed as Tint(background, syntaxColor, 0.25) per REQ-TUI-HOME-2.
+// View renders the logo centered within the given width using the upstream
+// two-tone treatment: left half in textMuted regular weight, right half in
+// text bold — a monochrome mark so colorful conversation content carries all
+// the chroma (REQ-TUI-HOME-2).
 func (m LogoModel) View(width int) string {
 	if m.styles == nil || m.styles.Theme == nil {
 		return ""
 	}
 	t := m.styles.Theme
-	bg := t.Background
-	if bg == "" {
-		bg = t.BG
+	mainFg := t.Text
+	if mainFg == "" {
+		mainFg = t.FG
 	}
-	fg := t.SyntaxKeyword
-	if fg == "" {
-		fg = t.SyntaxOperator
+	shadowFg := t.TextMuted
+	if shadowFg == "" {
+		shadowFg = t.Hint
 	}
-	if fg == "" {
-		fg = t.Accent
+	if shadowFg == "" {
+		shadowFg = mainFg
 	}
-	if fg == "" {
-		fg = t.Text
-	}
-	if fg == "" {
-		fg = t.FG
-	}
-	shadowHex := theme.Tint(bg, fg, 0.25)
-	shadowStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(shadowHex)).Bold(true)
-	mainStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(fg)).Bold(true)
+	shadowStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(shadowFg))
+	mainStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(mainFg)).Bold(true)
 
 	var lines []string
 	for _, pair := range kuiLogoPairs {

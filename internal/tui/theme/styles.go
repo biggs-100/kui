@@ -136,9 +136,10 @@ func NewStyles(t *Theme) *Styles {
 		HomeBorder: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Border)),
 
+		// Two-level text discipline: muted is quiet enough on its own —
+		// never stack opacity on top of an already-muted color.
 		HomeMuted: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(t.TextMuted)).
-			Faint(true),
+			Foreground(lipgloss.Color(t.TextMuted)),
 
 		// Diff
 		FileDiff: lipgloss.NewStyle().
