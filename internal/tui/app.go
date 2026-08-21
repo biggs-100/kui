@@ -1086,10 +1086,30 @@ func (a *App) newSidebarModel() views.SidebarModel {
 		sb.SetTitle(a.ctrl.ActiveProfile())
 	}
 	sb.SetSessionID(a.ctrl.SessionID())
-	if ws, ok := a.ctrl.GetKV("workspace"); ok {
+	if ws, ok := a.ctrl.GetKV("workspace"); ok && ws != "" {
 		sb.SetWorkspace(ws)
+	} else if wd, err := os.Getwd(); err == nil {
+		// Workspace is always real: fall back to the process working
+		// directory (home prefix shortened to ~). Never fabricate beyond it.
+		sb.SetWorkspace(shortenHome(wd))
 	}
 	return sb
+}
+
+// shortenHome replaces the user home prefix with ~ for compact display.
+// Paths outside home are returned unchanged.
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	return path
 }
 
 // newSidebarViewFullHeight builds the 42-col sidebar stretched to exactly

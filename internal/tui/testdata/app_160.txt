@@ -6,4 +6,4 @@ no tool calls                                                                   
 Get started                                                                                                         0 tokens 0% $0.00                        
                                                                                                                     ──────────────────────────────────────── 
                                                                                                                     ──────────────────────────────────────── 
-                                                                                                                    NotAvailable                             
+                                                                                                                    ~/dev-biggz/kui                          

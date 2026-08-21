@@ -105,11 +105,12 @@ System MUST show timestamps via `Locale.todayTimeOrDateTime` (today → time, ol
 
 System MUST render `workspace`/`permission`/`editor` as muted `NotAvailable` placeholder when backing stores absent. It MUST never fabricate literals `mimo/319k/context7`. `InstallationVersion` only shows `• kui <ver>` when `debug.ReadBuildInfo` present else omitted.
 
-#### Scenario: Missing workspace shows muted
+#### Scenario: Workspace falls back to real working directory
 
-- GIVEN no workspace store
-- WHEN session sidebar/header renders
-- THEN dump shows `NotAvailable` muted not fabricated path
+- GIVEN no workspace KV store entry
+- WHEN session sidebar renders
+- THEN the footer shows the process working directory with the user home prefix shortened to `~`
+- AND no fabricated path literal appears (Getwd failure renders muted `NotAvailable`)
 
 #### Scenario: Version omitted when empty
 
