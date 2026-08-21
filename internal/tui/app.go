@@ -987,18 +987,12 @@ func (a *App) View() string {
 
 	// Explicit region widths: in wide mode every main-column region renders
 	// at ContentWidth so no post-hoc truncation is needed; narrow mode keeps
-	// full-width regions and overlays the rail on top.
+	// full-width regions and overlays the rail on top. There is no header —
+	// the upstream design keeps session identity inside the rail.
 	mainWidth := a.width
 	if a.IsWide() {
 		mainWidth = a.ContentWidth()
 	}
-
-	// Header: minimal with subtle full-width bottom border (opencode style)
-	header := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(a.styles.HomeBorder.GetBorderTopForeground()).
-		Width(mainWidth).
-		Render(a.header.Render())
 
 	// Tool view: per-entry bordered panels already; no extra outer wrap needed
 	toolStr := trimToWidth(a.tool.Render(), mainWidth)
@@ -1086,14 +1080,13 @@ func (a *App) View() string {
 	// --- Height budget (REQ-TUI-APP-2): assign every terminal row to ---
 	// --- exactly one slot so the frame fills a.height and the input ---
 	// --- box plus footer stay pinned at the bottom edge.               ---
-	headerH := lipgloss.Height(header)
 	inputH := lipgloss.Height(inputLine)
 	footerH := lipgloss.Height(footerStr)
 	toolH := 0
 	if toolStr != "" {
 		toolH = lipgloss.Height(toolStr)
 	}
-	fixed := headerH + inputH + footerH + toolH
+	fixed := inputH + footerH + toolH
 	chatH := a.height - fixed
 	if chatH < 1 {
 		chatH = 1
@@ -1115,8 +1108,6 @@ func (a *App) View() string {
 
 	buildPanel := func() string {
 		var mb strings.Builder
-		mb.WriteString(header)
-		mb.WriteString("\n")
 		mb.WriteString(mainStr)
 		if toolH > 0 {
 			mb.WriteString("\n")

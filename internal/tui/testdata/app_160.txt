@@ -1,6 +1,6 @@
-  coder                                                                                                                                                         
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────   Session                                 
-start a conversation...                                                                                                 coder                                   
+start a conversation...                                                                                                                                         
+                                                                                                                        Session                                 
+                                                                                                                        coder                                   
                                                                                                                         profile  coder                          
                                                                                                                                                                 
                                                                                                                         Context                                 
