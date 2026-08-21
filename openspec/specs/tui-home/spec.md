@@ -8,73 +8,69 @@ The home screen is the landing view when `kui tui` starts. It displays a centere
 
 ### Requirement: REQ-TUI-HOME-1 — Centered Layout
 
-The home screen MUST render three vertically-centered elements: ASCII logo, prompt input, and footer. All elements MUST be horizontally centered within the terminal width.
+The home screen MUST render logo + prompt + footer vertically centered via flex spacers with `flexGrow` (Previously: manual `topPad` loop). It MUST use a `height 4` spacer and center column of `maxWidth 75` or `70%` auto. All elements MUST remain horizontally centered on resize. Toast MUST be inside centered column.
+(Previously: topPad calc, placeHorizontal only)
 
-#### Scenario: Home screen renders centered
+#### Scenario: Flex spacer centering
 
-- GIVEN a terminal of any size
-- WHEN `kui tui` starts
-- THEN the logo is horizontally centered
-- AND the prompt input is horizontally centered below the logo
-- AND the footer is at the bottom of the screen
+- GIVEN terminal 120x30
+- WHEN home renders
+- THEN dump shows equal top/bottom spacer lines within ±1
 
-#### Scenario: Resize maintains centering
+#### Scenario: Resize keeps centering
 
-- GIVEN the home screen is visible
-- WHEN the terminal resizes
-- THEN all elements remain horizontally centered
-- AND vertical spacing adjusts proportionally
+- GIVEN home visible at 80x24 then resized to 160x40
+- WHEN dumped
+- THEN logo remains centered in both goldens
 
 ### Requirement: REQ-TUI-HOME-2 — ASCII Logo
 
-The home screen MUST display an ASCII art logo. The default logo MUST be a generic "kui" text in a simple block style. The logo MUST use the primary accent color from the active theme.
+The home screen MUST display two-sided `█▀▀█` logo via left/right pairs with `tint(background, fg, 0.25)` shadow (Previously: single 6-line `██╗` block, single `LogoAccent`). Logo MUST use theme `syntax*` derived colors, not hard-coded.
 
-#### Scenario: Default logo displays
+#### Scenario: Logo has shadow tint
 
-- GIVEN the home screen renders
-- WHEN no custom logo is configured
-- THEN a generic "kui" ASCII art is displayed
+- GIVEN theme `OpenCode`
+- WHEN logo renders
+- THEN two-tone output is produced (shadow differs from fg)
 
-#### Scenario: Logo uses theme color
+#### Scenario: Logo tint is theme-derived
 
-- GIVEN the "opencode" theme is active
-- WHEN the home screen renders
-- THEN the logo uses the theme's primary color
+- GIVEN custom theme loaded from JSON
+- WHEN logo rerenders
+- THEN shadow recomputes via `tint`
 
 ### Requirement: REQ-TUI-HOME-3 — Bordered Prompt
 
-The home screen MUST display a prompt input with a rounded border. The placeholder text MUST show "Ask kui..." or similar. The border MUST use a subtle gray color.
+The home screen MUST display prompt input with maxWidth `75` (absolute) or `auto=70%` of width (Previously: `width-20` capped 70, rounded border `HomeBorder`). Border MUST be `backgroundElement`+`SplitBorder` with `EmptyBorder` decorative bottom `▀`. Placeholder MUST be random from `placeholders` pool (not single `Ask kui…`). MaxHeight MUST be `max(6, height/3)` or config.
 
-#### Scenario: Prompt renders with border
+#### Scenario: Prompt maxWidth 75 at wide
 
-- GIVEN the home screen is visible
-- WHEN the prompt is empty
-- THEN a rounded border surrounds the input area
-- AND placeholder text is visible inside
+- GIVEN terminal 160 cols
+- WHEN home prompt renders
+- THEN prompt width is 75 not 70
 
-#### Scenario: Prompt accepts input
+#### Scenario: Prompt auto 70% at narrow
 
-- GIVEN the home screen is visible
-- WHEN the user types
-- THEN the text appears inside the bordered area
-- AND the border remains visible
+- GIVEN terminal 80 cols
+- WHEN home prompt renders
+- THEN prompt width is ~56
+
+#### Scenario: Placeholder pool
+
+- GIVEN home prompt empty
+- WHEN rendered multiple times
+- THEN placeholder varies across pool entries
 
 ### Requirement: REQ-TUI-HOME-4 — Minimal Footer
 
-The home screen MUST display a footer at the bottom with: current directory, LSP status (dot indicator), MCP status (dot indicator), and "/status" text. The footer MUST use muted colors.
+The home screen footer MUST be empty plus `home_bottom` plugin slot (muted `NotAvailable` when absent). It MUST NOT show fabricated `dir • LSP ○/● • MCP ○/●` invention. If backing `sync.data.lsp/mcp` absent, footer MUST omit counts as muted.
+(Previously: `directory • LSP • MCP • /status` minimal)
 
-#### Scenario: Footer shows status
+#### Scenario: Home footer empty when no slot
 
-- GIVEN the home screen is visible
-- WHEN LSP and MCP are connected
-- THEN the footer shows: `directory • LSP • MCP • /status`
-- AND the dots are green (connected)
-
-#### Scenario: Footer shows disconnected
-
-- GIVEN the home screen is visible
-- WHEN LSP is not connected
-- THEN the LSP dot is gray/muted
+- GIVEN no plugin slot and no sync data
+- WHEN home footer renders
+- THEN dump shows empty or muted placeholder, not `• LSP`
 
 ### Requirement: REQ-TUI-HOME-5 — Prompt Submission
 
@@ -110,3 +106,26 @@ The home screen MUST support the same keyboard shortcuts as the chat view: Ctrl+
 - GIVEN the home screen is visible
 - WHEN the user presses Ctrl+P
 - THEN the command palette opens
+
+### Requirement: REQ-TUI-HOME-7 — Header Suppression and Shell Mode
+
+Home route MUST NOT render header tabs. Prompt MUST support `!` shell mode (offset 0 triggers shell style), extmarks virtual text for `● [File]/[Image]/[Pasted ~N lines]` as muted `NotAvailable` when editor/workspace store absent. No plugin slot content MAY be fabricated.
+(Delta id: REQ-TUI-HOME-5 in tui-opencode-full-parity; renumbered HOME-7 at canonical sync because canonical HOME-5 Prompt Submission and HOME-6 Keyboard Shortcuts already existed.)
+
+#### Scenario: Home has no header
+
+- GIVEN route home
+- WHEN `app.View()` dumps at 120 cols
+- THEN no header tab line appears
+
+#### Scenario: Shell prefix triggers mode
+
+- GIVEN prompt text `!ls`
+- WHEN prompt renders
+- THEN shell mode indicator appears (text dump contains `!`)
+
+#### Scenario: Verification goldens
+
+- GIVEN home at 80/120/160
+- WHEN dumped
+- THEN `testdata/home_*.txt` matches OpenCode spacer logic ±1 col
