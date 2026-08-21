@@ -11,93 +11,83 @@ func TestNewFooterModel(t *testing.T) {
 	m := NewFooterModel(testStyles())
 	got := m.Render()
 	if got == "" {
-		t.Error("NewFooterModel should produce non-empty render")
+		t.Error("NewFooterModel should produce non-empty render (welcome tick)")
 	}
-	// Default render should show placeholder dashes for empty fields
-	if !strings.Contains(got, "—") && !strings.Contains(got, "-") {
-		t.Errorf("empty footer should contain dashes, got: %q", got)
+	// Welcome mode should show Get started or /connect, not fabricated tokens
+	if !strings.Contains(got, "Get started") && !strings.Contains(got, "/connect") {
+		t.Errorf("welcome footer should contain 'Get started' or '/connect', got: %q", got)
 	}
-}
-
-func TestFooterRenderFull(t *testing.T) {
-	m := NewFooterModel(testStyles())
-	m.SetDir("~/project")
-	m.SetModel("gpt-4")
-	m.SetTokens(1234, 10000)
-	m.SetCost(0.05)
-
-	got := m.Render()
-
-	checks := []struct {
-		name string
-		want string
-	}{
-		{"directory", "~/project"},
-		{"model", "gpt-4"},
-		{"token count", "1234"},
-		{"cost", "$0.05"},
-	}
-
-	for _, tt := range checks {
-		t.Run(tt.name, func(t *testing.T) {
-			if !strings.Contains(got, tt.want) {
-				t.Errorf("render should contain %q, got: %q", tt.want, got)
-			}
-		})
+	if strings.Contains(got, "tokens") || strings.Contains(got, "$") {
+		t.Errorf("session footer should not show fabricated tokens/cost in welcome, got: %q", got)
 	}
 }
 
-func TestFooterRenderEmpty(t *testing.T) {
+func TestFooterConnectedShowsDots(t *testing.T) {
 	m := NewFooterModel(testStyles())
+	m.SetLSP(2)
+	m.SetMCP(1)
+	// SetConnected is implied by SetLSP/SetMCP
 	got := m.Render()
-
-	// Empty state should show placeholder dashes
-	if !strings.Contains(got, "—") {
-		t.Errorf("empty footer should show dashes, got: %q", got)
+	if !strings.Contains(got, "• 2") {
+		t.Errorf("connected footer should contain '• 2', got: %q", got)
+	}
+	if !strings.Contains(got, "⊙ 1") {
+		t.Errorf("connected footer should contain '⊙ 1', got: %q", got)
+	}
+	if !strings.Contains(got, "/status") {
+		t.Errorf("connected footer should contain '/status', got: %q", got)
 	}
 }
 
-func TestFooterTokensPercent(t *testing.T) {
+func TestFooterWelcomeTickCycles(t *testing.T) {
 	m := NewFooterModel(testStyles())
-	m.SetTokens(1234, 10000)
-
-	got := m.Render()
-
-	// Should show percentage (1234/10000 = 12%)
-	if !strings.Contains(got, "12%") {
-		t.Errorf("footer should show 12%%, got: %q", got)
+	// Initially tick 0 -> Get started
+	got1 := m.Render()
+	if !strings.Contains(got1, "Get started") {
+		t.Errorf("initial welcome should be 'Get started', got: %q", got1)
+	}
+	m.Tick()
+	got2 := m.Render()
+	if !strings.Contains(got2, "/connect") {
+		t.Errorf("after tick should be '/connect', got: %q", got2)
+	}
+	m.Tick()
+	got3 := m.Render()
+	if !strings.Contains(got3, "Get started") {
+		t.Errorf("after second tick should cycle to 'Get started', got: %q", got3)
 	}
 }
 
-func TestFooterCostZero(t *testing.T) {
+func TestFooterNoFabricationWhenAbsent(t *testing.T) {
 	m := NewFooterModel(testStyles())
-	m.SetCost(0)
-
+	m.SetConnected(true)
+	// No LSP/MCP counts set → should omit as muted, not 0 faked as connected
 	got := m.Render()
-
-	// Zero cost should show $0.00 or $0.00 placeholder
-	if !strings.Contains(got, "$0") {
-		t.Errorf("zero cost should show $0, got: %q", got)
+	if strings.Contains(got, "• 0") || strings.Contains(got, "⊙ 0") {
+		t.Errorf("absent sync.data should not fake 0 counts, got: %q", got)
+	}
+	// Should show muted placeholder for absent
+	if !strings.Contains(got, "— LSP") && !strings.Contains(got, "— MCP") && !strings.Contains(got, "/status") {
+		t.Errorf("absent counts should be omitted as muted, got: %q", got)
 	}
 }
 
-func TestFooterCostNonZero(t *testing.T) {
+func TestFooterPermissionTriangle(t *testing.T) {
 	m := NewFooterModel(testStyles())
-	m.SetCost(1.23)
-
+	m.SetLSP(1)
+	m.SetMCP(1)
+	m.SetPerm(3)
 	got := m.Render()
-
-	if !strings.Contains(got, "$1.23") {
-		t.Errorf("footer should show $1.23, got: %q", got)
+	if !strings.Contains(got, "△ 3") {
+		t.Errorf("connected footer with perm should contain '△ 3', got: %q", got)
 	}
 }
 
 func TestFooterTheme(t *testing.T) {
 	styles := theme.NewStyles(theme.DefaultTheme())
 	m := NewFooterModel(styles)
-	m.SetModel("test")
-
-	// Verify the footer was created with the theme styles
+	m.SetConnected(true)
+	m.SetLSP(1)
 	got := m.Render()
 	if got == "" {
 		t.Error("themed footer should render non-empty")

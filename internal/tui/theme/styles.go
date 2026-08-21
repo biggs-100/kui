@@ -5,6 +5,8 @@ import "github.com/charmbracelet/lipgloss"
 // Styles holds pre-computed lipgloss styles for a theme.
 // Create once with NewStyles(), then pass to all views.
 type Styles struct {
+	Theme *Theme
+
 	// Chat view
 	UserRole      lipgloss.Style
 	AssistantRole lipgloss.Style
@@ -56,6 +58,7 @@ type Styles struct {
 // NewStyles creates a Styles from a Theme.
 func NewStyles(t *Theme) *Styles {
 	return &Styles{
+		Theme: t,
 		// Chat
 		UserRole: lipgloss.NewStyle().
 			Bold(true).
@@ -76,10 +79,12 @@ func NewStyles(t *Theme) *Styles {
 			Foreground(lipgloss.Color(t.TextMuted)).
 			Faint(true),
 
-		// Header — opencode minimal: active blue bold no strong BG, inactive dim faint
+		// Header — opencode minimal: active blue bold with TabActiveBG, inactive dim faint
+		// Gap TabActiveBG: active tab uses TabActiveBG background for visual gap separation.
 		ActiveTab: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color(t.TabActive)).
+			Background(lipgloss.Color(t.TabActiveBG)).
 			Padding(0, 1),
 
 		InactiveTab: lipgloss.NewStyle().

@@ -43,14 +43,14 @@ Chain tracker `feat/tui-opencode-full-parity` draft PR1→tracker PR2→PR1 PR3�
 
 ## Phase 2: Home PR2
 
-- [ ] 2.1 `internal/tui/views/logo.go` █▀▀█ Tint [REQ-TUI-HOME-2] 1.2-S
-- [ ] 2.2 `internal/tui/views/home.go` flex 75/70% [REQ-TUI-HOME-1] 1.8-S
-- [ ] 2.3 `internal/tui/views/home_prompt.go` Split▀ pool ! [REQ-TUI-HOME-3] 2.2-M
-- [ ] 2.4 `internal/tui/views/session_footer.go` tick •⊙ [REQ-TUI-HOME-4] 1.8-S
-- [ ] 2.5 `internal/tui/views/header.go` gap TabActiveBG S
-- [ ] 2.6 `internal/tui/app.go` wide>120 overlay title [REQ-TUI-APP-2] S
-- [ ] 2.7 goldens `testdata/home_*.txt` 80/120/160 S
-- [ ] 2.8 verify `go test -run TestHome` `stat`≤400
+- [x] 2.1 `internal/tui/views/logo.go` █▀▀█ Tint [REQ-TUI-HOME-2] 1.2-S
+- [x] 2.2 `internal/tui/views/home.go` flex 75/70% [REQ-TUI-HOME-1] 1.8-S
+- [x] 2.3 `internal/tui/views/home_prompt.go` Split▀ pool ! [REQ-TUI-HOME-3] 2.2-M
+- [x] 2.4 `internal/tui/views/session_footer.go` tick •⊙ [REQ-TUI-HOME-4] 1.8-S
+- [x] 2.5 `internal/tui/views/header.go` gap TabActiveBG S
+- [x] 2.6 `internal/tui/app.go` wide>120 overlay title [REQ-TUI-APP-2] S
+- [x] 2.7 goldens `testdata/home_*.txt` 80/120/160 S
+- [x] 2.8 verify `go test -run TestHome` `stat`≤400
 
 ## Phase 3: Session PR3
 

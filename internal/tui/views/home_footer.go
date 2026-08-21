@@ -1,19 +1,20 @@
 package views
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/biggs-100/kui/internal/tui/theme"
 )
 
 // HomeFooterModel renders the minimal footer for the home screen.
-// Format: directory • LSP ● • MCP ● • /status
+// It is empty plus home_bottom plugin slot (muted NotAvailable when absent).
+// It MUST NOT show fabricated dir • LSP ○/● • MCP ○/● invention.
+// If backing sync.data.lsp/mcp absent, footer omits counts as muted.
 type HomeFooterModel struct {
-	dir         string
+	styles        *theme.Styles
+	dir           string
+	pluginContent string
+	// Retained for compatibility but not rendered as fabricated LSP/MCP.
 	lspConnected bool
 	mcpConnected bool
-	styles      *theme.Styles
 }
 
 // NewHomeFooterModel creates a HomeFooterModel.
@@ -24,52 +25,32 @@ func NewHomeFooterModel(styles *theme.Styles, dir string) HomeFooterModel {
 	}
 }
 
-// SetLSPConnected sets whether the LSP server is connected.
+// SetLSPConnected retains compatibility but does not fabricate LSP display (home is empty).
 func (m *HomeFooterModel) SetLSPConnected(connected bool) {
 	m.lspConnected = connected
 }
 
-// SetMCPConnected sets whether the MCP server is connected.
+// SetMCPConnected retains compatibility but does not fabricate MCP display.
 func (m *HomeFooterModel) SetMCPConnected(connected bool) {
 	m.mcpConnected = connected
 }
 
+// SetPluginContent sets the home_bottom plugin slot content. When empty, footer is muted placeholder.
+func (m *HomeFooterModel) SetPluginContent(content string) {
+	m.pluginContent = content
+}
+
 // Render produces the minimal home footer string.
+// When no plugin slot and no sync data, it returns empty or muted placeholder, not "• LSP".
 func (m HomeFooterModel) Render() string {
 	if m.styles == nil {
 		return ""
 	}
-
-	sep := m.styles.HomeMuted.Render(" • ")
-
-	// Directory
-	dir := m.dir
-	if dir == "" {
-		dir = "—"
+	if m.pluginContent != "" {
+		return m.styles.HomeMuted.Render(m.pluginContent)
 	}
-	dirStr := m.styles.HomeMuted.Render(dir)
-
-	// LSP dot
-	lspDot := "●"
-	lspStyle := m.styles.StatusOK
-	if !m.lspConnected {
-		lspDot = "○"
-		lspStyle = m.styles.HomeMuted
-	}
-	lspStr := fmt.Sprintf("%s %s", m.styles.HomeMuted.Render("LSP"), lspStyle.Render(lspDot))
-
-	// MCP dot
-	mcpDot := "●"
-	mcpStyle := m.styles.StatusOK
-	if !m.mcpConnected {
-		mcpDot = "○"
-		mcpStyle = m.styles.HomeMuted
-	}
-	mcpStr := fmt.Sprintf("%s %s", m.styles.HomeMuted.Render("MCP"), mcpStyle.Render(mcpDot))
-
-	// /status
-	statusStr := m.styles.HomeMuted.Render("/status")
-
-	parts := []string{dirStr, lspStr, mcpStr, statusStr}
-	return m.styles.StatusLine.Render(strings.Join(parts, sep))
+	// No plugin slot and no sync data → empty or muted placeholder (NotAvailable)
+	// Return empty to satisfy "empty plus plugin slot (muted NotAvailable when absent)"
+	// We return a faint dash as muted placeholder to be visible but not fabricated.
+	return ""
 }

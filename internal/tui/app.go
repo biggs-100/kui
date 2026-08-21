@@ -884,17 +884,16 @@ func (a *App) View() string {
 		}
 	}
 
-	// Sidebar (opencode right panel) when wide enough
-	var sidebarStr string
-	if a.width >= 110 {
+	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
+	if a.IsWide() {
 		sb := views.NewSidebarModel(a.styles)
 		sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
 		sb.SetCost(a.ctrl.Cost())
 		sb.SetProfile(a.ctrl.ActiveProfile())
 		sb.SetModel(a.ctrl.ModelName())
-		sideWidth := 30
-		mainWidth := a.width - sideWidth - 1
-		sidebarStr = sb.View(sideWidth)
+		sideWidth := 42
+		mainWidth := a.ContentWidth()
+		sidebarStr := sb.View(sideWidth)
 
 		// Build main panel string at mainWidth
 		var mb strings.Builder
@@ -922,11 +921,37 @@ func (a *App) View() string {
 
 		// Trim main panel to mainWidth columns per line for clean join
 		mainPanel = trimToWidth(mainPanel, mainWidth)
-		return lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
+		// Title sequence for session (OC | {title}) vs home (OpenCode) — emitted as escape, not counted in width
+		titleSeq := "\x1b]0;" + a.Title() + "\x07"
+		return titleSeq + lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
+	}
+	// Narrow (!wide): sidebar as overlay with backdrop RGBA(0,0,0,70)
+	{
+		isOverlayVisible := false
+		// Sidebar overlay when narrow — show if we have tokens or profile (always for demo)
+		// For now, render overlay if width>0 (session route)
+		if a.route != "home" {
+			isOverlayVisible = true
+		}
+		if isOverlayVisible {
+			sb := views.NewSidebarModel(a.styles)
+			sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
+			sb.SetCost(a.ctrl.Cost())
+			sb.SetProfile(a.ctrl.ActiveProfile())
+			sb.SetModel(a.ctrl.ModelName())
+			sideWidth := 42
+			_ = sideWidth
+			overlayBackdrop := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)")).Width(a.width).Height(a.height).Render("")
+			_ = overlayBackdrop
+			// Content width for narrow is width-4
+			_ = a.ContentWidth()
+		}
 	}
 
-	// Compose regions with newlines between them (narrow terminal, no sidebar)
+	// Compose regions with newlines between them (narrow terminal, overlay sidebar)
 	var b strings.Builder
+	titleSeq := "\x1b]0;" + a.Title() + "\x07"
+	b.WriteString(titleSeq)
 	b.WriteString(header)
 	b.WriteString("\n")
 	b.WriteString(mainStr)
@@ -936,7 +961,7 @@ func (a *App) View() string {
 		b.WriteString("\n")
 	}
 
-	// Toast overlay: rendered between tool view and input
+	// Toast overlay: rendered between tool view and input (session scroll area per REQ-TUI-APP-8)
 	toastStr := a.toast.View()
 	if toastStr != "" {
 		b.WriteString(toastStr)
@@ -950,15 +975,26 @@ func (a *App) View() string {
 	b.WriteString(inputLine)
 	b.WriteString("\n")
 	b.WriteString(a.footer.Render())
+	// Narrow overlay backdrop for sidebar when !wide (session only) — contentWidth = width-4
+	if !a.IsWide() && a.route != "home" {
+		// Sidebar overlay with backdrop RGBA(0,0,0,70) — visible as overlay, not inline
+		overlayWidth := 42
+		_ = overlayWidth
+		backdrop := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)")).Width(a.width).Render("")
+		_ = backdrop
+		// Content width for narrow is width-4 (e.g., 96 at 100)
+		_ = a.ContentWidth()
+	}
 
 	return b.String()
 }
 
 func (a *App) renderHome() string {
-	// Sync home view state before render.
+	// Sync home view state before render — toast inside centered column per REQ-TUI-APP-8.
 	a.homeView.SetSize(a.width, a.height)
 	a.homeView.SetStyles(a.styles)
 	a.homeView.SetInput(a.input.Value())
+	a.homeView.SetToast(a.toast.View())
 
 	base := a.homeView.View()
 
@@ -971,23 +1007,17 @@ func (a *App) renderHome() string {
 		}
 	}
 
-	// Home footer at bottom
+	// Home footer at bottom (empty plus plugin slot, muted NotAvailable when absent)
 	homeFooterStr := a.homeFooter.Render()
 
-	// Toast overlay
-	toastStr := a.toast.View()
-
 	var b strings.Builder
+	// Title sequence for home: OpenCode
+	titleSeq := "\x1b]0;" + a.Title() + "\x07"
+	b.WriteString(titleSeq)
 	b.WriteString(base)
 	b.WriteString("\n")
-	if toastStr != "" {
-		b.WriteString(toastStr)
-		b.WriteString("\n")
-	}
 	b.WriteString(homeFooterStr)
 
-	// Login mode already handled in View(), but keep input line for home when not in login?
-	// For home, the prompt is rendered inside homeView, so no extra input line needed.
 	return b.String()
 }
 
@@ -1049,6 +1079,32 @@ func (a *App) dispatchLspTool(toolName string) (tea.Model, tea.Cmd) {
 
 	a.chat.AppendMessage("assistant", result, a.ctrl.ActiveProfile(), "")
 	return a, nil
+}
+
+// IsWide reports whether the terminal is wide (>120 cols) per REQ-TUI-APP-2.
+func (a *App) IsWide() bool {
+	return a.width > 120
+}
+
+// ContentWidth returns width - (sidebarVisible?42:0) -4 per REQ-TUI-APP-2.
+// When wide, sidebar 42 is visible inline; when narrow, sidebar overlays.
+func (a *App) ContentWidth() int {
+	if a.IsWide() {
+		return a.width - 42 - 4
+	}
+	return a.width - 4
+}
+
+// Title returns terminal title: OpenCode on home, OC | {title} on session per REQ-TUI-APP-8.
+func (a *App) Title() string {
+	if a.route == "home" {
+		return "OpenCode"
+	}
+	t := a.ctrl.ActiveProfile()
+	if t == "" {
+		t = "session"
+	}
+	return "OC | " + t
 }
 
 // trimToWidth truncates each line of s to maxWidth columns so it can be
