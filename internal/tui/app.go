@@ -21,6 +21,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+"github.com/muesli/termenv"
 )
 
 // App is the root Bubble Tea model that composes the header, chat, and tool
@@ -1312,8 +1313,17 @@ func (a *App) paintCanvas(frame string) string {
 		bg = t.BG
 	}
 	seq := theme.BackgroundSequence(bg)
-	if seq == "" {
-		return frame
+	if seq == "" || lipgloss.ColorProfile() != termenv.TrueColor {
+		// Degraded color profiles: hand-injected truecolor sequences would
+		// bypass termenv downgrading. Fall back to a plain tail fill.
+		fill := lipgloss.NewStyle().Background(lipgloss.Color(bg))
+		rows := strings.Split(frame, "\n")
+		for i, r := range rows {
+			if gap := a.width - lipgloss.Width(r); gap > 0 {
+				rows[i] = r + fill.Render(strings.Repeat(" ", gap))
+			}
+		}
+		return strings.Join(rows, "\n")
 	}
 	rows := strings.Split(frame, "\n")
 	for i, r := range rows {
