@@ -94,6 +94,9 @@ type App struct {
 	// keymap stack base→modal
 	km *keymap.Keymap
 
+	// lastEsc tracks the previous Esc press for the double-Esc interrupt.
+	lastEsc time.Time
+
 	// status dialog
 	statusModel *views.DialogStatusModel
 	statusMode  bool
@@ -183,6 +186,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellDoneMsg:
 		a.chat.AppendShell(msg.script, msg.output, msg.err)
 		a.chat.SetStatus("shell: " + msg.script)
+		return a, nil
+
+	case compactDoneMsg:
+		a.chat.LoadHistory(a.ctrl.Messages())
+		a.vpContentHeight = 0
+		if msg.err != nil {
+			a.chat.SetStatus("compact failed: " + msg.err.Error())
+		} else {
+			a.chat.SetStatus("conversation compacted")
+		}
 		return a, nil
 
 	case streamDoneMsg:
@@ -408,9 +421,21 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case tea.KeyEscape:
-		// base→modal Esc stack: if modal open, delegate to modal handler via HandleEsc
-		// No modal currently handled here; palette/model/session/status already handled above
-		// If no modal, Esc is no-op on base layer
+		// base→modal Esc stack: modals handle their own Esc earlier.
+		// On the base layer, double-Esc within 5s interrupts the running
+		// turn (upstream session.interrupt behavior).
+		now := time.Now()
+		if !a.lastEsc.IsZero() && now.Sub(a.lastEsc) <= 5*time.Second {
+			a.lastEsc = time.Time{}
+			if a.ctrl.Interrupt() {
+				a.chat.SetStatus("interrupted")
+			}
+			return a, nil
+		}
+		a.lastEsc = now
+		if a.ctrl.IsRunning() {
+			a.chat.SetStatus("esc again to interrupt")
+		}
 		return a, nil
 
 	case tea.KeyTab:
@@ -596,6 +621,11 @@ func (a *App) executeCommandByName(name string) (tea.Model, tea.Cmd) {
 		a.vpContentHeight = 0 // viewport re-sticks from empty content
 		a.chat.SetStatus("conversation view cleared")
 		return a, nil
+	case "/new":
+		a.handleNewCommand()
+		return a, nil
+	case "/compact":
+		return a, startCompact(a)
 	case "/undo":
 		a.handleUndoCommand()
 		return a, nil
@@ -652,6 +682,10 @@ func (a *App) handleCommand(text string) (tea.Model, tea.Cmd) {
 		a.chat.Clear()
 		a.vpContentHeight = 0
 		a.chat.SetStatus("conversation view cleared")
+	case "/new":
+		a.handleNewCommand()
+	case "/compact":
+		return a, startCompact(a)
 	case "/rename":
 		a.handleRenameCommand(parts)
 	case "/undo":
@@ -889,6 +923,10 @@ func (a *App) handleUndoCommand() {
 		a.chat.SetStatus("nothing to undo")
 		return
 	}
+	// The view must reflect the restored history — otherwise the panel keeps
+	// showing the turn that was just reverted.
+	a.chat.LoadHistory(a.ctrl.Messages())
+	a.vpContentHeight = 0
 	a.chat.SetStatus("undid last turn")
 }
 
@@ -898,7 +936,28 @@ func (a *App) handleRedoCommand() {
 		a.chat.SetStatus("nothing to redo")
 		return
 	}
+	a.chat.LoadHistory(a.ctrl.Messages())
+	a.vpContentHeight = 0
 	a.chat.SetStatus("redid last turn")
+}
+
+// handleNewCommand starts a fresh session: clears the conversation view and
+// rotates the controller to a new persisted session ID (upstream /new).
+func (a *App) handleNewCommand() {
+	a.ctrl.StartNewSession()
+	a.chat.Clear()
+	a.vpContentHeight = 0
+	a.route = "home"
+	a.chat.SetStatus("")
+}
+
+// compactDoneMsg carries the outcome of a manual /compact call.
+type compactDoneMsg struct{ err error }
+
+// startCompact runs compaction off the UI goroutine — the LLM summarization
+// can take seconds.
+func startCompact(a *App) tea.Cmd {
+	return func() tea.Msg { return compactDoneMsg{err: a.ctrl.CompactNow()} }
 }
 
 // handleSessionsCommand lists all saved sessions. When sessions exist,

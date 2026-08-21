@@ -29,6 +29,17 @@ func NewCommandRegistry() *CommandRegistry {
 		Suggested:   true,
 	}, nil)
 	r.registerWithHandler(views.Command{
+		Name:        "/new",
+		Description: "Start a fresh session",
+		Category:    "Session",
+		Suggested:   true,
+	}, nil)
+	r.registerWithHandler(views.Command{
+		Name:        "/compact",
+		Description: "Summarize the conversation history",
+		Category:    "Session",
+	}, nil)
+	r.registerWithHandler(views.Command{
 		Name:        "/resume",
 		Description: "Resume a saved session",
 		Category:    "Session",
@@ -107,28 +118,16 @@ func NewCommandRegistry() *CommandRegistry {
 		Shortcut:    "Tab",
 	}, nil)
 	r.registerWithHandler(views.Command{
-		Name:        "d",
+		Name:        "Ctrl+D",
 		Description: "Toggle diff view",
 		Category:    "Navigation",
-		Shortcut:    "d",
+		Shortcut:    "Ctrl+D",
 	}, nil)
 	r.registerWithHandler(views.Command{
-		Name:        "gd",
-		Description: "Go to definition (LSP)",
+		Name:        "Esc ×2",
+		Description: "Interrupt the running turn",
 		Category:    "Navigation",
-		Shortcut:    "gd",
-	}, nil)
-	r.registerWithHandler(views.Command{
-		Name:        "gr",
-		Description: "Find references (LSP)",
-		Category:    "Navigation",
-		Shortcut:    "gr",
-	}, nil)
-	r.registerWithHandler(views.Command{
-		Name:        "K",
-		Description: "Show hover info (LSP)",
-		Category:    "Navigation",
-		Shortcut:    "K",
+		Shortcut:    "Esc",
 	}, nil)
 
 	// System commands
