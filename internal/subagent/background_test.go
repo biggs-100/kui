@@ -173,3 +173,47 @@ func TestBackgroundManagerWait(t *testing.T) {
 		t.Errorf("ActiveCount() = %d after Wait, want 0", m.ActiveCount())
 	}
 }
+
+func TestBackgroundManagerRecentLedger(t *testing.T) {
+	m := NewBackgroundManager(2)
+
+	if got := m.Recent(); len(got) != 0 {
+		t.Errorf("Recent() = %d entries on fresh manager, want 0", len(got))
+	}
+
+	m.Launch("ok", "good task", func(ctx context.Context) (string, error) {
+		return "done", nil
+	})
+	m.Launch("bad", "bad task", func(ctx context.Context) (string, error) {
+		return "", context.DeadlineExceeded
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if err := m.Wait(ctx); err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+
+	got := m.Recent()
+	if len(got) != 2 {
+		t.Fatalf("Recent() = %d entries, want 2", len(got))
+	}
+	// Completion order preserved (oldest first).
+	if got[0].ID != "ok" || got[1].ID != "bad" {
+		t.Errorf("Recent() IDs = [%s, %s], want [ok, bad]", got[0].ID, got[1].ID)
+	}
+	if got[0].Error != nil {
+		t.Errorf("Recent()[0].Error = %v, want nil", got[0].Error)
+	}
+	if got[1].Error == nil {
+		t.Error("Recent()[1].Error = nil, want non-nil (failed task)")
+	}
+	for i, f := range got {
+		if f.Task == "" {
+			t.Errorf("Recent()[%d].Task empty, want title", i)
+		}
+		if f.FinishedAt.Before(f.StartedAt) {
+			t.Errorf("Recent()[%d] FinishedAt before StartedAt", i)
+		}
+	}
+}
