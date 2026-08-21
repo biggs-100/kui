@@ -1116,7 +1116,10 @@ func (a *App) View() string {
 	// the primary accent over an element-fill panel, a meta row (profile ·
 	// model) inside the same fill, and a half-block fade-out row beneath so
 	// the field reads as fading into the background instead of ending.
-	inputInner := a.input.View()
+	// Trailing bare spaces are trimmed from the textarea render: bubbles
+	// pads to its own internal width with UNSTYLED spaces, which would punch
+	// a transparent hole through the element fill.
+	inputInner := strings.TrimRight(a.input.View(), " ")
 	barColor := a.styles.Theme.Border
 	if barColor != "" && a.styles.Theme.Primary != "" {
 		barColor = theme.Tint(a.styles.Theme.Border, a.styles.Theme.Primary, 0.55)
@@ -1483,6 +1486,15 @@ func (a *App) rebuildViews() {
 	}
 	a.footer.SetWidth(a.width)
 	a.homeFooter.SetWidth(a.width)
+
+	// Prompt field colors: override bubbles' ANSI-black textarea defaults so
+	// the cursor line and placeholder blend with the element fill instead of
+	// painting dark boxes through it.
+	if t := a.styles.Theme; t != nil {
+		fieldBg := lipgloss.NewStyle().Background(lipgloss.Color(t.BackgroundElement))
+		ph := lipgloss.NewStyle().Foreground(lipgloss.Color(t.TextMuted))
+		a.input.SetFieldColors(fieldBg, ph)
+	}
 	// Wire sync.data.provider/mcp/lsp with nil→muted NotAvailable (PR3)
 	if lsp, ok := a.ctrl.SyncLSP(); ok {
 		a.footer.SetLSP(lsp)

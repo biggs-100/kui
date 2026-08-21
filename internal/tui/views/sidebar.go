@@ -196,9 +196,12 @@ func (m SidebarModel) viewBody(width int) string {
 	}
 
 	muted := m.styles.HomeMuted
+	// No inner .Width(): lipgloss emits a Width-style's padding OUTSIDE its
+	// SGR run, which punches unpainted (terminal-default) holes through the
+	// rail's background fill. Lines are length-capped by truncation instead;
+	// the rail wrap paints every row uniformly.
 	bodyStyle := lipgloss.NewStyle().
-		Foreground(muted.GetForeground()).
-		Width(width - 2)
+		Foreground(muted.GetForeground())
 
 	var b strings.Builder
 
@@ -342,8 +345,7 @@ func (m SidebarModel) footerLines(width int) []string {
 
 	muted := m.styles.HomeMuted
 	bodyStyle := lipgloss.NewStyle().
-		Foreground(muted.GetForeground()).
-		Width(width - 2)
+		Foreground(muted.GetForeground())
 
 	lines := []string{}
 
@@ -366,6 +368,11 @@ func (m SidebarModel) footerLines(width int) []string {
 		if m.styles.Theme != nil && m.styles.Theme.Success != "" {
 			dot := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Success)).Render("•")
 			footer = dot + " kui " + ver
+		}
+		// Cap the visible width so a long buildinfo never wraps inside the
+		// rail (wrapping would spill onto a second unpainted row).
+		if lipgloss.Width(footer) > width-2 {
+			footer = truncateSidebarLine(footer, width-2)
 		}
 		lines = append(lines, bodyStyle.Render(footer))
 	}
