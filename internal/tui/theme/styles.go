@@ -6,35 +6,35 @@ import "github.com/charmbracelet/lipgloss"
 // Create once with NewStyles(), then pass to all views.
 type Styles struct {
 	// Chat view
-	UserRole       lipgloss.Style
-	AssistantRole  lipgloss.Style
-	Profile        lipgloss.Style
-	Error          lipgloss.Style
-	EmptyHint      lipgloss.Style
+	UserRole      lipgloss.Style
+	AssistantRole lipgloss.Style
+	Profile       lipgloss.Style
+	Error         lipgloss.Style
+	EmptyHint     lipgloss.Style
 
 	// Header view
-	ActiveTab      lipgloss.Style
-	InactiveTab    lipgloss.Style
-	Hint           lipgloss.Style
+	ActiveTab   lipgloss.Style
+	InactiveTab lipgloss.Style
+	Hint        lipgloss.Style
 
 	// Tool view
-	ToolName       lipgloss.Style
-	ToolResult     lipgloss.Style
-	ToolPending    lipgloss.Style
-	ToolEmpty      lipgloss.Style
+	ToolName    lipgloss.Style
+	ToolResult  lipgloss.Style
+	ToolPending lipgloss.Style
+	ToolEmpty   lipgloss.Style
 
 	// Status bar (footer)
-	StatusLine   lipgloss.Style
-	StatusOK     lipgloss.Style
-	StatusError  lipgloss.Style
-	StatusWarn   lipgloss.Style
+	StatusLine  lipgloss.Style
+	StatusOK    lipgloss.Style
+	StatusError lipgloss.Style
+	StatusWarn  lipgloss.Style
 
 	// Diff view
-	FileDiff     lipgloss.Style
-	DiffAdded    lipgloss.Style
-	DiffRemoved  lipgloss.Style
-	DiffContext  lipgloss.Style
-	DiffHunk     lipgloss.Style
+	FileDiff    lipgloss.Style
+	DiffAdded   lipgloss.Style
+	DiffRemoved lipgloss.Style
+	DiffContext lipgloss.Style
+	DiffHunk    lipgloss.Style
 
 	// Home screen
 	LogoAccent lipgloss.Style
@@ -150,48 +150,47 @@ func NewStyles(t *Theme) *Styles {
 			Foreground(lipgloss.Color(t.Accent)).
 			Bold(true),
 
-		// Panel — rounded bordered panel BGHighlight #252525 Border #333333 for tool/diff
+		// Panel — rounded bordered panel uses backgroundPanel
 		Panel: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(t.BorderSubtle)).
-			Background(lipgloss.Color(t.BGHighlight)).
+			Background(lipgloss.Color(t.BackgroundPanel)).
 			Padding(0, 1),
 
-		// Popup — centered overlay for palette, BGFloat Border subtle
+		// Popup — centered overlay for palette, BackgroundPanel with subtle border
 		Popup: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(t.BorderSubtle)).
-			Background(lipgloss.Color(t.BGFloat)).
+			Background(lipgloss.Color(t.BackgroundPanel)).
 			Padding(1, 1),
 
-		// Sidebar — dark panel for opencode right sidebar (#1a1a1a bg, muted text)
+		// Sidebar — dark panel for opencode right sidebar uses backgroundPanel
 		Sidebar: lipgloss.NewStyle().
-			Background(lipgloss.Color(t.BGSidebar)).
+			Background(lipgloss.Color(t.BackgroundPanel)).
 			Foreground(lipgloss.Color(t.TextMuted)).
 			Padding(0, 1),
 
-		// InputBar — full-width dark gray bar #2a2a2a with left blue accent
+		// InputBar — full-width bar with backgroundElement and primary accent
 		InputBar: lipgloss.NewStyle().
-			Background(lipgloss.Color("#2a2a2a")).
+			Background(lipgloss.Color(t.BackgroundElement)).
 			Foreground(lipgloss.Color(t.FG)).
 			Padding(0, 1),
 
 		InputBarAccent: lipgloss.NewStyle().
 			Border(lipgloss.Border{Left: "▏"}, false, false, false, true).
-			BorderForeground(lipgloss.Color("#569cd6")).
-			Background(lipgloss.Color("#2a2a2a")).
+			BorderForeground(lipgloss.Color(t.Primary)).
+			Background(lipgloss.Color(t.BackgroundElement)).
 			Padding(0, 1),
 
-		// CodeBlock — dark #252525 background for fenced code
+		// CodeBlock — backgroundElement for fenced code
 		CodeBlock: lipgloss.NewStyle().
-			Background(lipgloss.Color("#252525")).
+			Background(lipgloss.Color(t.BackgroundElement)).
 			Foreground(lipgloss.Color(t.FG)).
 			Padding(0, 1),
 
-		// Thought — orange #e0af68 for "Thought:" prefix
+		// Thought — warning color for "Thought:" prefix
 		Thought: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#e0af68")).
+			Foreground(lipgloss.Color(t.Warning)).
 			Bold(true),
-
 	}
 }

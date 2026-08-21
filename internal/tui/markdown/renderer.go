@@ -32,7 +32,7 @@ func Render(content string, styles *theme.Styles) string {
 		return ""
 	}
 
-	// Process fenced code blocks first (they span multiple lines) — Background #252525
+	// Process fenced code blocks first (they span multiple lines)
 	result := reFence.ReplaceAllStringFunc(content, func(match string) string {
 		parts := reFence.FindStringSubmatch(match)
 		if len(parts) < 3 {
@@ -40,10 +40,10 @@ func Render(content string, styles *theme.Styles) string {
 		}
 		lang := parts[1]
 		code := parts[2]
-		// Style code block with dark background #252525
+		// Style code block with theme backgroundElement
 		codeBlockStyle := styles.CodeBlock
 		if styles == nil {
-			codeBlockStyle = lipgloss.NewStyle().Background(lipgloss.Color("#252525")).Padding(0, 1)
+			codeBlockStyle = lipgloss.NewStyle().Background(lipgloss.Color(theme.DefaultTheme().BackgroundElement)).Padding(0, 1)
 		}
 		var rendered string
 		if lang != "" {
@@ -63,13 +63,13 @@ func Render(content string, styles *theme.Styles) string {
 	lines := strings.Split(result, "\n")
 	var out []string
 	for _, line := range lines {
-		// Thought: — orange #e0af68 (opencode style)
+		// Thought: prefix styled with warning token
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "Thought:") {
-			// Preserve prefix styling in orange
+			// Preserve prefix styling with theme warning
 			thoughtStyle := styles.Thought
 			if styles == nil {
-				thoughtStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#e0af68")).Bold(true)
+				thoughtStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.DefaultTheme().Warning)).Bold(true)
 			}
 			out = append(out, thoughtStyle.Render(line))
 			continue

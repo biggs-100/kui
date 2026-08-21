@@ -51,8 +51,7 @@ func (m *ToolModel) AppendResult(callID, result string) {
 }
 
 // Render produces the full tool view string (REQ-TUI-TOOL-1/2).
-// Opencode style: each call wrapped in rounded bordered panel BGHighlight #252525 Border #333333,
-// hide callID, show ToolName bold + ToolResult plain, pending faint dot, truncate long result.
+// Opencode style: each call wrapped in rounded bordered panel using backgroundPanel,
 func (m ToolModel) Render() string {
 	if len(m.events) == 0 {
 		if m.styles != nil {

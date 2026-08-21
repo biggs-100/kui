@@ -867,7 +867,7 @@ func (a *App) View() string {
 		mainStr = a.chat.Render()
 	}
 
-	// Input: full-width dark gray bar #2a2a2a with left blue accent (opencode style, docked bottom — NOT centered)
+	// Input: full-width bar with backgroundElement and primary accent
 	inputInner := a.input.View()
 	inputBar := a.styles.InputBarAccent.Copy().Width(a.width - 2).Render(inputInner)
 	inputLine := inputBar
@@ -877,11 +877,7 @@ func (a *App) View() string {
 	if a.autocomplete.IsActive() {
 		popup := a.autocomplete.View()
 		if popup != "" {
-			popupStyled := lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(a.styles.HomeBorder.GetBorderTopForeground()).
-				Background(lipgloss.Color("#252525")).
-				Padding(0, 1).
+			popupStyled := a.styles.Popup.Copy().
 				Width(a.width - 4).
 				Render(popup)
 			popupStr = popupStyled
