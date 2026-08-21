@@ -9,6 +9,7 @@ import (
 
 	"github.com/biggs-100/kui/internal/adapters/providers"
 	"github.com/biggs-100/kui/internal/credentials"
+	"github.com/biggs-100/kui/internal/tui/keymap"
 	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/biggs-100/kui/internal/tui/toast"
 	"github.com/biggs-100/kui/internal/tui/views"
@@ -79,6 +80,13 @@ type App struct {
 	// second key in a gd/gr sequence. When true, the next key press is checked
 	// for 'd' or 'r' to complete the LSP keybinding.
 	lspPendingG bool
+
+	// keymap stack base→modal
+	km *keymap.Keymap
+
+	// status dialog
+	statusModel *views.DialogStatusModel
+	statusMode  bool
 }
 
 // NewApp creates an App wrapping the given Controller. The Controller must be
@@ -110,6 +118,7 @@ func NewAppWithTheme(ctrl *Controller, themeName string) *App {
 		registry:     NewCommandRegistry(),
 		toast:        toast.NewModel(styles),
 		currentTheme: themeName,
+		km:           keymap.New(),
 	}
 }
 
@@ -190,6 +199,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey processes keyboard input. App-level keys (Tab, Ctrl+C, Enter)
 // are intercepted before delegating to InputModel (REQ-TUI-APP-1).
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// --- Status dialog mode: delegate all keys, Esc closes and pops modal ---
+	if a.statusMode && a.statusModel != nil {
+		if msg.Type == tea.KeyEscape || msg.Type == tea.KeyCtrlC {
+			a.statusModel = nil
+			a.statusMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
+			return a, nil
+		}
+		if msg.Type == tea.KeyEnter {
+			a.statusModel = nil
+			a.statusMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
+			return a, nil
+		}
+		return a, nil
+	}
+
 	// --- Provider list mode: delegate all keys to provider list ---
 	if a.providerListMode && a.providerList != nil {
 		updated, cmd := a.providerList.Update(msg)
@@ -198,12 +228,18 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			id := a.providerList.Selected()
 			a.providerList = nil
 			a.providerListMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			a.enterLoginMode(id)
 			return a, cmd
 		}
 		if a.providerList.Quitting() {
 			a.providerList = nil
 			a.providerListMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			return a, cmd
 		}
 		return a, cmd
@@ -217,6 +253,9 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			sel := a.modelList.Selected()
 			a.modelList = nil
 			a.modelListMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			if err := a.ctrl.ChangeModel(sel); err != nil {
 				a.chat.SetStatus("error: " + err.Error())
 			} else {
@@ -228,6 +267,9 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.modelList.Quitting() {
 			a.modelList = nil
 			a.modelListMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			return a, cmd
 		}
 		return a, cmd
@@ -241,12 +283,18 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			id := a.sessionList.Selected()
 			a.sessionList = nil
 			a.listMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			a.handleResumeCommand(id)
 			return a, cmd
 		}
-		if a.sessionList == nil || a.sessionList.View() == "" {
+		if a.sessionList.Quitting() {
 			a.sessionList = nil
 			a.listMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			return a, cmd
 		}
 		return a, cmd
@@ -260,11 +308,17 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			name := a.commandPalette.Selected()
 			a.commandPalette = nil
 			a.paletteMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			return a.executeCommandByName(name)
 		}
-		if a.commandPalette == nil || a.commandPalette.View() == "" {
+		if a.commandPalette.Quitting() {
 			a.commandPalette = nil
 			a.paletteMode = false
+			if a.km != nil {
+				a.km.Pop()
+			}
 			return a, cmd
 		}
 		return a, cmd
@@ -311,13 +365,21 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.Type {
 	case tea.KeyCtrlP:
-		// Open command palette
+		// Open command palette (modal)
 		a.registry = NewCommandRegistry() // refresh registry
 		cmds := a.registry.All()
 		palette := views.NewCommandPaletteModel(cmds, a.width, a.height-4)
 		palette.SetStyles(a.styles)
 		a.commandPalette = &palette
 		a.paletteMode = true
+		if a.km != nil {
+			a.km.Push(keymap.ModalLayer)
+		}
+		return a, nil
+	case tea.KeyEscape:
+		// base→modal Esc stack: if modal open, delegate to modal handler via HandleEsc
+		// No modal currently handled here; palette/model/session/status already handled above
+		// If no modal, Esc is no-op on base layer
 		return a, nil
 
 	case tea.KeyTab:
@@ -462,6 +524,9 @@ func shouldAutocomplete(val string) bool {
 	if strings.Contains(val, "@") {
 		return true
 	}
+	if strings.HasPrefix(trimmed, "!") {
+		return true
+	}
 	return false
 }
 
@@ -590,8 +655,12 @@ func (a *App) handleModelCommand(parts []string) (tea.Model, tea.Cmd) {
 	}
 	current := a.ctrl.ModelName()
 	ml := views.NewModelListModel(models, current, a.width, a.height-4)
+	ml.SetStyles(a.styles)
 	a.modelList = &ml
 	a.modelListMode = true
+	if a.km != nil {
+		a.km.Push(keymap.ModalLayer)
+	}
 	return a, nil
 }
 
@@ -620,6 +689,9 @@ func (a *App) handleLoginCommand(parts []string) (tea.Model, tea.Cmd) {
 	pl := views.NewProviderListModel(infos, a.width, a.height-4)
 	a.providerList = &pl
 	a.providerListMode = true
+	if a.km != nil {
+		a.km.Push(keymap.ModalLayer)
+	}
 	return a, nil
 }
 
@@ -725,10 +797,42 @@ func (a *App) switchTheme(name string) {
 	a.rebuildViews()
 }
 
-// handleStatusCommand shows current app status.
+// handleStatusCommand shows current app status via DialogStatus (MCP/LSP dots) and also chat status.
 func (a *App) handleStatusCommand() {
 	profile := a.ctrl.ActiveProfile()
 	a.chat.SetStatus("profile: " + profile)
+	// Also open status dialog with MCP/LSP dots (nil→muted) and formatters/plugins
+	sm := views.NewDialogStatusModel(a.width, a.height-4)
+	sm.SetStyles(a.styles)
+	// Wire MCP/LSP counts with colored dots; nil→muted
+	// For now, use controller sync data if present else NotAvailable
+	if mcp, ok := a.ctrl.SyncMCP(); ok {
+		// create one entry for count
+		if mcp > 0 {
+			sm.SetMCP([]views.MCPServerInfo{{Name: fmt.Sprintf("%d servers", mcp), Status: views.MCPConnected}})
+		} else {
+			sm.SetMCP([]views.MCPServerInfo{{Name: "0 servers", Status: views.MCPDisabled}})
+		}
+	}
+	if lsp, ok := a.ctrl.SyncLSP(); ok {
+		if lsp > 0 {
+			sm.SetLSP([]views.LSPServerInfo{{Name: fmt.Sprintf("%d servers", lsp), Status: views.LSPConnected}})
+		} else {
+			sm.SetLSP([]views.LSPServerInfo{{Name: "0 servers", Status: views.LSPDisabled}})
+		}
+	}
+	// formatters/plugins from kv or empty (nil→muted)
+	if v, ok := a.ctrl.GetKV("formatter"); ok && v != "" {
+		sm.SetFormatters([]views.FormatterInfo{{Name: v, Source: "file://" + v}})
+	}
+	if v, ok := a.ctrl.GetKV("plugin"); ok && v != "" {
+		sm.SetPlugins([]views.PluginInfo{{Name: v, Version: "1.0.0"}})
+	}
+	a.statusModel = &sm
+	a.statusMode = true
+	if a.km != nil {
+		a.km.Push(keymap.ModalLayer)
+	}
 }
 
 // handleRenameCommand renames the active session.
@@ -785,8 +889,12 @@ func (a *App) handleSessionsCommand() {
 
 	// Open interactive session list view
 	list := views.NewSessionListModel(metas, a.width, a.height-4)
+	list.SetStyles(a.styles)
 	a.sessionList = &list
 	a.listMode = true
+	if a.km != nil {
+		a.km.Push(keymap.ModalLayer)
+	}
 }
 
 // handleResumeCommand loads a session and injects its history into the controller.
@@ -812,6 +920,11 @@ func (a *App) View() string {
 
 	if a.width == 0 || a.height == 0 {
 		return "loading..."
+	}
+
+	// Status dialog mode
+	if a.statusMode && a.statusModel != nil {
+		return a.statusModel.View()
 	}
 
 	// Command palette mode: render the palette instead of the normal layout

@@ -65,15 +65,15 @@ Chain tracker `feat/tui-opencode-full-parity` draft PR1→tracker PR2→PR1 PR3�
 
 ## Phase 4: Overlays PR4
 
-- [ ] 4.1 `internal/tui/ui/dialog_select.go` title*2 truncate76 [REQ-TUI-DLG-2] 1.7-M
-- [ ] 4.2 `internal/tui/views/command_palette.go` suggested hidden [REQ-TUI-DLG-3] 4.1-S
-- [ ] 4.3 `internal/tui/views/model_list.go` nano disabled ● [REQ-TUI-DLG-3] 4.1-S
-- [ ] 4.4 `internal/tui/views/dialog_status.go` • success/error [REQ-TUI-DLG-3] 4.1-S
-- [ ] 4.5 `internal/tui/views/session_list.go` 76 Esc [REQ-TUI-DLG-4] 4.1-S
-- [ ] 4.6 `internal/tui/autocomplete.go` /model ! ●File 1.9-M
-- [ ] 4.7 `internal/tui/app.go` base→modal Esc 4.2-S
-- [ ] 4.8 goldens `testdata/dialog_*.txt` 120 S
-- [ ] 4.9 verify `go test ./...` `stat`≤400
+- [x] 4.1 `internal/tui/ui/dialog_select.go` title*2 truncate76 [REQ-TUI-DLG-2] 1.7-M
+- [x] 4.2 `internal/tui/views/command_palette.go` suggested hidden [REQ-TUI-DLG-3] 4.1-S
+- [x] 4.3 `internal/tui/views/model_list.go` nano disabled ● [REQ-TUI-DLG-3] 4.1-S
+- [x] 4.4 `internal/tui/views/dialog_status.go` • success/error [REQ-TUI-DLG-3] 4.1-S
+- [x] 4.5 `internal/tui/views/session_list.go` 76 Esc [REQ-TUI-DLG-4] 4.1-S
+- [x] 4.6 `internal/tui/autocomplete.go` /model ! ●File 1.9-M
+- [x] 4.7 `internal/tui/app.go` base→modal Esc 4.2-S
+- [x] 4.8 goldens `testdata/dialog_*.txt` 120 S
+- [x] 4.9 verify `go test ./...` `stat`≤400
 
 ## Phase 5: Guard
 

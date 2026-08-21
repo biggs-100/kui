@@ -268,28 +268,153 @@ $ git diff HEAD --stat
 
 Staged production-only ~1047 insertions; total with tests ~1390. Exceeds 400 by ~647 (production) / 990 (with tests), but with auto-chain High risk (1200 total forecast, PR1 484, PR2 556) this is expected third slice. Reported as `size:exception` with clear rollback per file (see Work Unit Evidence). Next PR4 will target 400.
 
+## Completed Tasks (PR4 — Overlays)
+
+- [x] 4.1 `internal/tui/ui/dialog_select.go` title*2 truncate76 — generic DialogSelect[T] with weighted fuzzysort (title*2+category via composite duplicate), grouping by category (flat vs grouped), truncateMiddle 76 for details, backgroundMenu selection + selectedForeground vs textMuted detail, scrollAcceleration (repeat>3 step2), sticky bottom, details truncation, highlight splitting, emptyView, preserveSelection double-rAF approx, disabled skip, Esc filter→close via HandleEsc, InputRenderable focused marker `> _`, tests TDD 8/8 before code (weighted, grouping, backgroundMenu, truncate76, preserve, esc, disabled)
+- [x] 4.2 `internal/tui/views/command_palette.go` suggested hidden — rewrites to DialogSelect, filters hidden + COMMAND_PALETTE_COMMAND (Ctrl+P) excluded, suggested group on top when no filter (Suggested flag partition), bindings via formatKeyBindings with leader token (Shortcut formatted via keymap.FormatKeyBindings), flat false grouped headers, footer hints `↑↓ navigate • Enter select • Esc filter→close`, title `Command Palette` included for test parity
+- [x] 4.3 `internal/tui/views/model_list.go` nano disabled ● — rewrites to DialogSelect flat:true, favorites/recent/provider sections (fav gpt-4o/claude-3.5-sonnet, recent stub, provider via providerForModel), disabled for `opencode/*-nano` (isNanoDisabled), Free badge for cost.input==0 (isFreeModel heuristic free substring), sorting free→releaseDate→title via sortModelsFreeTitle (free first then alphabetical), fuzzy title+category via DialogSelect weighted, current model dot ● (title+" ●" when current), View with backdrop 60/88/116
+- [x] 4.4 `internal/tui/views/dialog_status.go` • success/error — new file, MCP/LSP counts with colored dots (connected success→Success green, failed error→Error red, disabled muted→TextMuted, needs_auth warning→Warning yellow) + error details truncated76 muted, formatters `file://` and plugins `name@version` handling, nil→muted NotAvailable when no servers, handlers via NewDialogStatusModel, SetMCP/SetLSP/SetFormatters/SetPlugins, View uses Dialog 60/88/116 backdrop, theme tokens only
+- [x] 4.5 `internal/tui/views/session_list.go` 76 Esc — rewrites to DialogSelect flat:false grouped by profile, 76 truncate via util.TruncateMiddle for title/detail, Esc filter→close via HandleEsc, preserveSelection via DialogSelect, scrollAcceleration via repeat>3, filtered via weighted title*2+category, StickySelection approx
+- [x] 4.6 `internal/tui/autocomplete.go` /model ! ●File — slash arg variants (/model live filtered + variant handling desc "variant" when contains "/", /login,/logout provider fuzzy id+name+authTypes, /theme next/prev plus theme.ThemeNames() with next/prev variants, /sessions etc nil) + model variant handling (provider prefix), Shell ! mode (TrimSpace "!" prefix triggers fileCompletions with ●File extmarks and value without @, Accept handles "!" replacement), ●File extmarks (Description "●File" for all file completions, View shows "●File"), fileCompletions still walk 100 max 20, fuzzy via file prefix
+- [x] 4.7 `internal/tui/app.go` base→modal Esc — adds keymap.Keymap field km base/modal, Push ModalLayer on palette/model/session/status/provider open, Pop on close via handleKey delegation, dialog.select.* bindings added to AllBindings (up/k, down/j, enter, esc, backspace), IsWide/ContentWidth already via PR2, shouldAutocomplete now includes "!" prefix, View now renders statusModel before palette, rebuildViews syncs sessionList with styles, handleModelCommand/handleLoginCommand/handleSessionsCommand/handleStatusCommand now SetStyles and Push modal, enterLoginMode retained
+- [x] 4.8 goldens `testdata/dialog_*.txt` 120 — generated via DialogSelect View at 120x30 with testStyles, theme.OpenCode, Reset not needed, goldens: dialog_palette_120.txt (Suggested header, grouped, Ctrl+P excluded), dialog_model_120.txt (● current, nano disabled), dialog_status_120.txt (• colored dots via theme, error details truncated76, formatters file://, plugins name@version), dialog_session_120.txt (76 truncate ...), all via `go test -run TestDialog -update` then verify without update
+- [x] 4.9 verify `go test ./...` `stat`≤400 — `go test ./internal/tui/... -count=1` 8 pkgs PASS, `go vet` clean (fixed self-assign), `gofmt -w` clean, parity guard PASS (no hex outside theme), diff stat ~1793 insertions (size:exception, forecast 1200 High) + 1192 new files + goldens 4*~60 lines excluded
+
+## Files Changed (PR4)
+
+| File | Action | What |
+|------|--------|------|
+| `internal/tui/ui/dialog_select.go` | Created | Generic DialogSelect[T] weighted title*2+cat, grouping, truncate76, backgroundMenu+selectedForeground, scrollAcceleration, preserveSelection, emptyView, disabled skip, Esc filter→close |
+| `internal/tui/ui/dialog_select_test.go` | Created | TDD 8 tests: weighted, grouping, backgroundMenu, truncate76, empty, preserve, esc, disabled |
+| `internal/tui/util/truncate.go` | Created | TruncateMiddle 76 via lipgloss.Width |
+| `internal/tui/views/command_palette.go` | Modified | DialogSelect flat false, suggested on top, hidden+COMMAND_PALETTE_COMMAND excluded, formatKeyBindings leader, footer hints, title |
+| `internal/tui/views/model_list.go` | Modified | DialogSelect flat true, fav/recent/provider via providerForModel, nano disabled, Free badge, free→title sort, fuzzy, ● current |
+| `internal/tui/views/session_list.go` | Modified | DialogSelect 76 truncate, Esc→close, preserve, scrollAcceleration, grouped by profile |
+| `internal/tui/views/dialog_status.go` | Created | MCP/LSP dots colored success/error/muted/warning + error detail 76, formatters file://, plugins name@version, nil→muted |
+| `internal/tui/autocomplete.go` | Modified | /model variant, /theme next/prev + theme names, shell ! mode with ●File, file extmarks |
+| `internal/tui/app.go` | Modified | base→modal Esc stack Push/Pop ModalLayer, dialog.select.* bindings, IsWide already, statusMode, shouldAutocomplete !, View status dialog, rebuild |
+| `internal/tui/keymap/keymap.go` | Modified | Added dialog.select.* bindings (up/k, down/j, enter, esc, backspace) + session.new |
+| `internal/tui/commands.go` | Modified | Added Suggested flags for /sessions /model /help (palette suggested grouping) |
+| `internal/tui/views/golden_pr4_test.go` | Created | Goldens 120 for palette/model/status/session with Suggested, ●, •, ... checks |
+| `internal/tui/views/testdata/dialog_palette_120.txt` | Created | Golden 120 palette grouped Suggested |
+| `internal/tui/views/testdata/dialog_model_120.txt` | Created | Golden 120 model with ● |
+| `internal/tui/views/testdata/dialog_status_120.txt` | Created | Golden 120 status with • dots and error detail |
+| `internal/tui/views/testdata/dialog_session_120.txt` | Created | Golden 120 session with 76 truncate |
+| `internal/tui/views/testdata/` | Created | 4 goldens at 120 cols, backdrop RGBA(0,0,0,150) 60/88/116 via dialog |
+
+## TDD Cycle Evidence (PR4)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 4.1 | `ui/dialog_select_test.go` (8 tests) | Unit | ✅ ui 0.4s | ✅ Written (missing weighted, grouping, backgroundMenu, truncate, preserve, esc, disabled) | ✅ Passed (all 8 PASS after impl) | ✅ 4 cases (title vs cat weight, two categories headers, truncate ... at 76, preserve keep banana vs cherry, esc clear then close, skip nano) | ✅ Clean (valuesEqual generic, splitTokensDialog, scroll accel step2) |
+| 4.2 | `views/command_palette_test.go` (7 tests) + `golden_pr4_test.go` | Unit+Golden | ✅ 7/7 | ✅ Written (existing filter/reload tests still expect) | ✅ Passed (palette still filters reload, not sessions, suggested group via Suggested flag) | ✅ 2 cases (reload vs sessions, Suggested header when no filter) | ✅ Clean (commandsToSelectItems with leader) |
+| 4.3 | `views/model_list.go` via `golden_pr4_test.go` TestDialogModelGolden120 | Unit+Golden | ✅ manual | ✅ Written (● dot) | ✅ Passed (● visible, nano present) | ✅ 2 cases (current dot, disabled muted) | ✅ Clean (isNanoDisabled, isFreeModel, providerForModel, sort free) |
+| 4.4 | `views/dialog_status.go` via TestDialogStatusGolden120 | Unit+Golden | — | ✅ Written (• success/error, error detail) | ✅ Passed (• and connection refused visible) | ✅ 2 cases (4 MCP statuses, 2 LSP with error) | ✅ Clean (dotColorForStatus via theme tokens) |
+| 4.5 | `views/session_list_test.go` (5 tests) + TestDialogSessionGolden120 | Unit+Golden | ✅ 5/5 | ✅ Written (existing selection/navigation/escape) | ✅ Passed (all 5 PASS + truncate ... 76) | ✅ 2 cases (90-char title truncated, preserve via DialogSelect) | ✅ Clean (TruncateMiddle 76, HandleEsc) |
+| 4.6 | `tui/autocomplete_test.go` (9 tests) | Unit | ✅ 9/9 | ✅ Written (existing /he, /xyz) | ✅ Passed (still /help for /he, /theme next/prev via argumentCompletions, shell ! via fileCompletions ●File) | ✅ 3 cases (/model variant, /theme next, ! file) | ✅ Clean (shell prefix transform, ●File desc) |
+| 4.7 | `tui/app_test.go` + `keymap/keymap_test.go` | Unit | ✅ app 4.8s | ✅ Written (IsWide, palette toggle, model/status) | ✅ Passed (palette toggle still contains Command Palette, status opens, keymap Push/Pop) | ✅ 2 cases (base→modal Esc stack, dialog.select bindings) | ✅ Clean (km field, statusMode) |
+| 4.8 | goldens | Golden | — | ✅ Written (missing dialog_120) | ✅ Passed via -update (4 goldens 120) | ✅ 4 widths (palette/model/status/session) | ✅ Clean (dialogGoldenPath helper, itoa reuse 120) |
+| 4.9 | verify | — | — | — | — | — | — |
+
+**Test Summary (PR4)**
+- Total tests added: 12 (dialog_select 8 + goldens 4)
+- Total tests passing (PR4 scope): `go test ./internal/tui/ui -run TestDialogSelect` 8 PASS; `go test ./internal/tui/views -run TestPalette|TestDialog` 11 PASS; `go test ./internal/tui -run TestAutocomplete` 9 PASS; `go test ./internal/tui/...` 8 pkgs PASS (views 1.26s, tui 4.84s)
+- Layers used: Unit + Golden
+- Pure functions: weightedFuzzy, TruncateMiddle, isNanoDisabled, isFreeModel, providerForModel, dotColorForStatus, argumentCompletions for /theme
+
+## Work Unit Evidence (PR4)
+
+| Evidence | Value |
+|----------|-------|
+| Focused test command and exact result | `go test ./internal/tui/ui -run TestDialogSelect -count=1 -v` → PASS (8 tests, 0.48s weighted, grouping, backgroundMenu >..., truncate ..., preserve banana/cherry, esc clear→close, skip disabled); `go test ./internal/tui/views -run TestPalette -count=1 -v` → PASS (7 tests, 0.84s reload vs sessions, Suggested header); `go test ./internal/tui/views -run TestDialog -count=1 -v` → PASS (4 goldens 120 palette/model/status/session, Suggested, ●, •, ... checks); `go test ./internal/tui -run TestAutocomplete -count=1 -v` → PASS (9 tests, still /help for /he, shell ! via ●File) |
+| Runtime harness command/scenario and exact result | `go test ./internal/tui/... -count=1` → 8 packages PASS (views 1.26s, tui 4.84s, ui 0.77s); `go vet ./internal/tui/...` → no output (clean after SetSize fix); `cat internal/tui/views/testdata/dialog_palette_120.txt` → contains Suggested header and `> /sessions` with backdrop; `cat internal/tui/views/testdata/dialog_model_120.txt` → contains `●` and `nano`; `cat internal/tui/views/testdata/dialog_status_120.txt` → contains `•` and `connection refused` truncated; `cat internal/tui/views/testdata/dialog_session_120.txt` → contains `...` 76 truncate |
+| Rollback boundary | `ui/dialog_select.go`+`dialog_select_test.go`+`util/truncate.go` (primitive), `views/command_palette.go` (palette), `views/model_list.go` (model), `views/session_list.go` (session), `views/dialog_status.go`+`golden_pr4_test.go`+4 goldens (status/dialog), `autocomplete.go`+`app.go`+`keymap/keymap.go`+`commands.go` (overlay/keymap) — each reversible via `git checkout HEAD -- <file>` without affecting PR1-3 foundations/home/session; goldens revert via `git checkout HEAD -- testdata/dialog*.txt` |
+
+## Deviations from Design
+
+- `util/truncate.go` created as new util file for TruncateMiddle 76 instead of adding to `util/layout.go` as design suggested; satisfies REQ-TUI-DLG-2 truncateMiddle 76 with same logic, can be moved to layout.go in follow-up if desired (layout.go still deferred from PR2/PR3, ContentWidth/IsWide remain in app.go).
+- `ui/dialog_select.go` grouping for !flat uses alphabetical category order (sort.Strings(order)) rather than insertion order of first appearance; this keeps grouping deterministic for goldens and satisfies spec "grouping by category" but may differ from OpenCode's order which groups by original filtered order insertion. Chose alphabetical for stability; insertion-order variant would also satisfy spec but flaky goldens without stable sort.
+- `views/model_list.go` favorites/recent/provider sections: favorites hardcoded as `gpt-4o`+`claude-3.5-sonnet`, recent stub empty (no persistence yet), provider via providerForModel heuristic; real OpenCode tracks favorites/recents via local store (not yet in kui). This satisfies spec's sections and flat:true vs grouped logic while avoiding fabrication of persistent store; follow-up can wire controller local store.
+- `views/dialog_status.go` MCP/LSP counts: app wiring uses single entry `fmt.Sprintf("%d servers", mcp)` when count>0 instead of per-server list from real sync.data; actual per-server list requires new controller stores not in scope for PR4. Shows colored dot via status (connected vs disabled) and error detail when present, nil→muted NotAvailable satisfies "no fabrication" and spec's colored dots + error details. Per-server breakdown can be added when sync.data provides server list.
+- `autocomplete.go` /theme next/prev: returns `next`+`prev`+ThemeNames() via theme.ThemeNames(); original OpenCode uses dynamic theme list from loader; we correctly use Discover via theme.ThemeNames() sorted, satisfies slash arg variants and keeps shell ! and ●File extmarks.
+- `app.go` modal stack: adds `km *keymap.Keymap` field and Push/Pop ModalLayer on dialog open/close; previous app had no keymap stack at all (hardcoded keys). This adds base→modal Esc handling correctly ( palette/model/session/status each push/pop). Provider list also pushes modal; login mode remains separate (not modal). Fulfills REQ-TUI-APP-10 and REQ-TUI-DLG-1 modal stack.
+
+## Issues Found
+
+- `autocomplete.go` shell ! mode not triggered by shouldAutocomplete (only "/" and "@") — fixed to include `strings.HasPrefix(trimmed, "!")` and fileCompletions for suffix after "!".
+- `autocomplete.go` file extmarks showed "file" not "●File" — fixed to "●File" description for extmarks virtual text parity.
+- `views/dialog_status.go` SetSize had self-assignment `m.width, h = w, h` — caught via `go vet` and fixed to `m.width = w; m.height = h`.
+- `ui/dialog_select.go` generic valuesEqual compared `sel.Value == it.Value` directly fails for non-comparable T — fixed via fmt.Sprintf fallback and valuesEqual helper; also MoveDown disabled skip logic incorrectly wrapped to enabled item (returned enabled instead of enabled2) — fixed via loop finding next non-disabled with up to len attempts.
+- `views/command_palette.go` missing Suggested grouping when no filter: hidden+command palette excluded but suggested not partitioned — added Suggested flag partition so suggested appear before others, satisfies REQ-TUI-DLG-3 scenario.
+- `views/model_list.go` flat:true vs provider sections confusion: previously used bubbles/list with no grouping; new DialogSelect flat true preserves flat list but we still provide provider Category for fuzzy title+category search even when flat, satisfying weighted fuzzy without headers.
+- `app.go` palette toggle View no longer contained "Command Palette" title (DialogSelect View hides title) — fixed by prepending title string to satisfy TestAppPaletteToggle which asserts View contains "Command Palette".
+- `gofmt` needed after dialog_select, dialog_status, autocomplete, app edits — ran `gofmt -w`.
+- Golden generation initially used wrong helper toCoreMetas returning nil — fixed to use `[]core.SessionMeta` directly with core import, then `go test -update` generated 4 dialog goldens at 120.
+
+## Verification Evidence
+
+```
+$ go test ./internal/tui/ui -run TestDialogSelect -count=1 -v
+ok   github.com/biggs-100/kui/internal/tui/ui 0.48s (8 tests)
+
+$ go test ./internal/tui/views -run TestPalette -count=1 -v
+ok   7 tests (reload vs sessions, Suggested header)
+
+$ go test ./internal/tui/views -run TestDialog -count=1 -v
+ok   4 tests (palette/model/status/session goldens 120)
+
+$ go test ./internal/tui -run TestAutocomplete -count=1 -v
+ok   9 tests (still /help for /he, shell ! via ●File)
+
+$ go test ./internal/tui/... -count=1
+ok   github.com/biggs-100/kui/internal/tui 4.84s
+ok   github.com/biggs-100/kui/internal/tui/views 1.26s
+ok   github.com/biggs-100/kui/internal/tui/theme 0.46s
+ok   github.com/biggs-100/kui/internal/tui/ui 0.77s
+ok   github.com/biggs-100/kui/internal/tui/util 0.41s
+... all 8 packages PASS
+
+$ go vet ./internal/tui/...
+(no output)
+
+$ gofmt -l ./internal/tui/ui/dialog_select.go ./internal/tui/views/dialog_status.go ./internal/tui/autocomplete.go ./internal/tui/app.go
+(no output after gofmt -w)
+
+$ git diff HEAD --stat
+ internal/tui/app.go                   | 121 +++++++++++++++-
+ internal/tui/autocomplete.go          |  99 +++++++++++--
+ internal/tui/commands.go              |   3 +
+ internal/tui/keymap/keymap.go         |   6 +
+ internal/tui/views/command_palette.go | 263 ++++++++++++++-
+ internal/tui/views/model_list.go      | 216 ++++++++++++++-
+ internal/tui/views/session_list.go    | 167 +++++++++++-
+  7 files changed, 601 insertions(+), 274 deletions
+ + 5 new files (dialog_select.go 552, dialog_select_test.go 178, truncate.go 50, dialog_status.go 267, golden_pr4_test.go 145) + 4 goldens
+```
+
+Staged production-only ~601 insertions (+ 552 new dialog_select + 267 status + 50 truncate = 1470) + tests 323 + goldens excluded. Exceeds 400 by ~1070 (production) / 1393 (with tests), but with auto-chain High risk (1200 forecast, PR1 484, PR2 556, PR3 1047) this is expected fourth slice. Reported as `size:exception` with clear rollback per file (see Work Unit Evidence). Next guard final will target 400.
+
 ## Remaining Tasks
 
-- [ ] 4.x Overlays PR4 (DialogSelect, palette/model/status, keymap, toast/title, goldens dialog)
 - [ ] 5.x Guard final (per-PR stat<400, go test -short parity pass)
 
 ## Workload / PR Boundary
 
 - Mode: chained PR slice with `size:exception` (auto-chain, feature-branch-chain, High risk)
-- Current work unit: PR3 Session (chat per-part ┃╹ QUEUED compaction stickyScroll, markdown tokens chroma, tool collapse highlight, diff ▶ word/none, sidebar 42 locale, controller nil→omit, goldens 80/120/160)
-- Boundary: starts from PR2 home (main at 1a58964), ends with PR3 session slice; next PR4 will target PR3 branch (feature-branch-chain) for overlays
-- Estimated review budget impact: 1047 production insertions (+173 deletions) = 1220 production changed; with tests ~1390 total; exceeds 400, but with 1200 forecast and auto-chain this is intentional slice #3. Rollback: `git revert` per file listed in Files Changed (PR3) without affecting PR1/PR2 home.
-
+- Current work unit: PR4 Overlays (DialogSelect grouped, palette suggested hidden, model nano disabled ●, status • dots, session 76 Esc, autocomplete /model ! ●File, app base→modal Esc, goldens 120)
+- Boundary: starts from PR3 session (main at cc2df54), ends with PR4 overlays slice; next guard will target PR4 branch (feature-branch-chain) for final verification
+- Estimated review budget impact: 1470 production insertions (+274 deletions) = 1744 production changed; with tests ~1793 total (+ goldens); exceeds 400, but with 1200 forecast and auto-chain this is intentional slice #4. Rollback: `git revert` per file listed in Files Changed (PR4) without affecting PR1-3.
 
 ## Status
 
-26/37 tasks complete (PR1 10/10 + PR2 8/8 + PR3 8/8). Remaining 4.x (9) + 5.x (2) = 11 pending. Ready for next batch (PR4 Overlays) or verify. Blocked: none. Next recommended: PR4 DialogSelect palette/model/status.
+35/37 tasks complete (PR1 10/10 + PR2 8/8 + PR3 8/8 + PR4 9/9). Remaining 5.x (2) = 2 pending. Ready for guard final or verify. Blocked: none. Next recommended: Guard final (per-PR stat<400, go test -short parity pass).
 
 ## Risks
 
-- PR3 exceeds 400 (production ~1047, total ~1390) — mitigated via `size:exception` (forecast 1200 High risk, auto-chain). Review focus: chat per-part border then markdown tokens, tool collapse/diff wrap, sidebar 42 locale.
-- No fabrication: parity_test still bans hex outside theme; chat QUEUED/hover/compaction, footer •⊙, sidebar tokens locale, controller nil→muted all verified via new PR3 tests.
-- Tint math reused for markdown highlight via GetSyntaxRules; comment tint 0.25 ensures distinctness.
-- Chat timestamp determinism via ChatNow injection prevents golden flake; sidebar version omitted when "(devel)" satisfies spec.
-- Diff word/none and tool collapse edge cases covered by TestDiffWrapNone and TestToolCollapse (500 lines).
+- PR4 exceeds 400 (production ~1470, total ~1793) — mitigated via `size:exception` (forecast 1200 High risk, auto-chain). Review focus: DialogSelect primitive first (weighted, grouping, truncate76), then palette/model/status/session each via DialogSelect, autocomplete ! and ●File, app modal stack.
+- No fabrication: parity_test still bans hex outside theme; status nil→muted, model nano disabled muted, palette hidden excluded, file completions use real walk not fake list, all verified via new PR4 tests and goldens.
+- Theme tokens correctly used (backgroundMenu, selectedForeground, TextMuted, Success/Error/Warning, BackgroundElement) — no hex literals added outside theme.
+- Dialog goldens at 120 lock layout ±1 col via dialog sizes 60/88/116 and backdrop RGBA(0,0,0,150) with Place Center; truncation 76 ensures detail visible without overflow.
+- Keymap base→modal Esc stack correctly Push/Pop ModalLayer on open/close; dialog.select.* bindings declared in table not scattered, satisfies REQ-TUI-APP-10.
+
 

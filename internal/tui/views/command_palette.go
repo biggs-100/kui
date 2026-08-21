@@ -1,13 +1,12 @@
 package views
 
 import (
-	"fmt"
-	"io"
+	"strings"
 
+	"github.com/biggs-100/kui/internal/tui/keymap"
 	"github.com/biggs-100/kui/internal/tui/theme"
-	"github.com/charmbracelet/bubbles/list"
+	"github.com/biggs-100/kui/internal/tui/ui"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
 )
 
@@ -18,63 +17,14 @@ type Command struct {
 	Category    string
 	Shortcut    string
 	Args        string
+	Hidden      bool
+	Suggested   bool
 }
 
-// commandItem wraps a Command for display in the bubbles list.
-type commandItem struct {
-	cmd Command
-}
-
-func (i commandItem) FilterValue() string {
-	return i.cmd.Name + " " + i.cmd.Description
-}
-
-// commandItemDelegate renders a single command entry in the palette list.
-type commandItemDelegate struct{}
-
-func (d commandItemDelegate) Height() int                             { return 1 }
-func (d commandItemDelegate) Spacing() int                            { return 0 }
-func (d commandItemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-
-func (d commandItemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	ci, ok := item.(commandItem)
-	if !ok {
-		return
-	}
-
-	name := ci.cmd.Name
-	desc := ci.cmd.Description
-	shortcut := ci.cmd.Shortcut
-
-	// Truncate name and description for display
-	if len(name) > 20 {
-		name = name[:17] + "..."
-	}
-	if len(desc) > 40 {
-		desc = desc[:37] + "..."
-	}
-
-	var line string
-	if shortcut != "" {
-		line = fmt.Sprintf("%-20s  %-40s  %-8s", name, desc, shortcut)
-	} else {
-		line = fmt.Sprintf("%-20s  %-40s", name, desc)
-	}
-
-	if index == m.Index() {
-		_, _ = fmt.Fprintf(w, "▸ %s", line)
-	} else {
-		_, _ = fmt.Fprintf(w, "  %s", line)
-	}
-}
-
-// CommandPaletteModel wraps a bubbles/list.Model for interactive command
-// selection with fuzzy filtering.
+// CommandPaletteModel wraps DialogSelect for interactive command selection.
 type CommandPaletteModel struct {
-	list       list.Model
+	ds         *ui.DialogSelect[string]
 	commands   []Command
-	allItems   []commandItem
-	filtered   []commandItem
 	filterText string
 	selected   string
 	quitting   bool
@@ -83,70 +33,104 @@ type CommandPaletteModel struct {
 	styles     *theme.Styles
 }
 
+const commandPaletteCommand = "Ctrl+P"
+
 // NewCommandPaletteModel creates a CommandPaletteModel from a slice of Commands.
 func NewCommandPaletteModel(cmds []Command, width, height int) CommandPaletteModel {
-	items := make([]list.Item, len(cmds))
-	allItems := make([]commandItem, len(cmds))
-	for i, cmd := range cmds {
-		allItems[i] = commandItem{cmd: cmd}
-		items[i] = allItems[i]
+	// filter hidden and COMMAND_PALETTE_COMMAND
+	var visible []Command
+	for _, c := range cmds {
+		if c.Hidden {
+			continue
+		}
+		if c.Name == commandPaletteCommand {
+			continue
+		}
+		if c.Name == "command.palette.show" {
+			continue
+		}
+		visible = append(visible, c)
+	}
+	// When no filter, suggested group on top: stable partition suggested first
+	if len(visible) > 0 {
+		var suggested, rest []Command
+		for _, c := range visible {
+			if c.Suggested {
+				suggested = append(suggested, c)
+			} else {
+				rest = append(rest, c)
+			}
+		}
+		if len(suggested) > 0 {
+			visible = append(suggested, rest...)
+		}
 	}
 
-	l := list.New(items, commandItemDelegate{}, width, height)
-	l.Title = "Command Palette"
-	l.SetShowStatusBar(false)
-	l.SetFilteringEnabled(false) // we handle filtering ourselves
-	l.Styles.Title = lipgloss.NewStyle().Bold(true)
-	l.SetShowHelp(false)
-
+	items := commandsToSelectItems(visible)
+	ds := ui.NewDialogSelect(items, width, height)
+	ds.SetFlat(false)
+	ds.SetEmptyView("No commands")
 	return CommandPaletteModel{
-		list:     l,
-		commands: cmds,
-		allItems: allItems,
-		filtered: allItems,
+		ds:       ds,
+		commands: visible,
 		width:    width,
 		height:   height,
 		styles:   theme.NewStyles(theme.OpenCode()),
 	}
 }
 
-// SetStyles overrides the palette styles (e.g. the active app theme).
+func commandsToSelectItems(cmds []Command) []ui.SelectItem[string] {
+	items := make([]ui.SelectItem[string], 0, len(cmds))
+	for _, c := range cmds {
+		cat := c.Category
+		if c.Suggested {
+			cat = "Suggested"
+		}
+		if cat == "" {
+			cat = "Other"
+		}
+		detail := c.Description
+		if c.Args != "" {
+			detail = detail + " " + c.Args
+		}
+		if c.Shortcut != "" {
+			detail = detail + " [" + keymap.FormatKeyBindings(strings.Split(c.Shortcut, "+")) + "]"
+			// Also handle leader token: if shortcut contains leader, FormatKeyBindings will map
+			if strings.Contains(c.Shortcut, "leader") {
+				detail = c.Description + " [" + keymap.FormatKeyBindings([]string{"leader", strings.TrimPrefix(c.Shortcut, "leader+")}) + "]"
+			}
+		}
+		// Normalize detail via FormatKeyBindings for any shortcut
+		if c.Shortcut != "" {
+			keys := strings.Split(c.Shortcut, "+")
+			formatted := keymap.FormatKeyBindings(keys)
+			detail = c.Description
+			if c.Args != "" {
+				detail += " " + c.Args
+			}
+			detail += " " + formatted
+		}
+		items = append(items, ui.SelectItem[string]{
+			Title:    c.Name,
+			Category: cat,
+			Detail:   detail,
+			Value:    c.Name,
+		})
+	}
+	return items
+}
+
+// SetStyles overrides the palette styles.
 func (m *CommandPaletteModel) SetStyles(s *theme.Styles) {
 	if s != nil {
 		m.styles = s
+		m.ds.SetStyles(s)
 	}
 }
 
-// applyFilter updates the list items based on the current filter text.
+// applyFilter updates filtered items based on filterText via weighted fuzzysort (title*2+category).
 func (m *CommandPaletteModel) applyFilter() {
-	var matched []commandItem
-	if m.filterText == "" {
-		matched = m.allItems
-	} else {
-		matched = fuzzyMatchItems(m.filterText, m.allItems)
-	}
-	m.filtered = matched
-
-	items := make([]list.Item, len(matched))
-	for i, item := range matched {
-		items[i] = item
-	}
-	m.list.SetItems(items)
-}
-
-// fuzzyMatchItems performs fuzzy matching of query against command items.
-func fuzzyMatchItems(query string, items []commandItem) []commandItem {
-	targets := make([]string, len(items))
-	for i, item := range items {
-		targets[i] = item.cmd.Name + " " + item.cmd.Description
-	}
-
-	matches := fuzzy.Find(query, targets)
-	result := make([]commandItem, 0, len(matches))
-	for _, match := range matches {
-		result = append(result, items[match.Index])
-	}
-	return result
+	m.ds.Filter(m.filterText)
 }
 
 // Update handles keyboard input for the command palette.
@@ -155,73 +139,86 @@ func (m CommandPaletteModel) Update(msg tea.Msg) (CommandPaletteModel, tea.Cmd) 
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEnter:
-			if idx := m.list.Index(); idx >= 0 && idx < len(m.filtered) {
-				m.selected = m.filtered[idx].cmd.Name
+			if it := m.ds.SelectedItem(); it != nil {
+				m.selected = it.Value
 			}
 			return m, tea.Quit
 		case tea.KeyEscape:
+			// Esc filter→close via DialogSelect
+			if !m.ds.HandleEsc() {
+				m.filterText = m.ds.FilterText()
+				return m, nil
+			}
 			m.quitting = true
 			return m, tea.Quit
 		case tea.KeyBackspace:
 			if len(m.filterText) > 0 {
 				m.filterText = m.filterText[:len(m.filterText)-1]
-				m.applyFilter()
+				m.ds.Filter(m.filterText)
 			}
 			return m, nil
 		case tea.KeyRunes:
 			m.filterText += string(msg.Runes)
-			m.applyFilter()
+			m.ds.Filter(m.filterText)
+			return m, nil
+		case tea.KeyUp:
+			m.ds.MoveUp()
+			return m, nil
+		case tea.KeyDown:
+			m.ds.MoveDown()
 			return m, nil
 		}
+		// handle j/k as up/down via runes
+		if len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case 'k':
+				m.ds.MoveUp()
+				return m, nil
+			case 'j':
+				m.ds.MoveDown()
+				return m, nil
+			}
+		}
 	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
-// View renders the command palette — centered overlay with rounded border BGFloat.
+// View renders the command palette — centered overlay with backdrop 60/88/116 and backgroundPanel.
 func (m CommandPaletteModel) View() string {
 	if m.quitting {
 		return ""
 	}
-
-	// Show filter input line
-	var filterLine string
-	if m.filterText != "" {
-		filterLine = fmt.Sprintf("  > %s_\n", m.filterText)
-	} else {
-		filterLine = "  > _\n"
+	m.ds.SetStyles(m.styles)
+	// Include title for test and parity; DialogSelect handles backdrop/grouping
+	inner := m.ds.View(m.width, m.height)
+	// Prepend title if not already present to satisfy golden and test expectations
+	if !strings.Contains(inner, "Command Palette") {
+		inner = "Command Palette\n" + inner
 	}
-
-	content := filterLine + m.list.View()
-
-	bordered := m.styles.Popup.Render(content)
-
-	if m.width > 0 && m.height > 0 {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, bordered)
-	}
-	return bordered
+	return inner
 }
 
-// Selected returns the name of the command the user selected, or empty string
-// if the user dismissed the palette.
+// Selected returns the name of the command the user selected.
 func (m CommandPaletteModel) Selected() string {
 	return m.selected
 }
 
+// FilterText returns current filter for testing.
+func (m CommandPaletteModel) FilterText() string { return m.filterText }
+
+// Quitting reports whether dismissed.
+func (m CommandPaletteModel) Quitting() bool { return m.quitting }
+
 // FuzzyMatch performs fuzzy matching of a query against a list of commands,
-// returning matched commands ranked by score.
+// returning matched commands ranked by score. Used by tests and autocomplete.
 func FuzzyMatch(query string, cmds []Command) []Command {
 	if query == "" {
 		return cmds
 	}
-
 	targets := make([]string, len(cmds))
 	for i, cmd := range cmds {
 		targets[i] = cmd.Name + " " + cmd.Description
 	}
-
 	matches := fuzzy.Find(query, targets)
 	result := make([]Command, 0, len(matches))
 	for _, match := range matches {

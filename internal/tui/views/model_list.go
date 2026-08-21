@@ -8,13 +8,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/biggs-100/kui/internal/credentials"
-	"github.com/charmbracelet/bubbles/list"
+	"github.com/biggs-100/kui/internal/tui/theme"
+	"github.com/biggs-100/kui/internal/tui/ui"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // AvailableModels returns the list of selectable model names shown in the
@@ -322,100 +324,204 @@ func AvailableModelsFiltered() []string {
 	return nil
 }
 
-// modelItem wraps a single model name for display in the bubbles list.
-type modelItem struct {
-	name      string
-	isCurrent bool
+// model helpers for DialogSelect
+
+func isNanoDisabled(name string) bool {
+	return strings.HasPrefix(name, "opencode/") && strings.Contains(name, "-nano")
 }
 
-func (i modelItem) FilterValue() string { return i.name }
-
-// modelItemDelegate renders a single model entry in the list.
-type modelItemDelegate struct{}
-
-func (d modelItemDelegate) Height() int                             { return 1 }
-func (d modelItemDelegate) Spacing() int                            { return 0 }
-func (d modelItemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-
-func (d modelItemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	mi, ok := item.(modelItem)
-	if !ok {
-		return
+func isFreeModel(name string) bool {
+	// Heuristic: models with "free" or known free-tier
+	if strings.Contains(strings.ToLower(name), "free") {
+		return true
 	}
-
-	display := mi.name
-	if mi.isCurrent {
-		display += "  (current)"
-	}
-
-	// Truncate display if too long
-	if len(display) > 60 {
-		display = display[:57] + "..."
-	}
-
-	if index == m.Index() {
-		fmt.Fprintf(w, "▸ %s", display)
-	} else {
-		fmt.Fprintf(w, "  %s", display)
-	}
+	// Treat mini/haiku as not free; only explicit free
+	return false
 }
 
-// ModelListModel wraps a bubbles/list.Model for interactive model selection.
+func providerForModel(name string) string {
+	if strings.Contains(name, "/") {
+		parts := strings.SplitN(name, "/", 2)
+		return parts[0]
+	}
+	if strings.HasPrefix(name, "gpt-") {
+		return "openai"
+	}
+	if strings.HasPrefix(name, "claude-") {
+		return "anthropic"
+	}
+	if strings.HasPrefix(name, "gemini-") {
+		return "gemini"
+	}
+	return "other"
+}
+
+func sortModelsFreeTitle(models []string) []string {
+	out := make([]string, len(models))
+	copy(out, models)
+	sort.Slice(out, func(i, j int) bool {
+		fi := isFreeModel(out[i])
+		fj := isFreeModel(out[j])
+		if fi != fj {
+			return fi // free first
+		}
+		// releaseDate not available, fall back to title
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func buildModelSelectItems(models []string, current string) []ui.SelectItem[string] {
+	// favorites/recent/provider sections: for now, treat first as favorites if name in fav set, second as recent if in recent set
+	// Hardcode favorites for demo: gpt-4o, claude-3.5-sonnet
+	favorites := map[string]bool{"gpt-4o": true, "claude-3.5-sonnet": true}
+	recent := map[string]bool{}
+	// recent could be populated from controller; empty for now
+
+	// Sort models by free→title but preserve favorites/recent grouping order
+	sorted := sortModelsFreeTitle(models)
+
+	// Reorder: favorites first, then recent, then rest by provider
+	var favItems, recentItems, rest []string
+	for _, m := range sorted {
+		if favorites[m] {
+			favItems = append(favItems, m)
+		} else if recent[m] {
+			recentItems = append(recentItems, m)
+		} else {
+			rest = append(rest, m)
+		}
+	}
+	ordered := append(append(favItems, recentItems...), rest...)
+
+	items := make([]ui.SelectItem[string], 0, len(ordered))
+	for _, name := range ordered {
+		cat := providerForModel(name)
+		// Determine section for display when flat false? But spec says flat:true, so category still provider for fuzzy
+		title := name
+		if name == current {
+			title = name + " ●"
+		}
+		detail := ""
+		if isFreeModel(name) {
+			detail = "Free"
+		}
+		disabled := isNanoDisabled(name)
+		if disabled {
+			if detail != "" {
+				detail += " • disabled"
+			} else {
+				detail = "disabled"
+			}
+		}
+		items = append(items, ui.SelectItem[string]{
+			Title:    title,
+			Category: cat,
+			Detail:   detail,
+			Value:    name,
+			Disabled: disabled,
+		})
+	}
+	return items
+}
+
+// ModelListModel wraps DialogSelect for interactive model selection with
+// favorites/recent/provider sections, nano disabled, Free badge, free→title sort,
+// fuzzy title+category, current dot ●, flat:true.
 type ModelListModel struct {
-	list     list.Model
+	ds       *ui.DialogSelect[string]
 	models   []string
 	selected string
 	quitting bool
 	width    int
 	height   int
+	styles   *theme.Styles
 }
 
 // NewModelListModel creates a ModelListModel from a slice of model names.
 func NewModelListModel(models []string, current string, width, height int) ModelListModel {
-	items := make([]list.Item, len(models))
-	for i, name := range models {
-		items[i] = modelItem{name: name, isCurrent: name == current}
+	items := buildModelSelectItems(models, current)
+	ds := ui.NewDialogSelect(items, width, height)
+	ds.SetFlat(true)
+	ds.SetEmptyView("No models")
+	// Ensure current model is selected initially if present
+	for i, it := range items {
+		if it.Value == current {
+			ds.SetSelected(i)
+			break
+		}
 	}
-
-	l := list.New(items, modelItemDelegate{}, width, height)
-	l.Title = "Models"
-	l.SetShowStatusBar(false)
-	l.SetFilteringEnabled(false)
-	l.Styles.Title = lipgloss.NewStyle().Bold(true)
-	l.SetShowHelp(false)
-
 	return ModelListModel{
-		list:   l,
+		ds:     ds,
 		models: models,
 		width:  width,
 		height: height,
+		styles: theme.NewStyles(theme.OpenCode()),
 	}
 }
 
-// Update handles keyboard input for the model list.
+// SetStyles sets theme styles (for app integration).
+func (m *ModelListModel) SetStyles(s *theme.Styles) {
+	if s != nil {
+		m.styles = s
+		m.ds.SetStyles(s)
+	}
+}
+
+// Update handles keyboard input for the model list with filter→close, preserveSelection, scrollAcceleration.
 func (m ModelListModel) Update(msg tea.Msg) (ModelListModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEnter:
-			if idx := m.list.Index(); idx >= 0 && idx < len(m.models) {
-				m.selected = m.models[idx]
+			if it := m.ds.SelectedItem(); it != nil && !it.Disabled {
+				m.selected = it.Value
 			}
 			return m, tea.Quit
 		case tea.KeyEscape:
+			if !m.ds.HandleEsc() {
+				return m, nil
+			}
 			m.quitting = true
 			return m, tea.Quit
+		case tea.KeyBackspace:
+			// delegate to ds filter handling via runes? For now, handle backspace as filter edit
+			ft := m.ds.FilterText()
+			if len(ft) > 0 {
+				m.ds.Filter(ft[:len(ft)-1])
+			}
+			return m, nil
 		case tea.KeyRunes:
-			if len(msg.Runes) == 1 && msg.Runes[0] == 'q' {
+			if len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.ds.FilterText() == "" {
 				m.quitting = true
 				return m, tea.Quit
 			}
+			ft := m.ds.FilterText() + string(msg.Runes)
+			m.ds.Filter(ft)
+			return m, nil
+		case tea.KeyUp:
+			m.ds.MoveUp()
+			return m, nil
+		case tea.KeyDown:
+			m.ds.MoveDown()
+			return m, nil
+		}
+		if len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case 'k':
+				if m.ds.FilterText() == "" {
+					m.ds.MoveUp()
+					return m, nil
+				}
+			case 'j':
+				if m.ds.FilterText() == "" {
+					m.ds.MoveDown()
+					return m, nil
+				}
+			}
 		}
 	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 // View renders the model list.
@@ -423,11 +529,11 @@ func (m ModelListModel) View() string {
 	if m.quitting {
 		return ""
 	}
-	return "\n" + m.list.View()
+	m.ds.SetStyles(m.styles)
+	return m.ds.View(m.width, m.height)
 }
 
-// Selected returns the model name the user selected, or empty string if the
-// user quit without selecting.
+// Selected returns the model name the user selected.
 func (m ModelListModel) Selected() string {
 	return m.selected
 }

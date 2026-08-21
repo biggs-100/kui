@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/biggs-100/kui/internal/tui/views"
 )
 
@@ -24,10 +25,10 @@ type AutocompleteModel struct {
 	index    int
 	active   bool
 
-	maxVisible    int
-	items         []AutocompleteItem // last filtered items (detailed)
-	prefix        string
-	allCommands   []AutocompleteItem // command items for fuzzy filtering
+	maxVisible  int
+	items       []AutocompleteItem // last filtered items (detailed)
+	prefix      string
+	allCommands []AutocompleteItem // command items for fuzzy filtering
 }
 
 // NewAutocompleteModel creates an AutocompleteModel with default commands derived from the registry.
@@ -75,10 +76,41 @@ func (a AutocompleteModel) IsActive() bool {
 }
 
 // Filter updates the filtered list based on the input prefix using fuzzy matching.
-// Supports slash command, arg, and file @ completions.
+// Supports slash command, arg, file @ completions, Shell ! mode and ●File extmarks.
 func (a *AutocompleteModel) Filter(input string) {
 	a.prefix = input
 	trimmed := strings.TrimSpace(input)
+
+	// Shell ! mode: input starting with "!" at offset 0 triggers Warning border and file completions with ●File extmarks
+	if strings.HasPrefix(trimmed, "!") {
+		shellPrefix := strings.TrimSpace(strings.TrimPrefix(trimmed, "!"))
+		items := fileCompletions(shellPrefix)
+		if len(items) > 0 || shellPrefix == "" {
+			if shellPrefix == "" {
+				items = fileCompletions("")
+			}
+			// Transform to shell items with ●File extmark and without @ prefix for insertion after "!"
+			shellItems := make([]AutocompleteItem, len(items))
+			for i, it := range items {
+				v := strings.TrimPrefix(it.Value, "@")
+				shellItems[i] = AutocompleteItem{Value: v, Label: it.Label, Description: "●File"}
+			}
+			a.items = shellItems
+			a.filtered = make([]string, len(shellItems))
+			for i, it := range shellItems {
+				a.filtered[i] = it.Value
+			}
+			if len(a.filtered) == 0 {
+				a.Deactivate()
+				return
+			}
+			if a.index >= len(a.filtered) {
+				a.index = 0
+			}
+			a.active = true
+			return
+		}
+	}
 
 	// File @ completion: if input contains "@" before cursor, prioritize file suggestions.
 	// Extract prefix after last "@" with no intervening space.
@@ -233,12 +265,31 @@ func (a *AutocompleteModel) MoveDown() {
 }
 
 // Accept selects the current item, replaces the partial input, and hides the popup.
-// Handles slash, arg, and file @ replacements.
+// Handles slash, arg, file @ replacements, Shell ! mode and ●File extmarks.
 func (a *AutocompleteModel) Accept(input string) string {
 	selected := a.Selected()
 	a.Deactivate()
 	if selected == "" {
 		return input
+	}
+
+	// Shell ! mode: input starts with "!" and selected is file path without @
+	if strings.HasPrefix(strings.TrimSpace(input), "!") {
+		if idx := strings.Index(input, "!"); idx >= 0 {
+			prefix := input[:idx+1]
+			// trim after "!" and replace with selected
+			// Keep "!" plus selected
+			if strings.TrimSpace(input[idx+1:]) == "" {
+				return prefix + selected
+			}
+			// Replace last token after "!"
+			suffix := strings.TrimPrefix(input[idx+1:], " ")
+			lastSpace := strings.LastIndex(suffix, " ")
+			if lastSpace >= 0 {
+				return prefix + suffix[:lastSpace+1] + selected
+			}
+			return prefix + selected
+		}
 	}
 
 	// File @ replacement: if selected starts with "@" and input contains "@"
@@ -395,13 +446,20 @@ func argumentCompletions(cmdName, argPrefix string) []AutocompleteItem {
 		}
 		items := make([]AutocompleteItem, 0, len(models))
 		for _, m := range models {
-			// search text as provider/id style: use model name
-			items = append(items, AutocompleteItem{Value: m, Label: m, Description: ""})
+			// variant handling: include provider prefix variant if model contains "/"
+			label := m
+			desc := ""
+			// ●File style extmark for file-like models? Not needed
+			// variant handling: if argPrefix contains "/", suggest with provider prefix
+			if strings.Contains(m, "/") {
+				desc = "variant"
+			}
+			items = append(items, AutocompleteItem{Value: m, Label: label, Description: desc})
 		}
 		if argPrefix == "" {
 			return items
 		}
-		return fuzzyFilter(argPrefix, items, func(it AutocompleteItem) string { return it.Label })
+		return fuzzyFilter(argPrefix, items, func(it AutocompleteItem) string { return it.Label + " " + it.Description })
 	case "/login", "/logout":
 		providers := availableProviders()
 		if argPrefix == "" {
@@ -412,7 +470,24 @@ func argumentCompletions(cmdName, argPrefix string) []AutocompleteItem {
 			return it.Value + " " + it.Label + " " + it.Description
 		})
 	case "/theme":
-		// theme names could be completed; reuse no-op for now
+		names := theme.ThemeNames()
+		if len(names) == 0 {
+			names = []string{"kui-default", "opencode"}
+		}
+		// Include next/prev variants
+		variants := []AutocompleteItem{
+			{Value: "next", Label: "next", Description: "next theme"},
+			{Value: "prev", Label: "prev", Description: "previous theme"},
+		}
+		for _, n := range names {
+			variants = append(variants, AutocompleteItem{Value: n, Label: n, Description: "theme"})
+		}
+		if argPrefix == "" {
+			return variants
+		}
+		return fuzzyFilter(argPrefix, variants, func(it AutocompleteItem) string { return it.Label })
+	case "/sessions", "/resume", "/rename":
+		// slash arg variants for sessions etc: no arg completions needed, but keep shell handling
 		return nil
 	default:
 		return nil
@@ -493,7 +568,7 @@ func fileCompletions(prefix string) []AutocompleteItem {
 		items := make([]AutocompleteItem, 0, limit)
 		for i := 0; i < limit; i++ {
 			p := paths[i]
-			items = append(items, AutocompleteItem{Value: "@" + p, Label: p, Description: "file"})
+			items = append(items, AutocompleteItem{Value: "@" + p, Label: p, Description: "●File"})
 		}
 		return items
 	}
@@ -522,7 +597,7 @@ func fileCompletions(prefix string) []AutocompleteItem {
 	items := make([]AutocompleteItem, 0, limit)
 	for i := 0; i < limit; i++ {
 		p := scoredPaths[i].path
-		items = append(items, AutocompleteItem{Value: "@" + p, Label: p, Description: "file"})
+		items = append(items, AutocompleteItem{Value: "@" + p, Label: p, Description: "●File"})
 	}
 	return items
 }

@@ -51,7 +51,13 @@ func AllBindings() []Binding {
 	return []Binding{
 		{BaseLayer, "command.palette.show", []string{"ctrl+p"}, "Show palette"},
 		{BaseLayer, "session.list", []string{"ctrl+s"}, "List sessions"},
+		{BaseLayer, "session.new", []string{"ctrl+n"}, "New session"},
 		{ModalLayer, "dialog.close", []string{"esc"}, "Close"},
 		{ModalLayer, "dialog.close.ctrlc", []string{"ctrl+c"}, "Close"},
+		{ModalLayer, "dialog.select.up", []string{"up", "k"}, "Move up"},
+		{ModalLayer, "dialog.select.down", []string{"down", "j"}, "Move down"},
+		{ModalLayer, "dialog.select.confirm", []string{"enter"}, "Confirm"},
+		{ModalLayer, "dialog.select.cancel", []string{"esc"}, "Cancel"},
+		{ModalLayer, "dialog.select.filter", []string{"backspace"}, "Filter"},
 	}
 }

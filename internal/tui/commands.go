@@ -26,6 +26,7 @@ func NewCommandRegistry() *CommandRegistry {
 		Name:        "/sessions",
 		Description: "List and manage sessions",
 		Category:    "Session",
+		Suggested:   true,
 	}, nil)
 	r.registerWithHandler(views.Command{
 		Name:        "/resume",
@@ -81,6 +82,7 @@ func NewCommandRegistry() *CommandRegistry {
 		Description: "Show or switch the active model",
 		Category:    "Model",
 		Args:        "[<model-name>]",
+		Suggested:   true,
 	}, nil)
 
 	// Auth commands
@@ -145,6 +147,7 @@ func NewCommandRegistry() *CommandRegistry {
 		Name:        "/help",
 		Description: "Show this help",
 		Category:    "System",
+		Suggested:   true,
 	}, nil)
 
 	// Palette shortcut (non-slash, informational only)

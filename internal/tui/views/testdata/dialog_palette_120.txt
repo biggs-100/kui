@@ -1,0 +1,31 @@
+Command Palette
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ 
+ │                                                                                                                    │ 
+ │   > _                                                                                                              │ 
+ │ Runtime                                                                                                            │ 
+ │   /reload  Hot-reload                                                                                              │ 
+ │   /status  Show status                                                                                             │ 
+ │ Suggested                                                                                                          │ 
+ │ > /sessions  List and manage sessions                                                                              │ 
+ │   /model  Switch model                                                                                             │ 
+ │   /help  Show help                                                                                                 │ 
+ │                                                                                                                    │ 
+ │ ↑↓ navigate • Enter select • Esc filter→close                                                                      │ 
+ │                                                                                                                    │ 
+ │                                                                                                                    │ 
+ │                                                                                                                    │ 
+ │                                                                                                                    │ 
+ │                                                                                                                    │ 
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ 
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

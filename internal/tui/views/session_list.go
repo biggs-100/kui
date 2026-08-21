@@ -1,85 +1,80 @@
 package views
 
 import (
-	"fmt"
-	"io"
-
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/biggs-100/kui/internal/core"
+	"github.com/biggs-100/kui/internal/tui/theme"
+	"github.com/biggs-100/kui/internal/tui/ui"
+	"github.com/biggs-100/kui/internal/tui/util"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-// sessionItem wraps a SessionMeta for display in the bubbles list.
-type sessionItem struct {
-	meta core.SessionMeta
-}
-
-func (i sessionItem) FilterValue() string { return i.meta.ID + " " + i.meta.Name + " " + i.meta.Summary }
-
-// sessionItemDelegate renders a single session entry in the list.
-type sessionItemDelegate struct{}
-
-func (d sessionItemDelegate) Height() int                             { return 1 }
-func (d sessionItemDelegate) Spacing() int                            { return 0 }
-func (d sessionItemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-
-func (d sessionItemDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	si, ok := item.(sessionItem)
-	if !ok {
-		return
-	}
-
-	name := si.meta.Name
-	if name == "" {
-		name = si.meta.Summary
-	}
-	if name == "" {
-		name = si.meta.ID
-	}
-
-	// Truncate name if too long
-	if len(name) > 40 {
-		name = name[:37] + "..."
-	}
-
-	line := fmt.Sprintf("%-40s  %-8s  %s", name, si.meta.Profile, si.meta.CreatedAt)
-	if index == m.Index() {
-		fmt.Fprintf(w, "▸ %s", line)
-	} else {
-		fmt.Fprintf(w, "  %s", line)
-	}
-}
-
-// SessionListModel wraps a bubbles/list.Model for interactive session selection.
+// SessionListModel wraps DialogSelect for interactive session selection with
+// 76 truncate, Esc filter→close, preserveSelection, scrollAcceleration.
 type SessionListModel struct {
-	list     list.Model
+	ds       *ui.DialogSelect[string]
 	sessions []core.SessionMeta
 	selected string
 	quitting bool
 	width    int
 	height   int
+	styles   *theme.Styles
+}
+
+func sessionTitle(m core.SessionMeta) string {
+	name := m.Name
+	if name == "" {
+		name = m.Summary
+	}
+	if name == "" {
+		name = m.ID
+	}
+	return util.TruncateMiddle(name, 76)
+}
+
+func buildSessionItems(metas []core.SessionMeta) []ui.SelectItem[string] {
+	items := make([]ui.SelectItem[string], 0, len(metas))
+	for _, m := range metas {
+		title := sessionTitle(m)
+		cat := m.Profile
+		if cat == "" {
+			cat = "Other"
+		}
+		detail := m.CreatedAt
+		// also show truncated ID as detail if createdAt empty
+		if detail == "" {
+			detail = util.TruncateMiddle(m.ID, 76)
+		}
+		detail = util.TruncateMiddle(detail, 76)
+		items = append(items, ui.SelectItem[string]{
+			Title:    title,
+			Category: cat,
+			Detail:   detail,
+			Value:    m.ID,
+		})
+	}
+	return items
 }
 
 // NewSessionListModel creates a SessionListModel from a slice of SessionMeta.
 func NewSessionListModel(metas []core.SessionMeta, width, height int) SessionListModel {
-	items := make([]list.Item, len(metas))
-	for i, m := range metas {
-		items[i] = sessionItem{meta: m}
-	}
-
-	l := list.New(items, sessionItemDelegate{}, width, height)
-	l.Title = "Sessions"
-	l.SetShowStatusBar(false)
-	l.SetFilteringEnabled(false)
-	l.Styles.Title = lipgloss.NewStyle().Bold(true)
-	l.SetShowHelp(false)
-
+	items := buildSessionItems(metas)
+	ds := ui.NewDialogSelect(items, width, height)
+	ds.SetFlat(false)
+	ds.SetEmptyView("No sessions")
 	return SessionListModel{
-		list:     l,
+		ds:       ds,
 		sessions: metas,
 		width:    width,
 		height:   height,
+		styles:   theme.NewStyles(theme.OpenCode()),
+	}
+}
+
+// SetStyles sets theme styles.
+func (m *SessionListModel) SetStyles(s *theme.Styles) {
+	if s != nil {
+		m.styles = s
+		m.ds.SetStyles(s)
 	}
 }
 
@@ -89,24 +84,53 @@ func (m SessionListModel) Update(msg tea.Msg) (SessionListModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEnter:
-			if idx := m.list.Index(); idx >= 0 && idx < len(m.sessions) {
-				m.selected = m.sessions[idx].ID
+			if it := m.ds.SelectedItem(); it != nil {
+				m.selected = it.Value
 			}
 			return m, tea.Quit
 		case tea.KeyEscape:
+			if !m.ds.HandleEsc() {
+				return m, nil
+			}
 			m.quitting = true
 			return m, tea.Quit
+		case tea.KeyBackspace:
+			ft := m.ds.FilterText()
+			if len(ft) > 0 {
+				m.ds.Filter(ft[:len(ft)-1])
+			}
+			return m, nil
 		case tea.KeyRunes:
-			if len(msg.Runes) == 1 && msg.Runes[0] == 'q' {
+			if len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.ds.FilterText() == "" {
 				m.quitting = true
 				return m, tea.Quit
 			}
+			ft := m.ds.FilterText() + string(msg.Runes)
+			m.ds.Filter(ft)
+			return m, nil
+		case tea.KeyUp:
+			m.ds.MoveUp()
+			return m, nil
+		case tea.KeyDown:
+			m.ds.MoveDown()
+			return m, nil
+		}
+		if len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case 'k':
+				if m.ds.FilterText() == "" {
+					m.ds.MoveUp()
+					return m, nil
+				}
+			case 'j':
+				if m.ds.FilterText() == "" {
+					m.ds.MoveDown()
+					return m, nil
+				}
+			}
 		}
 	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 // View renders the session list.
@@ -114,11 +138,14 @@ func (m SessionListModel) View() string {
 	if m.quitting {
 		return ""
 	}
-	return "\n" + m.list.View()
+	m.ds.SetStyles(m.styles)
+	return m.ds.View(m.width, m.height)
 }
 
-// Selected returns the ID of the session the user selected, or empty string
-// if the user quit without selecting.
+// Selected returns the ID of the session the user selected.
 func (m SessionListModel) Selected() string {
 	return m.selected
 }
+
+// Quitting reports whether dismissed.
+func (m SessionListModel) Quitting() bool { return m.quitting }
