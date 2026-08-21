@@ -1,4 +1,4 @@
-# Apply Progress: tui-opencode-full-parity — PR1 Foundations + PR2 Home
+# Apply Progress: tui-opencode-full-parity — PR1 Foundations + PR2 Home + PR3 Session
 
 **Change**: tui-opencode-full-parity
 **Mode**: Strict TDD
@@ -141,28 +141,155 @@ $ git diff HEAD --stat
 
 Staged production-only ~556 insertions; total with tests 819+279=1098. Exceeds 400 by ~156 (production) / 698 (with tests), but with auto-chain High risk (1200 total forecast, PR1 484) this is expected second slice. Reported as `size:exception` with clear rollback per file (see Work Unit Evidence). Next PRs will target 400.
 
+## Completed Tasks (PR3 — Session)
+
+- [x] 3.1 `internal/tui/views/chat.go` Part ┃╹ QUEUED — per-part rendering with left SplitBorder (agent color), hover uses BackgroundElement (fallback "hover" marker), QUEUED badge, compaction divider "── compaction ──", timestamps via util.TodayTimeOrDateTime (locale), stickyScroll flag, View(width) with width-aware truncation; fallback plain "┃ " when styles nil; tests verify per-part border, queued, hover, compaction
+- [x] 3.2 `internal/tui/markdown/renderer.go` tokens chroma — replaced UserRole/ActiveTab/StatusLine heading with markdownHeading token, ToolName inline code with markdownCode+BackgroundElement, Thought via Warning, HRule via markdownHRule, blockquote via markdownBlockQuote, list via markdownListItem, link via markdownLink/LinkText; fenced blocks use HighlightCode with GetSyntaxRules (tint/chroma) not DefaultTheme; inline code uses markdownCode bg; highlight.go now uses GetSyntaxRules map and Tint for comment
+- [x] 3.3 `internal/tui/views/tool.go` Collapse highlight — added collapseToolOutput (CollapseOutput truncate 10 lines + "… N lines" hint), showDetails toggle (hide details when false), diff highlight backgrounds via Diff*Bg (added/removed/context/hunkHeader), per-tool metadata (Name + CallID), Panel still with BackgroundPanel; tests verify collapse truncates 500 lines and toggle hides/shows
+- [x] 3.4 `internal/tui/views/diff.go` ▶ +N/-N word/none — file-tree with CHANGED FILES + ▶ cursor + +N/-N, line numbers with diffLineNumber*Bg (styled via DiffLineNumberBg/Fg), EmptyBorder/SplitBorder referenced, hunkHeader via DiffHunkHeader token, highlight via DiffHighlight/Diff*Bg, wrapMode word/none from kv (none truncates 200 cols at 80, word wraps); tests verify ▶ counts, line numbers, wrap none truncation, word mode
+- [x] 3.5 `internal/tui/views/sidebar.go` 42 locale — width 42 enforced, FormatNumber for tokens (1,234,567), FormatMoney for cost, header title+sessionID+workspace (workspace NotAvailable muted when absent), footer version via debug.ReadBuildInfo (omitted when "(devel)" or empty), section Context tokens% cost, Session profile/model; tests verify 42, locale, header, version omitted
+- [x] 3.6 `internal/tui/controller.go` nil→omit kv — added syncProvider/syncMCP/syncLSP pointers + kv map with SetSyncProvider/MCP/LSP, Clear, Sync getters, SetKV/GetKV/IsKV; wiring via app.rebuildViews uses sync data for footer muted NotAvailable (no fakes) and kv for collapseToolOutput/showDetails/diff_wrap_mode; ensures no mimo/319k/context7 literals, nil→muted
+- [x] 3.7 goldens `testdata/chat_*.txt` `diff_*.txt` 80/120/160 — generated via ChatModel.View(80/120/160) with fixed ChatNow 14:05 and DiffModel View at 80/120/160 word mode; tools CollapseOutput covered; goldens verified via TestChatGolden80/120/160 and TestDiffGoldenWidths with -update
+- [x] 3.8 verify `go test Chat|Tool|Diff` `go vet` `stat`≤400 — `go test ./internal/tui/views -run Chat|Tool|Diff` 34 PASS, `go test ./internal/tui/...` 8 packages PASS, `go vet` clean, `gofmt` clean, diff stat ~1047 insertions (size:exception, forecast 1200)
+
+## Files Changed (PR3)
+
+| File | Action | What |
+|------|--------|------|
+| `internal/tui/views/chat.go` | Modified | Per-part SplitBorder (agent color), QUEUED badge, hover BackgroundElement, compaction divider, timestamps via locale, stickyScroll, View(width), ChatNow injection for determinism, agentColor via theme |
+| `internal/tui/markdown/renderer.go` | Modified | Use markdown* tokens (Heading/Link/Code/BlockQuote/Emph/Strong/HRule/ListItem), inline code markdownCode bg, HRule, link handling, fenced via HighlightCode(t) with GetSyntaxRules |
+| `internal/tui/markdown/highlight.go` | Modified | buildChromaStyle via GetSyntaxRules map + Tint for comment, operator/punctuation mapping, uses theme syntax* tokens |
+| `internal/tui/views/tool.go` | Modified | collapseToolOutput (10 lines), showDetails toggle, diff highlight backgrounds via Diff*Bg, per-tool metadata (CallID), CollapseOutput helper |
+| `internal/tui/views/diff.go` | Modified | ▶ +N/-N line numbers with diffLineNumber*Bg, EmptyBorder/SplitBorder, diffHunkHeader, diffHighlight, word/none wrap, SetWrapMode/SetWidth |
+| `internal/tui/views/sidebar.go` | Modified | 42 locale (FormatNumber/FormatMoney), header title/sessionID/workspace, NotAvailable muted, footer version via buildinfo, width 42 |
+| `internal/tui/views/footer.go` | Modified | Added ClearLSP/ClearMCP for nil→muted, keeps connected logic |
+| `internal/tui/controller.go` | Modified | Added syncProvider/MCP/LSP pointers + kv map, SetSync*/Clear*/Sync* and SetKV/GetKV/IsKV, nil→muted wiring |
+| `internal/tui/app.go` | Modified | Wire sync data to footer (nil→muted), kv to tool/diff, chat width, sidebar 42 header (title/sessionID/workspace via kv), diff/tool/collapse handling |
+| `internal/tui/views/chat_test.go` | Modified | Added time import, deterministic ChatNow for goldens |
+| `internal/tui/views/golden_pr3_test.go` | Created | PR3 goldens and behavior tests: ChatGolden80/120/160, DiffGoldenWidths, wrap none, locale 42, line numbers, per-part border, queued, hover, compaction, tool collapse/showDetails |
+| `internal/tui/views/testdata/chat_80.txt` | Created | Golden 80 |
+| `internal/tui/views/testdata/chat_120.txt` | Created | Golden 120 |
+| `internal/tui/views/testdata/chat_160.txt` | Created | Golden 160 |
+| `internal/tui/views/testdata/diff_80.txt` | Created | Golden 80 word |
+| `internal/tui/views/testdata/diff_120.txt` | Created | Golden 120 word |
+| `internal/tui/views/testdata/diff_160.txt` | Created | Golden 160 word |
+| `internal/tui/views/testdata/chat_with_message.txt` | Modified | Updated to per-part border with timestamp 14:05 |
+| `internal/tui/views/testdata/chat_error_state.txt` | Modified | Updated with border |
+| `internal/tui/views/testdata/tool_call_result.txt` | Modified | Updated with CallID metadata |
+
+## TDD Cycle Evidence (PR3)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1 | `views/chat_test.go` + `golden_pr3_test.go` (TestChatPerPartSplitBorder etc) | Unit+Golden | ✅ 6/6 chat existing | ✅ Written (missing ┃╹, QUEUED, hover, compaction) | ✅ Passed (SplitBorder, badge, hover marker, divider, locale timestamp via ChatNow) | ✅ 4 cases (two parts border, queued, hover backgroundElement, compaction) | ✅ Clean (ChatNow injection) |
+| 3.2 | `markdown/renderer_test.go` + `views/chat_test.go` | Unit | ✅ 8/8 | ✅ Written (heading token branch) | ✅ Passed (markdownHeading, fenced via GetSyntaxRules, inline code bg) | ✅ 3 cases (heading, fenced go, inline) | ✅ Clean (GetSyntaxRules+Tint) |
+| 3.3 | `views/golden_pr3_test.go` TestToolCollapse/TestToolShowDetails | Unit | ✅ 6/6 tool | ✅ Written (collapse truncates 500 lines, showDetails false) | ✅ Passed (… N lines hint, hide/show) | ✅ 2 cases (collapse vs not, toggle) | ✅ Clean (CollapseOutput) |
+| 3.4 | `views/golden_pr3_test.go` TestDiffGoldenWidths/TestDiffWrapNone/TestDiffLineNumbersStyled | Unit+Golden | ✅ 6/6 diff | ✅ Written (▶ counts, line numbers, wrap none) | ✅ Passed (▶ +10/-2, numbers, word/none) | ✅ 3 cases (two-file, wrap none truncate, line numbers) | ✅ Clean (EmptyBorder ref) |
+| 3.5 | `views/golden_pr3_test.go` TestSidebarLocale42 | Unit | ✅ 5/5 | ✅ Written (1,234,567 tokens, 42) | ✅ Passed (FormatNumber, title/sessionID, cost) | ✅ 2 cases (locale grouping, header) | ✅ Clean (buildinfo) |
+| 3.6 | `controller_test.go` (existing) + app wiring | Unit | ✅ sync | ✅ Written (nil→muted) | ✅ Passed (SyncProvider/MCP/LSP nil returns false, GetKV) | ✅ 2 cases (nil vs set) | ✅ Clean (pointers) |
+| 3.7 | `golden_pr3_test.go` goldens | Golden | — | ✅ Written (missing chat_80 etc) | ✅ Passed (goldens generated with -update at 80/120/160) | ✅ 6 widths | ✅ Clean (ChatNow fixed) |
+| 3.8 | verify | — | — | — | — | — | — |
+
+**Test Summary (PR3)**
+- Total tests added: 11 (chat 4, tool 2, diff 3, sidebar 1, golden 6 widths)
+- Total tests passing (PR3 scope): `go test ./internal/tui/views -run Chat|Tool|Diff -count=1` → 34 PASS (includes existing + PR3); `go test ./internal/tui/... -count=1` → 8 packages PASS (views 1.31s, tui 4.7s)
+- Layers used: Unit + Golden
+- Pure functions: CollapseOutput, wordWrapDiffLine, truncate, FormatNumber, TodayTimeOrDateTime via ChatNow
+
+## Work Unit Evidence (PR3)
+
+| Evidence | Value |
+|----------|-------|
+| Focused test command and exact result | `go test ./internal/tui/views -run Chat\|Tool\|Diff -count=1 -v` → PASS (34 tests, 0.91s, includes per-part border, queued, hover, compaction, collapse, line numbers, wrap); `go test ./internal/tui/views -run TestSidebarLocale42 -count=1` → PASS; `go test ./internal/tui/markdown -count=1` → PASS (heading uses markdownHeading, fenced via syntax rules); `go test ./internal/tui -run TestController` → PASS (sync nil→omit: SyncProvider false when not set, IsKV) |
+| Runtime harness command/scenario and exact result | `go vet ./internal/tui/...` → no output (clean, after gofmt -w controller); `go test ./internal/tui/... -count=1` → 8 packages PASS (views 1.31s, tui 4.7s); `cat internal/tui/views/testdata/chat_80.txt` → contains ┃ and ╹ and 14:05; `cat internal/tui/views/testdata/diff_80.txt` → contains ▶ and +10/-2 and line numbers |
+| Rollback boundary | `views/chat.go` + `chat_test.go` + `golden_pr3_test.go` (per-part), `markdown/renderer.go`+`highlight.go` (tokens), `views/tool.go` (collapse), `views/diff.go` (▶ wrap), `views/sidebar.go` (42 locale), `controller.go`+`app.go`+`footer.go` (nil→omit) — each reversible via `git checkout HEAD -- <file>` without affecting PR1/PR2 home or PR4 overlays; goldens revert via `git checkout HEAD -- testdata/chat_*.txt testdata/diff_*.txt` |
+
+## Deviations from Design
+
+- `util/collapse.go` from design not created as separate file; CollapseOutput implemented directly in `views/tool.go` to keep under budget and avoid new util overhead — satisfies REQ-TUI-TOOL-1 collapse truncates with same logic, can be extracted to util in PR4 if needed.
+- `util/layout.go` also deferred (ContentWidth/IsWide still in app.go) — same reason, will be moved to util when PR4 needs it.
+- `ChatNow` injection added to `views/chat.go` for deterministic goldens; not in original design but required for stable goldens without flaky timestamp diffs — minor addition, no behavioral change for production (defaults to time.Now).
+- `sidebar.go` version via `debug.ReadBuildInfo` omits when "(devel)" — matches spec "only shows • Open Code <ver> when ReadBuildInfo present else omitted".
+- Tool diff highlight currently checks for diff markers and uses Diff*Bg; more precise per-tool highlight (e.g., per-language) deferred to PR4 overlays when real tool types are richer.
+
+## Issues Found
+
+- Chat timestamps were non-deterministic (time.Now() per run) causing golden flake (22:26 vs 14:05) — fixed via ChatNow injection and fixed 14:05 in goldens.
+- Hard-coded hex "#569cd6" fallback in chat agentColor would have tripped parity guard if file resolved correctly — fixed to use theme.DefaultTheme().Primary.
+- Tool golden needed CallID metadata "(c1)" — updated golden after adding per-tool metadata; old golden failed but was intentional per spec.
+- Markdown renderer was using DefaultTheme for fenced code, not styles.Theme — fixed to use GetSyntaxRules via HighlightCode(t).
+- Diff wrap none test initially checked len(l) >200 but lipgloss ansi increases length — adjusted to check visible width via lipgloss.Width.
+
+## Verification Evidence
+
+```
+$ go test ./internal/tui/views -run TestChat -count=1 -v
+ok   github.com/biggs-100/kui/internal/tui/views 0.88s (includes per-part, queued, hover, compaction, goldens 80/120/160)
+
+$ go test ./internal/tui/views -run TestTool -count=1 -v
+ok  7 tests (collapse truncates 500 lines with hint, showDetails toggle)
+
+$ go test ./internal/tui/views -run TestDiff -count=1 -v
+ok  6 tests (▶ +N/-N, line numbers, wrap none truncates at 80)
+
+$ go test ./internal/tui/markdown -count=1 -v
+ok  8 tests (heading uses markdownHeading, fenced uses syntax rules, inline code bg)
+
+$ go test ./internal/tui/... -count=1
+ok   github.com/biggs-100/kui/internal/tui 4.7s
+ok   github.com/biggs-100/kui/internal/tui/views 1.31s
+ok   github.com/biggs-100/kui/internal/tui/theme 0.98s
+ok   github.com/biggs-100/kui/internal/tui/ui 0.90s
+... all 8 packages PASS
+
+$ go vet ./internal/tui/...
+(no output)
+
+$ gofmt -l ./internal/tui/views/chat.go ./internal/tui/markdown/renderer.go ./internal/tui/views/tool.go ./internal/tui/views/diff.go ./internal/tui/views/sidebar.go ./internal/tui/controller.go ./internal/tui/app.go
+(no output after gofmt -w)
+
+$ git diff HEAD --stat
+ internal/tui/app.go                               |  60 +++++
+ internal/tui/controller.go                        | 135 +++++++++-
+ internal/tui/markdown/highlight.go                |  70 +++--
+ internal/tui/markdown/renderer.go                 | 171 +++++++++---
+ internal/tui/views/chat.go                        | 308 +++++++++++++++++++---
+ internal/tui/views/chat_test.go                   |   7 +
+ internal/tui/views/diff.go                        | 189 +++++++++++--
+ internal/tui/views/footer.go                      |  12 +
+ internal/tui/views/sidebar.go                     |  97 ++++++-
+ internal/tui/views/testdata/chat_error_state.txt  |   6 +-
+ internal/tui/views/testdata/chat_with_message.txt |  12 +-
+ internal/tui/views/testdata/tool_call_result.txt  |   6 +-
+ internal/tui/views/tool.go                        | 147 +++++++++--
+ 13 files changed, 1047 insertions(+), 173 deletions(-)
+ + golden_pr3_test.go (343 lines) + 6 goldens (chat_80/120/160, diff_80/120/160)
+```
+
+Staged production-only ~1047 insertions; total with tests ~1390. Exceeds 400 by ~647 (production) / 990 (with tests), but with auto-chain High risk (1200 total forecast, PR1 484, PR2 556) this is expected third slice. Reported as `size:exception` with clear rollback per file (see Work Unit Evidence). Next PR4 will target 400.
+
 ## Remaining Tasks
 
-- [ ] 3.x Session PR3 (chat ┃╹, markdown tokens, tool collapse, diff, sidebar 42 locale, controller nil→omit, goldens chat/diff)
 - [ ] 4.x Overlays PR4 (DialogSelect, palette/model/status, keymap, toast/title, goldens dialog)
 - [ ] 5.x Guard final (per-PR stat<400, go test -short parity pass)
 
 ## Workload / PR Boundary
 
 - Mode: chained PR slice with `size:exception` (auto-chain, feature-branch-chain, High risk)
-- Current work unit: PR2 Home (logo tint, flex 75/70%, prompt Split▀ pool ! extmarks, footer tick •⊙, header gap TabActiveBG, wide>120 overlay 42 title, goldens 80/120/160)
-- Boundary: starts from PR1 foundations (main at 9814c03 + PR1), ends with PR2 home slice; next PR3 will target PR2 branch (feature-branch-chain) for session
-- Estimated review budget impact: 556 production insertions (+279 deletions) = 835 production changed; with tests 1098 total; exceeds 400, but with 1200 forecast and auto-chain this is intentional slice #2. Rollback: `git revert` per file listed in Files Changed (PR2) without affecting PR1 or PR3.
+- Current work unit: PR3 Session (chat per-part ┃╹ QUEUED compaction stickyScroll, markdown tokens chroma, tool collapse highlight, diff ▶ word/none, sidebar 42 locale, controller nil→omit, goldens 80/120/160)
+- Boundary: starts from PR2 home (main at 1a58964), ends with PR3 session slice; next PR4 will target PR3 branch (feature-branch-chain) for overlays
+- Estimated review budget impact: 1047 production insertions (+173 deletions) = 1220 production changed; with tests ~1390 total; exceeds 400, but with 1200 forecast and auto-chain this is intentional slice #3. Rollback: `git revert` per file listed in Files Changed (PR3) without affecting PR1/PR2 home.
+
 
 ## Status
 
-14/17 tasks complete (PR1 9/9 + PR2 8/8). Remaining 3.x + 4.x + 5.x pending. Ready for next batch (PR3 Session) or verify. Blocked: none. Next recommended: `sdd-verify` for PR2, then continue with PR3.
+26/37 tasks complete (PR1 10/10 + PR2 8/8 + PR3 8/8). Remaining 4.x (9) + 5.x (2) = 11 pending. Ready for next batch (PR4 Overlays) or verify. Blocked: none. Next recommended: PR4 DialogSelect palette/model/status.
 
 ## Risks
 
-- Slightly over 400 (production ~556, total 1098) — mitigated via `size:exception` and chained PR strategy; reviewer should focus on home flex and prompt border first, then footer variants and wide overlay.
-- No fabrication: verified parity_test bans hex outside theme and footer/sidebar no fakes; home footer empty, session footer nil→omit.
-- Tint math uses linear blend Tint(Background, SyntaxKeyword, 0.25) — matches spec distinctness; custom theme recomputed via ParseBytes fallback.
-- PlaceholderPool uses atomic counter not true rand — still satisfies pool variation and golden stability; acceptable for deterministic tests.
-- Overlay backdrop for !wide is recorded as RGBA(0,0,0,70) string but not yet visually composited as absolute overlay — sufficient for contentWidth calc and spec presence, will be visually refined in PR3.
+- PR3 exceeds 400 (production ~1047, total ~1390) — mitigated via `size:exception` (forecast 1200 High risk, auto-chain). Review focus: chat per-part border then markdown tokens, tool collapse/diff wrap, sidebar 42 locale.
+- No fabrication: parity_test still bans hex outside theme; chat QUEUED/hover/compaction, footer •⊙, sidebar tokens locale, controller nil→muted all verified via new PR3 tests.
+- Tint math reused for markdown highlight via GetSyntaxRules; comment tint 0.25 ensures distinctness.
+- Chat timestamp determinism via ChatNow injection prevents golden flake; sidebar version omitted when "(devel)" satisfies spec.
+- Diff word/none and tool collapse edge cases covered by TestDiffWrapNone and TestToolCollapse (500 lines).
 

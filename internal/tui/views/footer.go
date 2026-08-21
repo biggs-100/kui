@@ -67,11 +67,23 @@ func (m *FooterModel) SetLSP(count int) {
 	m.connected = true
 }
 
+// ClearLSP clears LSP to nil (muted NotAvailable) but keeps connected.
+func (m *FooterModel) ClearLSP() {
+	m.hasLSP = false
+	m.lspCount = 0
+}
+
 // SetMCP sets MCP count and marks as connected.
 func (m *FooterModel) SetMCP(count int) {
 	m.hasMCP = true
 	m.mcpCount = count
 	m.connected = true
+}
+
+// ClearMCP clears MCP to nil (muted).
+func (m *FooterModel) ClearMCP() {
+	m.hasMCP = false
+	m.mcpCount = 0
 }
 
 // SetPerm sets permission count (△).

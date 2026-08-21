@@ -54,14 +54,14 @@ Chain tracker `feat/tui-opencode-full-parity` draft PR1→tracker PR2→PR1 PR3�
 
 ## Phase 3: Session PR3
 
-- [ ] 3.1 `internal/tui/views/chat.go` Part ┃╹ QUEUED [REQ-TUI-CHAT-2] 1.6-M
-- [ ] 3.2 `internal/tui/markdown/renderer.go` tokens chroma [REQ-TUI-CHAT-4] 1.2-S
-- [ ] 3.3 `internal/tui/views/tool.go` Collapse highlight [REQ-TUI-TOOL-1] 1.8-S
-- [ ] 3.4 `internal/tui/views/diff.go` ▶ +N/-N word/none [REQ-TUI-TOOL-3] 1.6-S
-- [ ] 3.5 `internal/tui/views/sidebar.go` 42 locale [REQ-TUI-APP-2] 1.8-S
-- [ ] 3.6 `internal/tui/controller.go` nil→omit kv 2.4-S
-- [ ] 3.7 goldens `testdata/chat_*.txt` `diff_*.txt` S
-- [ ] 3.8 verify `go test Chat|Tool|Diff` `go vet`
+- [x] 3.1 `internal/tui/views/chat.go` Part ┃╹ QUEUED [REQ-TUI-CHAT-2] 1.6-M
+- [x] 3.2 `internal/tui/markdown/renderer.go` tokens chroma [REQ-TUI-CHAT-4] 1.2-S
+- [x] 3.3 `internal/tui/views/tool.go` Collapse highlight [REQ-TUI-TOOL-1] 1.8-S
+- [x] 3.4 `internal/tui/views/diff.go` ▶ +N/-N word/none [REQ-TUI-TOOL-3] 1.6-S
+- [x] 3.5 `internal/tui/views/sidebar.go` 42 locale [REQ-TUI-APP-2] 1.8-S
+- [x] 3.6 `internal/tui/controller.go` nil→omit kv 2.4-S
+- [x] 3.7 goldens `testdata/chat_*.txt` `diff_*.txt` S
+- [x] 3.8 verify `go test Chat|Tool|Diff` `go vet`
 
 ## Phase 4: Overlays PR4
 

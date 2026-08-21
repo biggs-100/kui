@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/biggs-100/kui/internal/core"
 )
@@ -47,6 +48,9 @@ func TestChatStreamError(t *testing.T) {
 }
 
 func TestChatGoldenDefault(t *testing.T) {
+	orig := ChatNow
+	ChatNow = func() time.Time { return time.Date(2026, 8, 20, 14, 5, 0, 0, time.Local) }
+	defer func() { ChatNow = orig }()
 	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "What is 2+2?", "coder", "gpt-4")
 	m.AppendChunk("4")
@@ -73,6 +77,9 @@ func TestChatGoldenDefault(t *testing.T) {
 }
 
 func TestChatGoldenError(t *testing.T) {
+	orig := ChatNow
+	ChatNow = func() time.Time { return time.Date(2026, 8, 20, 14, 5, 0, 0, time.Local) }
+	defer func() { ChatNow = orig }()
 	m := NewChatModel(testStyles())
 	m.AppendMessage("user", "Hello", "coder", "gpt-4")
 	m.SetError("stream failed")

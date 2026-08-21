@@ -81,6 +81,12 @@ type Controller struct {
 	cancel  context.CancelFunc
 	runDone chan struct{}
 
+	// sync.data provider/mcp/lsp with nil→muted NotAvailable (PR3)
+	syncProvider *string
+	syncMCP      *int
+	syncLSP      *int
+	kv           map[string]string
+
 	mu sync.Mutex
 }
 
@@ -93,9 +99,9 @@ type modelPrice struct {
 // defaultModelPricing returns hardcoded pricing for known models (USD per token).
 func defaultModelPricing() map[string]modelPrice {
 	return map[string]modelPrice{
-		"gpt-4":    {inputPerToken: 30.0 / 1_000_000, outputPerToken: 60.0 / 1_000_000},
-		"gpt-4o":   {inputPerToken: 2.5 / 1_000_000, outputPerToken: 10.0 / 1_000_000},
-		"gpt-4o-mini": {inputPerToken: 0.15 / 1_000_000, outputPerToken: 0.6 / 1_000_000},
+		"gpt-4":             {inputPerToken: 30.0 / 1_000_000, outputPerToken: 60.0 / 1_000_000},
+		"gpt-4o":            {inputPerToken: 2.5 / 1_000_000, outputPerToken: 10.0 / 1_000_000},
+		"gpt-4o-mini":       {inputPerToken: 0.15 / 1_000_000, outputPerToken: 0.6 / 1_000_000},
 		"claude-3.5-sonnet": {inputPerToken: 3.0 / 1_000_000, outputPerToken: 15.0 / 1_000_000},
 	}
 }
@@ -109,14 +115,15 @@ func NewController(profiles []string, runner Runner, resolver ModelResolver) *Co
 		profiles = []string{""}
 	}
 	return &Controller{
-		runner:       runner,
-		resolver:     resolver,
-		profiles:     profiles,
-		active:       0,
-		events:       make(chan any, 64),
-		eventsBuf:    64,
+		runner:        runner,
+		resolver:      resolver,
+		profiles:      profiles,
+		active:        0,
+		events:        make(chan any, 64),
+		eventsBuf:     64,
 		contextWindow: 128000,
-		modelPricing: defaultModelPricing(),
+		modelPricing:  defaultModelPricing(),
+		kv:            make(map[string]string),
 	}
 }
 
@@ -685,6 +692,120 @@ func (c *Controller) DispatchLsp(toolName string, args map[string]interface{}) (
 		return "", fmt.Errorf("lsp dispatch not configured")
 	}
 	return fn(toolName, args)
+}
+
+// ── SyncData nil→omit KV wiring (PR3) ─────────────────────────────────────
+
+// SetSyncProvider sets provider name; empty clears to nil (muted NotAvailable).
+func (c *Controller) SetSyncProvider(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if name == "" {
+		c.syncProvider = nil
+		return
+	}
+	v := name
+	c.syncProvider = &v
+}
+
+// SyncProvider returns provider and whether it is present (nil→muted).
+func (c *Controller) SyncProvider() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.syncProvider == nil {
+		return "", false
+	}
+	return *c.syncProvider, true
+}
+
+// SetSyncMCP sets MCP count (nil→muted when not called).
+func (c *Controller) SetSyncMCP(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v := n
+	c.syncMCP = &v
+}
+
+// ClearSyncMCP clears MCP to nil (muted).
+func (c *Controller) ClearSyncMCP() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.syncMCP = nil
+}
+
+// SyncMCP returns MCP count and presence.
+func (c *Controller) SyncMCP() (int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.syncMCP == nil {
+		return 0, false
+	}
+	return *c.syncMCP, true
+}
+
+// SetSyncLSP sets LSP count.
+func (c *Controller) SetSyncLSP(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v := n
+	c.syncLSP = &v
+}
+
+// ClearSyncLSP clears LSP to nil.
+func (c *Controller) ClearSyncLSP() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.syncLSP = nil
+}
+
+// SyncLSP returns LSP count and presence.
+func (c *Controller) SyncLSP() (int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.syncLSP == nil {
+		return 0, false
+	}
+	return *c.syncLSP, true
+}
+
+// SetKV sets a kv store signal (e.g. collapseToolOutput, showDetails, diff_wrap_mode).
+func (c *Controller) SetKV(key, value string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.kv == nil {
+		c.kv = make(map[string]string)
+	}
+	c.kv[key] = value
+}
+
+// GetKV returns kv value and presence.
+func (c *Controller) GetKV(key string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.kv == nil {
+		return "", false
+	}
+	v, ok := c.kv[key]
+	return v, ok
+}
+
+// IsKV reports whether kv key is truthy (1/true/yes).
+func (c *Controller) IsKV(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.kv == nil {
+		return false
+	}
+	v, ok := c.kv[key]
+	if !ok {
+		return false
+	}
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // Reload triggers a cancel-and-wait hot-reload (REQ-RELOAD-6/7/8). It

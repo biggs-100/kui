@@ -1,0 +1,14 @@
+╭────────────────────────────────╮
+│ CHANGED FILES                  │
+│                                │
+│ ▶ M main.go +10,-2             │
+│   A helper.go +5,-0            │
+│                                │
+│ main.go                        │
+│ @@ -10,7 +10,8 @@              │
+│   10  10  package main         │
+│   11     -fmt.Println("hello") │
+│       11 +fmt.Println("world") │
+│       12 +fmt.Println("done")  │
+│   12  13  }                    │
+╰────────────────────────────────╯

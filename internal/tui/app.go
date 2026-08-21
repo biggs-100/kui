@@ -891,6 +891,16 @@ func (a *App) View() string {
 		sb.SetCost(a.ctrl.Cost())
 		sb.SetProfile(a.ctrl.ActiveProfile())
 		sb.SetModel(a.ctrl.ModelName())
+		// 42 locale header: title+sessionID+workspace, footer version via buildinfo
+		if t, ok := a.ctrl.GetKV("sidebar_title"); ok && t != "" {
+			sb.SetTitle(t)
+		} else {
+			sb.SetTitle(a.ctrl.ActiveProfile())
+		}
+		sb.SetSessionID(a.ctrl.SessionID())
+		if ws, ok := a.ctrl.GetKV("workspace"); ok {
+			sb.SetWorkspace(ws)
+		}
 		sideWidth := 42
 		mainWidth := a.ContentWidth()
 		sidebarStr := sb.View(sideWidth)
@@ -939,6 +949,15 @@ func (a *App) View() string {
 			sb.SetCost(a.ctrl.Cost())
 			sb.SetProfile(a.ctrl.ActiveProfile())
 			sb.SetModel(a.ctrl.ModelName())
+			if t, ok := a.ctrl.GetKV("sidebar_title"); ok && t != "" {
+				sb.SetTitle(t)
+			} else {
+				sb.SetTitle(a.ctrl.ActiveProfile())
+			}
+			sb.SetSessionID(a.ctrl.SessionID())
+			if ws, ok := a.ctrl.GetKV("workspace"); ok {
+				sb.SetWorkspace(ws)
+			}
 			sideWidth := 42
 			_ = sideWidth
 			overlayBackdrop := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)")).Width(a.width).Height(a.height).Render("")
@@ -1038,6 +1057,47 @@ func (a *App) rebuildViews() {
 	a.footer.SetModel(a.ctrl.ModelName())
 	a.footer.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
 	a.footer.SetCost(a.ctrl.Cost())
+	// Wire sync.data.provider/mcp/lsp with nil→muted NotAvailable (PR3)
+	if lsp, ok := a.ctrl.SyncLSP(); ok {
+		a.footer.SetLSP(lsp)
+	} else {
+		// keep connected state but show muted when sync absent and connected
+		if _, okP := a.ctrl.SyncProvider(); okP {
+			a.footer.SetConnected(true)
+			a.footer.ClearLSP()
+		} else if _, okM := a.ctrl.SyncMCP(); okM {
+			a.footer.SetConnected(true)
+			a.footer.ClearLSP()
+		}
+	}
+	if mcp, ok := a.ctrl.SyncMCP(); ok {
+		a.footer.SetMCP(mcp)
+	} else {
+		if _, okP := a.ctrl.SyncProvider(); okP {
+			a.footer.SetConnected(true)
+			a.footer.ClearMCP()
+		} else if _, okL := a.ctrl.SyncLSP(); okL {
+			a.footer.SetConnected(true)
+			a.footer.ClearMCP()
+		}
+	}
+	// KV signals for tool/diff
+	if a.ctrl.IsKV("collapseToolOutput") {
+		a.tool.SetCollapse(true)
+	} else {
+		// check explicit false
+		if v, ok := a.ctrl.GetKV("collapseToolOutput"); ok && v == "0" {
+			a.tool.SetCollapse(false)
+		}
+	}
+	if v, ok := a.ctrl.GetKV("showDetails"); ok {
+		a.tool.SetShowDetails(v != "0" && v != "false")
+	}
+	if v, ok := a.ctrl.GetKV("diff_wrap_mode"); ok {
+		a.diff.SetWrapMode(v)
+	}
+	a.diff.SetWidth(a.width)
+	a.chat.SetWidth(a.width)
 
 	// Update home view in-place
 	if a.homeView.IsZero() {
