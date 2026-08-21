@@ -36,6 +36,18 @@ func Tint(bg, fg string, a float64) string {
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
+// BackgroundSequence returns the raw SGR sequence that sets an RGB
+// background from a hex color ("#rrggbb"), or "" when the hex is invalid.
+// Callers composing frames by hand use it to paint space runs without going
+// through lipgloss style wrapping.
+func BackgroundSequence(hex string) string {
+	r, g, b, ok := parseHex(hex)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+}
+
 // GetSyntaxRules returns a map from token type to theme color.
 func GetSyntaxRules(t *Theme) map[string]string {
 	if t == nil {

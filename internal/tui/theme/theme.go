@@ -218,8 +218,7 @@ func DefaultTheme() *Theme {
 }
 
 // ParseBytes parses a theme from JSON bytes.
-func ParseBytes(data []byte) (*Theme, error) {
-	var t Theme
+func ParseBytes(data []byte) (*Theme, error) {	var t Theme
 	if err := json.Unmarshal(data, &t); err != nil {
 		return nil, fmt.Errorf("parse theme JSON: %w", err)
 	}

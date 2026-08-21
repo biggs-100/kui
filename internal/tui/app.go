@@ -1292,7 +1292,122 @@ func (a *App) View() string {
 		frame = strings.Join(rows, "\n")
 	}
 
-	return titleSeq + fitFrame(frame, a.height)
+	return titleSeq + a.paintCanvas(fitFrame(frame, a.height))
+}
+
+// paintCanvas gives the frame a full-terminal painted surface, mirroring the
+// upstream root <box width={terminal} height={terminal}
+// backgroundColor={theme.background}> that wraps everything: one big painted
+// canvas containing nested fills. Two passes per row: (1) every run of bare
+// spaces left transparent by joiners/centering/padders gets wrapped in the
+// background sequence — internal SGR resets would otherwise let the terminal
+// default show through mid-row; (2) short rows are extended to full width.
+func (a *App) paintCanvas(frame string) string {
+	t := a.styles.Theme
+	if t == nil {
+		return frame
+	}
+	bg := t.Background
+	if bg == "" {
+		bg = t.BG
+	}
+	seq := theme.BackgroundSequence(bg)
+	if seq == "" {
+		return frame
+	}
+	rows := strings.Split(frame, "\n")
+	for i, r := range rows {
+		r = paintRowCanvas(r, seq)
+		if gap := a.width - lipgloss.Width(r); gap > 0 {
+			r += seq + strings.Repeat(" ", gap) + "\x1b[0m"
+		}
+		rows[i] = r
+	}
+	return strings.Join(rows, "\n")
+}
+
+// paintRowCanvas walks an ANSI row and wraps EVERY maximal run of bytes that
+// sits outside an active background — bare spaces AND foreground-only
+// glyphs — in its own background run. After this pass every visible cell of
+// the row is explicitly painted, matching the upstream root-box guarantee
+// that no terminal-default cell ever shows through.
+func paintRowCanvas(row, seq string) string {
+	var b strings.Builder
+	i := 0
+	bgActive := false
+	runStart := -1
+
+	flush := func(end int) {
+		if runStart < 0 {
+			return
+		}
+		b.WriteString(seq)
+		b.WriteString(row[runStart:end])
+		b.WriteString("\x1b[0m")
+		runStart = -1
+	}
+
+	for i < len(row) {
+		if row[i] == 0x1b {
+			flush(i)
+			end := strings.IndexByte(row[i:], 'm')
+			if end < 0 {
+				b.WriteString(row[i:])
+				return b.String()
+			}
+			seqText := row[i : i+end+1]
+			b.WriteString(seqText)
+			bgActive = sgrSetsOrKeepsBG(seqText, bgActive)
+			i += end + 1
+			continue
+		}
+		if bgActive {
+			size := runeSize(row, i)
+			b.WriteString(row[i : i+size])
+			i += size
+			continue
+		}
+		if runStart < 0 {
+			runStart = i
+		}
+		i++
+	}
+	flush(len(row))
+	return b.String()
+}
+
+func runeSize(s string, i int) int {
+	size := 1
+	for i+size < len(s) && s[i+size]&0xC0 == 0x80 {
+		size++
+	}
+	return size
+}
+
+// sgrSetsOrKeepsBG parses an SGR sequence and reports the resulting
+// background-active state given the previous one.
+func sgrSetsOrKeepsBG(seqText string, cur bool) bool {
+	params := strings.Split(strings.TrimSuffix(strings.TrimPrefix(seqText, "\x1b["), "m"), ";")
+	hasReset := false
+	bgSet := false
+	for _, p := range params {
+		switch p {
+		case "0", "":
+			hasReset = true
+		case "49":
+			bgSet = false
+			hasReset = false
+		case "48", "7":
+			bgSet = true
+		}
+	}
+	if len(params) == 1 && hasReset {
+		return false
+	}
+	if bgSet {
+		return true
+	}
+	return cur && !hasReset
 }
 
 // newSidebarModel builds the sidebar model from live controller state (shared
@@ -1460,7 +1575,7 @@ func (a *App) renderHome() string {
 	b.WriteString("\n")
 	b.WriteString(homeFooterStr)
 
-	return fitFrame(b.String(), a.height)
+	return a.paintCanvas(fitFrame(b.String(), a.height))
 }
 
 // rebuildViews synchronizes the view models with the controller state.
