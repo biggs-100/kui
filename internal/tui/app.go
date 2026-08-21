@@ -12,6 +12,7 @@ import (
 	"github.com/biggs-100/kui/internal/tui/keymap"
 	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/biggs-100/kui/internal/tui/toast"
+	"github.com/biggs-100/kui/internal/tui/ui"
 	"github.com/biggs-100/kui/internal/tui/views"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -1010,10 +1011,55 @@ func (a *App) View() string {
 		mainStr = a.chat.Render()
 	}
 
-	// Input: full bordered prompt box pinned above the footer (opencode style)
+	// Input area: OpenCode-style raised field — a left ┃ bar tinted toward
+	// the primary accent over an element-fill panel, a meta row (profile ·
+	// model) inside the same fill, and a half-block fade-out row beneath so
+	// the field reads as fading into the background instead of ending.
 	inputInner := a.input.View()
-	inputBar := a.styles.PromptBox.Copy().Width(mainWidth - 2).Render(inputInner)
-	inputLine := inputBar
+	barColor := a.styles.Theme.Border
+	if barColor != "" && a.styles.Theme.Primary != "" {
+		barColor = theme.Tint(a.styles.Theme.Border, a.styles.Theme.Primary, 0.55)
+	}
+	fieldStyle := lipgloss.NewStyle().
+		Border(ui.SplitBorder).
+		BorderForeground(lipgloss.Color(barColor)).
+		BorderBottom(false).
+		Background(lipgloss.Color(a.styles.Theme.BackgroundElement)).
+		Padding(1, 2, 0, 2).
+		Width(mainWidth - 4)
+	field := fieldStyle.Render(inputInner)
+
+	var metaLine string
+	if profile := a.ctrl.ActiveProfile(); profile != "" {
+		name := lipgloss.NewStyle().Bold(true).
+			Foreground(lipgloss.Color(a.styles.Theme.Primary)).Render(profile)
+		model := a.ctrl.ModelName()
+		dot := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(a.styles.Theme.TextMuted)).Render(" · ")
+		var modelName string
+		if model != "" {
+			modelName = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(a.styles.Theme.Text)).Render(model)
+		}
+		metaLine = name + dot + modelName
+	}
+	metaRow := ""
+	if metaLine != "" {
+		metaRow = lipgloss.NewStyle().
+			Background(lipgloss.Color(a.styles.Theme.BackgroundElement)).
+			Padding(0, 2).
+			Width(mainWidth - 4).
+			Render(metaLine)
+	}
+	fade := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render("╹") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color(a.styles.Theme.BackgroundElement)).
+			Render(strings.Repeat("▀", max(0, mainWidth-2)))
+
+	inputLine := field
+	if metaRow != "" {
+		inputLine += "\n" + metaRow
+	}
+	inputLine += "\n" + fade
 
 	// Autocomplete popup: floats OVER the conversation just above the
 	// prompt box instead of occupying its own budget slot.

@@ -23,8 +23,8 @@ start a conversation...                 coder
                                                                                 
                                                                                 
                                                                                 
-                                                                                
-╭─────────────────────────────────────                                          
-│ Ask kui...                                                                    
-╰─────────────────────────────────────  ~/dev-biggz/kui                         
+┃                                                                               
+┃  Ask kui...                                                                   
+  coder ·                                                                       
+╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  ~/dev-biggz/kui                         
 Get started                                                                     

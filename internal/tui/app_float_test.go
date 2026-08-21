@@ -8,11 +8,12 @@ import (
 	"github.com/biggs-100/kui/internal/tui/toast"
 )
 
-// TestPromptBoxBorderedPinnedBottom proves REQ-TUI-APP-2 "pinned prompt":
-// GIVEN a session at 100x30 WHEN the frame renders THEN the input is a
-// bordered box (rounded corners) occupying exactly three rows directly
-// above the footer row, regardless of conversation content.
-func TestPromptBoxBorderedPinnedBottom(t *testing.T) {
+// TestPromptFieldPinnedBottom proves REQ-TUI-APP-2 "pinned prompt":
+// GIVEN a session at 100x30 WHEN the frame renders THEN the input renders as
+// the OpenCode-style raised field — a left ┃ bar over an element fill with a
+// meta row inside and a half-block fade-out beneath — occupying exactly four
+// rows directly above the footer row, regardless of conversation content.
+func TestPromptFieldPinnedBottom(t *testing.T) {
 	const (
 		width  = 100
 		height = 30
@@ -23,14 +24,17 @@ func TestPromptBoxBorderedPinnedBottom(t *testing.T) {
 	if len(rows) != height {
 		t.Fatalf("frame has %d rows, want exactly %d", len(rows), height)
 	}
-	if !strings.Contains(rows[height-4], "╭") {
-		t.Errorf("input box top border missing on row %d: %q", height-4, rows[height-4])
+	if !strings.Contains(rows[height-5], "┃") {
+		t.Errorf("input field bar missing on row %d: %q", height-5, rows[height-5])
 	}
-	if !strings.Contains(rows[height-3], "Ask kui") {
-		t.Errorf("prompt line missing on row %d: %q", height-3, rows[height-3])
+	if !strings.Contains(rows[height-4], "Ask kui") {
+		t.Errorf("prompt line missing on row %d: %q", height-4, rows[height-4])
 	}
-	if !strings.Contains(rows[height-2], "╰") {
-		t.Errorf("input box bottom border missing on row %d: %q", height-2, rows[height-2])
+	if !strings.Contains(rows[height-3], "coder") {
+		t.Errorf("meta row with active profile missing on row %d: %q", height-3, rows[height-3])
+	}
+	if !strings.Contains(rows[height-2], "▀") {
+		t.Errorf("fade-out row missing on row %d: %q", height-2, rows[height-2])
 	}
 	if !strings.Contains(rows[height-1], "Get started") {
 		t.Errorf("footer not pinned to last row %d: %q", height-1, rows[height-1])
@@ -54,8 +58,8 @@ func TestAutocompletePopupFloatsOverConversation(t *testing.T) {
 	if len(rows) != height {
 		t.Fatalf("frame has %d rows with popup open, want exactly %d", len(rows), height)
 	}
-	if !strings.Contains(rows[height-3], "Ask kui") {
-		t.Errorf("prompt must stay pinned while popup is open, row %d: %q", height-3, rows[height-3])
+	if !strings.Contains(rows[height-4], "Ask kui") {
+		t.Errorf("prompt must stay pinned while popup is open, row %d: %q", height-4, rows[height-4])
 	}
 	if !strings.Contains(dump, "/") {
 		t.Errorf("popup content should be visible in the frame")
@@ -89,9 +93,9 @@ func TestToastFloatsAboveInputWithoutShiftingRows(t *testing.T) {
 	if toastRow < 0 {
 		t.Fatalf("toast text should be visible in the frame:\n%s", dump)
 	}
-	inputRow := height - 3
+	inputRow := height - 4
 	if toastRow >= inputRow-1 && toastRow <= inputRow+1 {
-		t.Errorf("toast should float above the prompt box, found on row %d (input at %d)", toastRow, inputRow)
+		t.Errorf("toast should float above the prompt field, found on row %d (input at %d)", toastRow, inputRow)
 	}
 	if !strings.Contains(rows[inputRow], "Ask kui") {
 		t.Errorf("prompt must stay pinned while toast is shown, row %d: %q", inputRow, rows[inputRow])
