@@ -98,6 +98,10 @@ type App struct {
 	// lastEsc tracks the previous Esc press for the double-Esc interrupt.
 	lastEsc time.Time
 
+	// cachedDiffs holds the last known real working-tree changes for the
+	// rail Files section; refreshed on the periodic tick and after turns.
+	cachedDiffs []views.ModifiedFile
+
 	// status dialog
 	statusModel *views.DialogStatusModel
 	statusMode  bool
@@ -204,6 +208,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.chat.SetError(msg.err.Error())
 		}
 		a.ctrl.TrackUsage(msg.usage)
+		a.refreshDiffs()
 		a.rebuildViews()
 		return a, nil
 
@@ -222,6 +227,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case footerTickMsg:
 		a.footer.Tick()
+		a.refreshDiffs()
 		return a, scheduleFooterTick()
 
 	case reloadStartMsg:
@@ -991,6 +997,49 @@ func (a *App) handleSessionsCommand() {
 	}
 }
 
+// renderScrollbar draws the 1-column conversation scrollbar: an
+// element-fill track with a border-colored thumb, positioned by scroll
+// fraction (upstream scrollbox styling). Empty string when unusable.
+func (a *App) renderScrollbar(height, offset, contentH int) string {
+	if height < 1 || contentH <= 0 {
+		return ""
+	}
+	trackBg := a.styles.Theme.BackgroundElement
+	if trackBg == "" {
+		return ""
+	}
+	track := lipgloss.NewStyle().Background(lipgloss.Color(trackBg)).Render(" ")
+	thumb := track
+	if fg := a.styles.Theme.Border; fg != "" {
+		thumb = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(fg)).
+			Background(lipgloss.Color(trackBg)).
+			Render("▌")
+	}
+
+	maxOffset := contentH - height
+	thumbLen := max(1, height*height/contentH)
+	pos := 0
+	if maxOffset > 0 {
+		pos = int(float64(offset) / float64(maxOffset) * float64(height-thumbLen))
+	}
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > height-thumbLen {
+		pos = height - thumbLen
+	}
+
+	rows := make([]string, height)
+	for j := range rows {
+		rows[j] = track
+		if j >= pos && j < pos+thumbLen {
+			rows[j] = thumb
+		}
+	}
+	return strings.Join(rows, "\n")
+}
+
 // shellDoneMsg carries the result of a real local "!"-shell execution.
 type shellDoneMsg struct {
 	script string
@@ -1026,6 +1075,29 @@ func (a *App) execShell(script string) tea.Cmd {
 		out, err := cmd.CombinedOutput()
 		return shellDoneMsg{script: script, output: string(out), err: err}
 	}
+}
+
+// refreshDiffs re-reads the real working-tree changes for the rail Files
+// section. Errors clear the list — an unreadable repo shows no fabricated
+// rows.
+func (a *App) refreshDiffs() {
+	wd, err := os.Getwd()
+	if err != nil {
+		a.cachedDiffs = nil
+		return
+	}
+	fileDiffs, err := git.DiffCommand(wd)
+	if err != nil {
+		a.cachedDiffs = nil
+		return
+	}
+	files := make([]views.ModifiedFile, 0, len(fileDiffs))
+	for _, f := range fileDiffs {
+		files = append(files, views.ModifiedFile{
+			Name: f.Path, Added: f.Additions, Removed: f.Deletions,
+		})
+	}
+	a.cachedDiffs = files
 }
 
 // handleResumeCommand loads a session and injects its history into the controller.
@@ -1220,14 +1292,29 @@ func (a *App) View() string {
 	// the bottom as content grows; a scrolled-up position is preserved.
 	wasAtBottom := a.vpContentHeight == 0 ||
 		a.scrollVP.YOffset+a.scrollVP.Height >= a.vpContentHeight
-	a.scrollVP.Width = mainWidth
+	// Scrollbar: shown only when the conversation overflows its slot, like
+	// the upstream scrollbox (1 track col + 1 gap col reserved while on).
+	contentLines := lipgloss.Height(mainStr)
+	showScroll := contentLines > chatH && chatH > 1
+	vpW := mainWidth
+	if showScroll {
+		vpW = mainWidth - 2
+	}
+	a.scrollVP.Width = vpW
 	a.scrollVP.Height = chatH
 	a.scrollVP.SetContent(mainStr)
-	a.vpContentHeight = lipgloss.Height(mainStr)
+	a.vpContentHeight = contentLines
 	if wasAtBottom {
 		a.scrollVP.GotoBottom()
 	}
 	mainStr = a.scrollVP.View()
+	if showScroll {
+		sb := a.renderScrollbar(chatH, a.scrollVP.YOffset, contentLines)
+		if sb != "" {
+			// Side-by-side join: the scrollbar is a COLUMN, never stacked.
+			mainStr = lipgloss.JoinHorizontal(lipgloss.Top, mainStr, sb)
+		}
+	}
 
 	buildPanel := func() string {
 		var mb strings.Builder
@@ -1477,6 +1564,7 @@ func (a *App) newSidebarModel() views.SidebarModel {
 		}
 		sb.SetMCPServers(rows)
 	}
+	sb.SetModifiedFiles(a.cachedDiffs)
 	return sb
 }
 
@@ -1673,6 +1761,7 @@ func (a *App) rebuildViews() {
 	}
 	a.diff.SetWidth(regionW)
 	a.chat.SetWidth(regionW)
+	a.tool.SetWidth(regionW)
 
 	// Update home view in-place
 	if a.homeView.IsZero() {

@@ -45,6 +45,20 @@ type SidebarModel struct {
 	subErr     int
 	subTasks   []SubTask
 	mcpServers []MCPServerState
+	modified   []ModifiedFile
+}
+
+// ModifiedFile is one real working-tree change: path plus +/- line counts.
+type ModifiedFile struct {
+	Name   string
+	Added  int
+	Removed int
+}
+
+// SetModifiedFiles feeds the Files section from real git state. Empty slice
+// → the section is omitted entirely.
+func (m *SidebarModel) SetModifiedFiles(files []ModifiedFile) {
+	m.modified = files
 }
 
 // NewSidebarModel creates a SidebarModel with theme styles.
@@ -344,6 +358,32 @@ func (m SidebarModel) viewBody(width int) string {
 	// the honest state is "disabled" (mirrors OpenCode's disabled rail line).
 	// Update when real LSP tracking lands; do not fabricate server rows.
 	section("LSP", []string{"LSPs are disabled"})
+
+	// Modified Files — real working-tree changes (git), refreshed by the app
+	// on its periodic tick. Empty → omitted, never fabricated.
+	if len(m.modified) > 0 {
+		addStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(m.styles.Theme.DiffAdded)).
+			Background(panelBg)
+		remStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(m.styles.Theme.DiffRemoved)).
+			Background(panelBg)
+		nameFg := m.styles.Theme.TextMuted
+		var fileLines []string
+		for _, f := range m.modified {
+			name := f.Name
+			if lipgloss.Width(name) > width-12 {
+				name = truncateSidebarLine(name, width-12)
+			}
+			row := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(nameFg)).
+				Background(panelBg).Render(name) + " " +
+				addStyle.Render(fmt.Sprintf("+%d", f.Added)) + " " +
+				remStyle.Render(fmt.Sprintf("-%d", f.Removed))
+			fileLines = append(fileLines, row)
+		}
+		section("Files", fileLines)
+	}
 
 	return strings.TrimSuffix(b.String(), "\n")
 }
