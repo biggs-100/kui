@@ -406,6 +406,17 @@ type toolResultMsg struct {
 // render. Bubble Tea re-renders after every delivered message.
 type bgChangedMsg struct{}
 
+// NotifyToolCall emits a REAL tool-call-start event so the TUI can show live
+// tool activity while the agent works.
+func (c *Controller) NotifyToolCall(callID, name string) {
+	c.emit(toolCallMsg{callID: callID, name: name})
+}
+
+// NotifyToolResult emits a REAL tool-result event with a bounded summary.
+func (c *Controller) NotifyToolResult(callID, result string) {
+	c.emit(toolResultMsg{callID: callID, result: result})
+}
+
 // ── Token & Cost Tracking ────────────────────────────────────────────────
 
 // TrackUsage accumulates token usage and recalculates session cost.

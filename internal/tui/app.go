@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/biggs-100/kui/internal/adapters/git"
 	"github.com/biggs-100/kui/internal/adapters/providers"
 	"github.com/biggs-100/kui/internal/credentials"
 	"github.com/biggs-100/kui/internal/tui/keymap"
@@ -141,10 +142,17 @@ func (a *App) Registry() *CommandRegistry {
 	return a.registry
 }
 
-// Init returns the initial command. The controller's event pump is started
-// externally (by Run) so Init returns nil.
+// Init returns the initial command: the footer tick drives the welcome
+// status cycle. The controller's event pump is started externally (by Run).
 func (a *App) Init() tea.Cmd {
-	return nil
+	return scheduleFooterTick()
+}
+
+// footerTickMsg advances the footer welcome cycle periodically.
+type footerTickMsg struct{}
+
+func scheduleFooterTick() tea.Cmd {
+	return tea.Tick(10*time.Second, func(time.Time) tea.Msg { return footerTickMsg{} })
 }
 
 // Update handles incoming messages: key events, window resize, and controller
@@ -197,6 +205,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Background subagent state changed; the sidebar re-reads the
 		// snapshot on the next View render — nothing else to do here.
 		return a, nil
+
+	case footerTickMsg:
+		a.footer.Tick()
+		return a, scheduleFooterTick()
 
 	case reloadStartMsg:
 		a.chat.SetStatus("reloading…")
@@ -418,6 +430,19 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyCtrlD:
 		a.diffVisible = !a.diffVisible
+		if a.diffVisible {
+			// Real working-tree diffs from the git adapter — the panel never
+			// opens empty on purpose.
+			wd, err := os.Getwd()
+			if err == nil {
+				diffs, derr := git.DiffCommand(wd)
+				if derr != nil {
+					a.chat.SetStatus("diff: " + derr.Error())
+				} else {
+					a.diff.SetDiffs(diffs)
+				}
+			}
+		}
 		return a, nil
 	}
 

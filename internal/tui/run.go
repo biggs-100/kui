@@ -2,9 +2,12 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -150,8 +153,18 @@ func Run(ctx context.Context, w Wiring) error {
 		}
 	}
 
+	// Tool activity telemetry: wrap every registered tool so the TUI can
+	// show REAL call/result events while the agent works. The hub binds to
+	// the controller after it is created; tools only execute during runs,
+	// which happen after the TUI is up.
+	hub := &toolHub{}
+	wrapped := core.NewRegistry()
+	for _, t := range full.List() {
+		_ = wrapped.Register(hub.wrap(t))
+	}
+
 	// Step 3: Build agent runtime.
-	manager := agent.NewManager(loader, full)
+	manager := agent.NewManager(loader, wrapped)
 
 	profileDir := ""
 	var skillsURLs []string
@@ -222,6 +235,17 @@ func Run(ctx context.Context, w Wiring) error {
 	})
 	bgMgr.SetOnChange(func() { ctrl.emit(bgChangedMsg{}) })
 	ctrl.SetMCPServers(mcpRows)
+	hub.bind(ctrl)
+
+	// Footer/status honesty: real MCP server count (nil→muted when none are
+	// configured) and the resolved model name so the prompt meta row shows
+	// the truth from the first frame instead of staying blank.
+	if len(mcpRows) > 0 {
+		ctrl.SetSyncMCP(len(mcpRows))
+	}
+	if model := resolver(names[0]); model != "" {
+		ctrl.SetModelName(model)
+	}
 
 	// Step 6b: Wire session store for persistence.
 	sessionStore := store.NewSessionStore(w.ConfigRoot)
@@ -283,4 +307,53 @@ func pumpEvents(ctrl *Controller, pgm *tea.Program) {
 	for ev := range ctrl.Events() {
 		pgm.Send(ev)
 	}
+}
+
+// toolHub assigns IDs to real tool executions and forwards events to the
+// controller once it exists.
+type toolHub struct {
+	mu   sync.Mutex
+	next int
+	ctrl *Controller
+}
+
+func (h *toolHub) bind(c *Controller) {
+	h.mu.Lock()
+	h.ctrl = c
+	h.mu.Unlock()
+}
+
+func (h *toolHub) wrap(t core.Tool) core.Tool { return &spyTool{Tool: t, hub: h} }
+
+// spyTool decorates a tool with call/result telemetry without altering its
+// behavior, schema, or advertisement.
+type spyTool struct {
+	core.Tool
+	hub *toolHub
+}
+
+func (s *spyTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	s.hub.mu.Lock()
+	s.hub.next++
+	id := fmt.Sprintf("call-%d", s.hub.next)
+	ctrl := s.hub.ctrl
+	s.hub.mu.Unlock()
+
+	if ctrl != nil {
+		ctrl.NotifyToolCall(id, s.Name())
+	}
+	start := time.Now()
+	res, err := s.Tool.Execute(ctx, args)
+	dur := time.Since(start).Round(time.Millisecond)
+	if ctrl != nil {
+		summary := res
+		if err != nil {
+			summary = "error: " + err.Error()
+		}
+		if len(summary) > 400 {
+			summary = summary[:400] + "…"
+		}
+		ctrl.NotifyToolResult(id, fmt.Sprintf("%s (%s)", summary, dur))
+	}
+	return res, err
 }
