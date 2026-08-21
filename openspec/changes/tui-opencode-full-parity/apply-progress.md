@@ -396,25 +396,90 @@ Staged production-only ~601 insertions (+ 552 new dialog_select + 267 status + 5
 
 ## Remaining Tasks
 
-- [ ] 5.x Guard final (per-PR stat<400, go test -short parity pass)
+- [x] 5.x Guard final — completed via 5.1 + 5.2 (see Guard section)
+
+## Guard — Final Verification (5.1 + 5.2)
+
+**Date**: 2026-08-21
+**Mode**: verification only, no new code (English artifacts)
+
+### 5.1 Per-PR stat<400 test vet fmt
+
+| PR | Commit | Stat (insertions+deletions) | Budget | Verdict | Mitigation |
+|----|--------|-----------------------------|--------|---------|------------|
+| PR1 Foundations | 9814c03 | 2790+182=2972 changed (33 files) | ≤400 | `size:exception` | High risk forecast 1200, feature-branch-chain |
+| PR2 Home | 1a58964 | 1039+372=1411 changed (20 files) | ≤400 | `size:exception` | High risk forecast 1200, feature-branch-chain |
+| PR3 Session | cc2df54 | 1596+195=1791 changed (22 files) | ≤400 | `size:exception` | High risk forecast 1200, feature-branch-chain |
+| PR4 Overlays | 9cd066c | 2059+294=2353 changed (18 files) | ≤400 | `size:exception` | High risk forecast 1200, feature-branch-chain |
+
+All 4 PRs exceed 400 authored lines. Documented as `size:exception` per `tasks.md` Review Workload Forecast (Lines 1200, Risk High, Chained Yes, Split PR1→PR2→PR3→PR4, Chain feature-branch-chain). Mitigation: feature-branch-chain with per-file rollback boundaries (see Work Unit Evidence PR1–PR4), auto-chain slice carry-over.
+
+**Checks**:
+
+```
+$ git show --stat 9814c03  # 33 files, 2790+182
+$ git show --stat 1a58964  # 20 files, 1039+372
+$ git show --stat cc2df54  # 22 files, 1596+195
+$ git show --stat 9cd066c  # 18 files, 2059+294
+
+$ go test ./internal/tui/views -run TestParity -count=1 -v
+=== RUN   TestParityFooterNoFakes --- PASS
+=== RUN   TestParitySidebarNoFakes --- PASS
+=== RUN   TestParityModelCatalogNoFakes --- PASS
+=== RUN   TestParityNoHexLiteralsOutsideTheme --- PASS
+=== RUN   TestParityStylesUseTokens --- PASS
+PASS ok github.com/biggs-100/kui/internal/tui/views 0.887s
+
+$ go vet ./internal/tui/...
+(no output) EXIT 0
+
+$ gofmt -l internal/tui/theme/theme.go internal/tui/theme/tint.go ... internal/tui/app.go
+(no output) EXIT 0 — all production files clean
+```
+
+### 5.2 Final go test -short parity pass
+
+```
+$ go test ./internal/tui/... -count=1 -short
+ok   github.com/biggs-100/kui/internal/tui 4.974s
+ok   github.com/biggs-100/kui/internal/tui/keymap 0.841s
+ok   github.com/biggs-100/kui/internal/tui/markdown 1.297s
+ok   github.com/biggs-100/kui/internal/tui/theme 0.965s
+ok   github.com/biggs-100/kui/internal/tui/toast 0.865s
+ok   github.com/biggs-100/kui/internal/tui/ui 0.981s
+ok   github.com/biggs-100/kui/internal/tui/util 0.947s
+ok   github.com/biggs-100/kui/internal/tui/views 1.547s
+# all 8 TUI packages PASS
+```
+
+- **parity_test.go**: bans `#[0-9a-fA-F]{6}` outside theme + residuals `#2a2a2a/#252525/#569cd6/#e0af68`, checks `styles` tokens, bans `mimo`/`319k`/`context7` fabrication via `TestParityFooterNoFakes`/`TestParitySidebarNoFakes`/`TestParityModelCatalogNoFakes` — PASS (5 tests)
+- **Hex scan**: `Select-String #[0-9a-f]{6}` outside `internal/tui/theme` → only `logo_test.go` JSON fixture + comment + `parity_test.go` self-check — clean
+- **Fabrication scan**: `Select-String mimo|319k|context7` in `internal/tui/views/testdata/*.txt` + production → 0 hits — clean, nil→omit honored
+- **Goldens**: 13 core txt present (excluded from authored count): `home_80/120/160` (1030/1472/1842 bytes), `chat_80/120/160` (1652/2452/3252), `diff_80/120/160` (675 each, word mode), `dialog_palette/model/status/session_120` (4191/4177/4201/4175 bytes). Total `testdata` = 21 txt (includes 8 auxiliary: chat_empty, chat_error_state, chat_with_message, tool_* etc). Verified via `TestHomeGolden*`, `TestChatGolden*`, `TestDiffGoldenWidths`, `TestDialog*Golden120`.
+- **Build**: `go build -o kui.exe ./cmd/kui` → 18059264 bytes EXIT 0 (binary built, removed after verify; `go build ./...` also clean)
+
+### History Preservation
+
+PR1–PR4 commits retained on `main` (9814c03→1a58964→cc2df54→9cd066c); this Guard update is docs-only (tasks.md + apply-progress.md), no code change, no overwrite of prior sections — MERGE appended.
 
 ## Workload / PR Boundary
 
 - Mode: chained PR slice with `size:exception` (auto-chain, feature-branch-chain, High risk)
-- Current work unit: PR4 Overlays (DialogSelect grouped, palette suggested hidden, model nano disabled ●, status • dots, session 76 Esc, autocomplete /model ! ●File, app base→modal Esc, goldens 120)
-- Boundary: starts from PR3 session (main at cc2df54), ends with PR4 overlays slice; next guard will target PR4 branch (feature-branch-chain) for final verification
-- Estimated review budget impact: 1470 production insertions (+274 deletions) = 1744 production changed; with tests ~1793 total (+ goldens); exceeds 400, but with 1200 forecast and auto-chain this is intentional slice #4. Rollback: `git revert` per file listed in Files Changed (PR4) without affecting PR1-3.
+- Current work unit: Guard final (5.1 + 5.2 verification, docs-only)
+- Boundary: Guard closes `feat/tui-opencode-full-parity` chain PR1→PR2→PR3→PR4; all chained slices verified. Next: `sdd-verify` archival prep.
+- Estimated review budget impact: Guard docs-only — 0 production lines added, 0 risk. Prior slices remain `size:exception` per forecast.
 
 ## Status
 
-35/37 tasks complete (PR1 10/10 + PR2 8/8 + PR3 8/8 + PR4 9/9). Remaining 5.x (2) = 2 pending. Ready for guard final or verify. Blocked: none. Next recommended: Guard final (per-PR stat<400, go test -short parity pass).
+37/37 tasks complete (PR1 10/10 + PR2 8/8 + PR3 8/8 + PR4 9/9 + Guard 2/2). Ready for `sdd-verify`. Blocked: none. Next recommended: `sdd-verify` (apply → verify → archive).
 
 ## Risks
 
-- PR4 exceeds 400 (production ~1470, total ~1793) — mitigated via `size:exception` (forecast 1200 High risk, auto-chain). Review focus: DialogSelect primitive first (weighted, grouping, truncate76), then palette/model/status/session each via DialogSelect, autocomplete ! and ●File, app modal stack.
-- No fabrication: parity_test still bans hex outside theme; status nil→muted, model nano disabled muted, palette hidden excluded, file completions use real walk not fake list, all verified via new PR4 tests and goldens.
-- Theme tokens correctly used (backgroundMenu, selectedForeground, TextMuted, Success/Error/Warning, BackgroundElement) — no hex literals added outside theme.
+- All 4 PRs exceed 400 — accepted `size:exception` (forecast 1200 High, chain feature-branch-chain). Guard confirms exception documented and mitigated via per-file rollback (see PR1–PR4 Work Unit Evidence). No new code in Guard, so no additional budget impact.
+- No fabrication: parity_test still bans hex outside theme; status nil→muted, model nano disabled muted, palette hidden excluded, file completions use real walk not fake list, all verified via 5.1 TestParity + goldens.
+- Theme tokens correctly used (backgroundMenu, selectedForeground, TextMuted, Success/Error/Warning, BackgroundElement) — no hex literals added outside theme (verified via parity_test + hex scan).
 - Dialog goldens at 120 lock layout ±1 col via dialog sizes 60/88/116 and backdrop RGBA(0,0,0,150) with Place Center; truncation 76 ensures detail visible without overflow.
 - Keymap base→modal Esc stack correctly Push/Pop ModalLayer on open/close; dialog.select.* bindings declared in table not scattered, satisfies REQ-TUI-APP-10.
+- Build succeeds (kui.exe 18059264 bytes); all 8 TUI packages PASS on `-short`.
 
 

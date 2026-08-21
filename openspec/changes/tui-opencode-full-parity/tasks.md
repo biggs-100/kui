@@ -77,5 +77,5 @@ Chain tracker `feat/tui-opencode-full-parity` draft PR1→tracker PR2→PR1 PR3�
 
 ## Phase 5: Guard
 
-- [ ] 5.1 per-PR `stat`<400 test vet fmt
-- [ ] 5.2 final `go test -short` parity pass
+- [x] 5.1 per-PR `stat`<400 test vet fmt — PR1 9814c03 2790+182=2972, PR2 1a58964 1039+372=1411, PR3 cc2df54 1596+195=1791, PR4 9cd066c 2059+294=2353 — all `size:exception` High risk forecast 1200, mitigation feature-branch-chain; `go test -run TestParity` 5 PASS, `go vet ./internal/tui/...` clean, `gofmt -l` clean (0 listings)
+- [x] 5.2 final `go test -short` parity pass — `go test ./internal/tui/... -count=1 -short` 8 pkgs PASS (tui 4.97s views 1.54s theme 0.96s ui 0.98s util 0.94s markdown 1.29s keymap 0.84s toast 0.86s), parity_test bans hex `#2a2a2a/#252525/#569cd6/#e0af68` + `#[0-9a-f]{6}` outside theme + mimo/319k nil→omit, goldens 13 txt present (home 80/120/160 chat 80/120/160 diff 80/120/160 dialog 4×120), `go build -o kui.exe ./cmd/kui` 18059264 bytes PASS
