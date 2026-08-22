@@ -64,6 +64,11 @@ func NewCommandRegistry() *CommandRegistry {
 		Category:    "Edit",
 	}, nil)
 	r.registerWithHandler(views.Command{
+		Name:        "/copy",
+		Description: "Copy last answer to clipboard",
+		Category:    "Edit",
+	}, nil)
+	r.registerWithHandler(views.Command{
 		Name:        "/clear",
 		Description: "Clear chat display",
 		Category:    "Edit",

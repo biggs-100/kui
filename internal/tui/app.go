@@ -12,6 +12,7 @@ import (
 
 	"github.com/biggs-100/kui/internal/adapters/git"
 	"github.com/biggs-100/kui/internal/adapters/providers"
+	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/credentials"
 	"github.com/biggs-100/kui/internal/tui/keymap"
 	"github.com/biggs-100/kui/internal/tui/theme"
@@ -200,6 +201,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.chat.SetStatus("compact failed: " + msg.err.Error())
 		} else {
 			a.chat.SetStatus("conversation compacted")
+		}
+		return a, nil
+
+	case copyDoneMsg:
+		if msg.err != nil {
+			a.chat.SetStatus("copy failed: " + msg.err.Error())
+		} else {
+			a.chat.SetStatus("last answer copied to clipboard")
 		}
 		return a, nil
 
@@ -456,6 +465,16 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyCtrlC:
+		// Upstream behavior: Ctrl+C clears a NON-EMPTY input first (so a
+		// copy-shortcut reflex never kills the session); it exits only when
+		// the input is already empty.
+		if strings.TrimSpace(a.input.Value()) != "" {
+			a.input.SetValue("")
+			a.homeView.SetInput("")
+			a.autocomplete.Deactivate()
+			a.chat.SetStatus("input cleared · ctrl+c again to exit")
+			return a, nil
+		}
 		_ = a.ctrl.SaveSession()
 		a.quitting = true
 		return a, tea.Quit
@@ -633,6 +652,8 @@ func (a *App) executeCommandByName(name string) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "/compact":
 		return a, startCompact(a)
+	case "/copy":
+		return a.handleCopyCommand()
 	case "/undo":
 		a.handleUndoCommand()
 		return a, nil
@@ -689,6 +710,8 @@ func (a *App) handleCommand(text string) (tea.Model, tea.Cmd) {
 		a.chat.Clear()
 		a.vpContentHeight = 0
 		a.chat.SetStatus("conversation view cleared")
+	case "/copy":
+		return a.handleCopyCommand()
 	case "/new":
 		a.handleNewCommand()
 	case "/compact":
@@ -960,6 +983,49 @@ func (a *App) handleNewCommand() {
 
 // compactDoneMsg carries the outcome of a manual /compact call.
 type compactDoneMsg struct{ err error }
+
+// copyDoneMsg carries the outcome of a /copy clipboard write.
+type copyDoneMsg struct{ err error }
+
+// handleCopyCommand copies the LAST assistant answer to the system
+// clipboard (upstream messages.copy parity).
+func (a *App) handleCopyCommand() (tea.Model, tea.Cmd) {
+	msgs := a.ctrl.Messages()
+	last := ""
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == core.RoleAssistant || msgs[i].Role == "assistant" {
+			last = msgs[i].Content
+			break
+		}
+	}
+	if strings.TrimSpace(last) == "" {
+		a.chat.SetStatus("nothing to copy yet")
+		return a, nil
+	}
+	text := last
+	return a, func() tea.Msg { return copyDoneMsg{err: copyToClipboard(text)} }
+}
+
+// copyToClipboard writes text to the system clipboard via the platform tool.
+func copyToClipboard(text string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/C", "clip")
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	default:
+		if _, err := exec.LookPath("wl-copy"); err == nil {
+			cmd = exec.Command("wl-copy")
+		} else if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		} else {
+			return fmt.Errorf("no clipboard tool found (install wl-copy or xclip)")
+		}
+	}
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
 
 // startCompact runs compaction off the UI goroutine — the LLM summarization
 // can take seconds.
