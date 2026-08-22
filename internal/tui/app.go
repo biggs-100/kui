@@ -103,6 +103,17 @@ type App struct {
 	// rail Files section; refreshed on the periodic tick and after turns.
 	cachedDiffs []views.ModifiedFile
 
+	// In-app mouse selection (upstream copy-on-select): drag highlights
+	// cells over the last rendered frame; releasing copies the text.
+	selActive bool
+	selStartX int
+	selStartY int
+	selEndX   int
+	selEndY   int
+	lastRows  []string    // visible-text snapshot of the last painted frame
+	copySink  func(string) error // injectable clipboard writer (tests)
+
+
 	// status dialog
 	statusModel *views.DialogStatusModel
 	statusMode  bool
@@ -183,7 +194,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		if a.selActive {
+			// Any keypress dismisses a held selection (copied already on
+			// release, like the upstream copy-on-select flow).
+			a.selActive = false
+		}
 		return a.handleKey(msg)
+
+	case tea.MouseMsg:
+		return a.handleMouse(msg)
 
 	case streamChunkMsg:
 		a.chat.AppendChunk(msg.delta)
@@ -208,7 +227,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			a.chat.SetStatus("copy failed: " + msg.err.Error())
 		} else {
-			a.chat.SetStatus("last answer copied to clipboard")
+			a.selActive = false // selection served; drop the highlight
+			a.chat.SetStatus("copied to clipboard")
 		}
 		return a, nil
 
@@ -1446,7 +1466,21 @@ func (a *App) View() string {
 		frame = strings.Join(rows, "\n")
 	}
 
-	return titleSeq + a.paintCanvas(fitFrame(frame, a.height))
+	return titleSeq + a.finalizeFrame(frame)
+}
+
+// finalizeFrame applies the root canvas and the live selection highlight,
+// caching each row's plain visible text for mouse-selection extraction.
+func (a *App) finalizeFrame(frame string) string {
+	painted := strings.Split(a.paintCanvas(fitFrame(frame, a.height)), "\n")
+	a.lastRows = make([]string, len(painted))
+	for i, r := range painted {
+		a.lastRows[i] = stripVisibleANSI(r)
+	}
+	if a.selActive && !a.modalOverlayOpen() {
+		painted = applySelectionHighlight(painted, a.selStartX, a.selStartY, a.selEndX, a.selEndY)
+	}
+	return strings.Join(painted, "\n")
 }
 
 // paintCanvas gives the frame a full-terminal painted surface, mirroring the
@@ -1739,7 +1773,7 @@ func (a *App) renderHome() string {
 	b.WriteString("\n")
 	b.WriteString(homeFooterStr)
 
-	return a.paintCanvas(fitFrame(b.String(), a.height))
+	return a.finalizeFrame(b.String())
 }
 
 // rebuildViews synchronizes the view models with the controller state.

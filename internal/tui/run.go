@@ -272,8 +272,10 @@ func Run(ctx context.Context, w Wiring) error {
 	// program via tea.Cmd (D3 channel+Cmd handoff, REQ-TUI-APP-3).
 	// AltScreen gives the program a fixed full-terminal surface so the
 	// layout budget (header/chat/input/footer summing to a.height) is
-	// stable frame to frame instead of scrolling the inline buffer.
-	pgm := tea.NewProgram(app, tea.WithAltScreen())
+	// stable frame to frame. MouseCellMotion hands mouse clicks and drags
+	// to the app so selection works like upstream: drag highlights in-app,
+	// release copies (copy-on-select).
+	pgm := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	go pumpEvents(ctrl, pgm)
 
 	// Step 9: Seed the active profile if one is saved (D18).
