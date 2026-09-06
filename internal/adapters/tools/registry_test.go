@@ -7,14 +7,14 @@ import (
 )
 
 // TestDefaultSetEnumeratesBuiltins covers REQ-TOOLS-4 "Enumerate built-in
-// tools": the default tool set exposes read_file, write_file, and bash in
-// stable advertisement order, each with a name, a description, and a valid
-// JSON schema.
+// tools": the default tool set exposes read_file, write_file, edit_file,
+// and bash in stable advertisement order, each with a name, a description,
+// and a valid JSON schema.
 func TestDefaultSetEnumeratesBuiltins(t *testing.T) {
 	set := Default(t.TempDir(), 0)
 
-	if len(set) != 6 {
-		t.Fatalf("default set has %d tools, want 6", len(set))
+	if len(set) != 7 {
+		t.Fatalf("default set has %d tools, want 7", len(set))
 	}
 	var names []string
 	for _, tool := range set {
@@ -27,7 +27,7 @@ func TestDefaultSetEnumeratesBuiltins(t *testing.T) {
 			t.Errorf("tool %q has an invalid schema %q", tool.Name(), schema)
 		}
 	}
-	want := []string{"read_file", "write_file", "bash", "glob", "grep", "web_fetch"}
+	want := []string{"read_file", "write_file", "edit_file", "bash", "glob", "grep", "web_fetch"}
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("default set order = %v, want %v", names, want)
 	}

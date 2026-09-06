@@ -121,12 +121,12 @@ func TestDefaultWithSyncerWiresFileSync(t *testing.T) {
 	}
 
 	toolSlice := DefaultWithSyncer(root, 0, syncer)
-	if len(toolSlice) != 6 {
-		t.Fatalf("DefaultWithSyncer returned %d tools, want 6", len(toolSlice))
+	if len(toolSlice) != 7 {
+		t.Fatalf("DefaultWithSyncer returned %d tools, want 7", len(toolSlice))
 	}
 
-	// Find read_file and write_file tools.
-	var readFile, writeFile interface {
+	// Find read_file, write_file and edit_file tools.
+	var readFile, writeFile, editFile interface {
 		Execute(context.Context, json.RawMessage) (string, error)
 	}
 	for _, tool := range toolSlice {
@@ -135,6 +135,8 @@ func TestDefaultWithSyncerWiresFileSync(t *testing.T) {
 			readFile = tool
 		case "write_file":
 			writeFile = tool
+		case "edit_file":
+			editFile = tool
 		}
 	}
 
@@ -143,6 +145,9 @@ func TestDefaultWithSyncerWiresFileSync(t *testing.T) {
 	}
 	if writeFile == nil {
 		t.Fatal("DefaultWithSyncer missing write_file tool")
+	}
+	if editFile == nil {
+		t.Fatal("DefaultWithSyncer missing edit_file tool")
 	}
 
 	// Execute read_file — should trigger DidOpen via syncer.
@@ -161,6 +166,15 @@ func TestDefaultWithSyncerWiresFileSync(t *testing.T) {
 	}
 	if len(syncer.changed) != 1 {
 		t.Errorf("didChange calls = %d, want 1 after write_file with syncer", len(syncer.changed))
+	}
+
+	// Execute edit_file — should trigger DidChange via syncer.
+	_, err = editFile.Execute(context.Background(), json.RawMessage(`{"path":"main.go","old_text":"updated","new_text":"edited"}`))
+	if err != nil {
+		t.Fatalf("edit_file Execute error: %v", err)
+	}
+	if len(syncer.changed) != 2 {
+		t.Errorf("didChange calls = %d, want 2 after edit_file with syncer", len(syncer.changed))
 	}
 }
 
