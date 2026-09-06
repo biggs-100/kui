@@ -69,6 +69,7 @@ func NewCommandPaletteModel(cmds []Command, width, height int) CommandPaletteMod
 	items := commandsToSelectItems(visible)
 	ds := ui.NewDialogSelect(items, width, height)
 	ds.SetFlat(false)
+	ds.SetTitle("Command Palette")
 	ds.SetEmptyView("No commands")
 	return CommandPaletteModel{
 		ds:       ds,
@@ -183,19 +184,15 @@ func (m CommandPaletteModel) Update(msg tea.Msg) (CommandPaletteModel, tea.Cmd) 
 	return m, nil
 }
 
-// View renders the command palette — centered overlay with backdrop 60/88/116 and backgroundPanel.
+// View renders the command palette as a CENTERED modal overlay estilo pi
+// (title + filter + full-width ─ separator + grouped list over the dim
+// backdrop, REQ-TUI-DLG-1/3). Narrow terminals fit via NarrowSize.
 func (m CommandPaletteModel) View() string {
 	if m.quitting {
 		return ""
 	}
 	m.ds.SetStyles(m.styles)
-	// Include title for test and parity; DialogSelect handles backdrop/grouping
-	inner := m.ds.View(m.width, m.height)
-	// Prepend title if not already present to satisfy golden and test expectations
-	if !strings.Contains(inner, "Command Palette") {
-		inner = "Command Palette\n" + inner
-	}
-	return inner
+	return m.ds.View(m.width, m.height)
 }
 
 // Selected returns the name of the command the user selected.

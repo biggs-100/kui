@@ -115,7 +115,10 @@ func dotColorForStatus(status string, t *theme.Theme) string {
 	}
 }
 
-// View renders status dialog with backdrop 60/88/116, centered, counts with colored dots.
+// View renders the status dialog as a CENTERED modal overlay estilo pi:
+// title + full-width ─ separator + MCP/LSP dots with error detail over the
+// dim backdrop (REQ-TUI-DLG-1/3). Data logic is frozen: live dots + errors,
+// absent data omitted muted, never fabricated.
 func (m DialogStatusModel) View() string {
 	if m.quitting {
 		return ""
@@ -127,7 +130,15 @@ func (m DialogStatusModel) View() string {
 		title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(m.styles.Theme.Primary)).Render(title)
 	}
 	b.WriteString(title)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	// Full-width ─ separator under the title (pi style)
+	size := ui.NarrowSize(88, m.width)
+	sep := ui.Rule(size - 2)
+	if m.styles != nil && m.styles.Theme != nil && m.styles.Theme.BorderSubtle != "" {
+		sep = lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.BorderSubtle)).Render(sep)
+	}
+	b.WriteString(sep)
+	b.WriteString("\n")
 
 	// MCP Servers section
 	mcpTitle := fmt.Sprintf("MCP Servers (%d)", len(m.mcpServers))
@@ -242,23 +253,7 @@ func (m DialogStatusModel) View() string {
 		b.WriteString("\n")
 	}
 	content := strings.TrimSuffix(b.String(), "\n")
-	// Use Dialog primitive for backdrop and centering 60/88/116
-	size := 88
-	if m.width > 0 {
-		if m.width <= 60 {
-			size = 60
-		} else if m.width <= 88 {
-			size = 88
-		} else {
-			size = 116
-		}
-	} else {
-		if m.width < 80 {
-			size = 60
-		} else if m.width > 130 {
-			size = 116
-		}
-	}
+	// Narrow-fit centered overlay; the Dialog primitive clamps to fit.
 	d := ui.NewDialog(size, content)
 	return d.View(m.width, m.height)
 }
