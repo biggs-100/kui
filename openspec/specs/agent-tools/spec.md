@@ -198,3 +198,111 @@ The web_fetch tool MUST perform an HTTP GET and return the response body as text
 - GIVEN a URL for an unreachable host
 - WHEN web_fetch is called
 - THEN the tool returns a network error describing the failure
+
+### Requirement: REQ-TOOLS-8 — edit_file
+
+The edit_file tool MUST replace exactly one text block in an existing file resolved within the workspace root, matched byte-exact (whitespace included) over content normalized to LF, and MUST report a unified diff of the change. Paths resolving outside the root MUST be rejected before any I/O. It MUST accept `path` (string, required), `old_text` (string, required, non-empty), `new_text` (string, required), and `occurrence` (integer, optional, 1-based; when absent the match MUST be unique).
+
+#### Scenario: Exact replace with unified diff
+
+- GIVEN a file "notes.md" containing "hello world\n"
+- WHEN edit_file is called with old_text "world" and new_text "kui"
+- THEN the file contains "hello kui\n"
+- AND the result starts with a success line and contains a `diff --git` unified block
+
+#### Scenario: No match returns guidance
+
+- GIVEN a file "notes.md" containing "hello\n"
+- WHEN edit_file is called with old_text "bye"
+- THEN the tool returns an error stating 0 matches
+- AND the error suggests reading the file with `read_file` and copying the exact text
+- AND the file is left unmodified
+
+#### Scenario: Ambiguous multi-match without occurrence
+
+- GIVEN a file containing "foo" twice
+- WHEN edit_file is called with old_text "foo" and no occurrence
+- THEN the tool returns an ambiguity error reporting the match count
+- AND the error asks for more context or an explicit occurrence
+- AND the file is left unmodified
+
+#### Scenario: Occurrence selects Nth match
+
+- GIVEN a file containing "foo one\nfoo two\n"
+- WHEN edit_file is called with old_text "foo" and occurrence 2
+- THEN only the second occurrence is replaced
+
+#### Scenario: Occurrence out of range
+
+- GIVEN a file containing "foo" once
+- WHEN edit_file is called with old_text "foo" and occurrence 3
+- THEN the tool returns a range error
+- AND the file is left unmodified
+
+#### Scenario: Deletion via empty new_text
+
+- GIVEN a file containing "line1\nremove me\nline3\n"
+- WHEN edit_file is called with old_text "remove me\n" and new_text ""
+- THEN the file contains "line1\nline3\n"
+- AND the result diff shows the removal
+
+#### Scenario: No-op rejected
+
+- GIVEN any existing file
+- WHEN edit_file is called with old_text equal to new_text
+- THEN the tool returns a no-op error
+- AND the file is left unmodified
+
+#### Scenario: Missing file
+
+- GIVEN a path that does not exist
+- WHEN edit_file is called
+- THEN the tool returns an error identifying the missing path
+
+#### Scenario: Empty old_text rejected
+
+- GIVEN any existing file
+- WHEN edit_file is called with empty old_text
+- THEN the tool returns a validation error
+- AND the file is left unmodified
+
+#### Scenario: Path escape rejected
+
+- GIVEN a path resolving outside the workspace root, for example "../secret.txt"
+- WHEN edit_file is called
+- THEN the tool returns a path-constraint error
+- AND no file outside the root is read or written
+
+#### Scenario: Binary file rejected
+
+- GIVEN a file with a NUL byte in its first 512 bytes
+- WHEN edit_file is called
+- THEN the tool returns a binary-file error
+- AND the file is left unmodified
+
+#### Scenario: CRLF preserved
+
+- GIVEN a file with CRLF line endings and old_text expressed with LF
+- WHEN edit_file is called
+- THEN the replacement matches and the file keeps CRLF endings
+
+#### Scenario: BOM preserved
+
+- GIVEN a UTF-8 file with a BOM prefix
+- WHEN edit_file is called
+- THEN the replacement matches without the caller including the BOM
+- AND the written file keeps the BOM
+
+#### Scenario: Atomic write via tmp+rename
+
+- GIVEN an existing file inside the workspace root
+- WHEN edit_file succeeds
+- THEN the new content is written via a temp file in the same directory plus rename
+- AND no temp file remains after the operation
+- AND the file mode is normalized to 0644 (the original mode is not preserved)
+
+#### Scenario: LSP DidChange notified
+
+- GIVEN an edit_file tool built with a non-nil syncer
+- WHEN edit_file succeeds
+- THEN the syncer receives DidChange with the file URI and the new content
