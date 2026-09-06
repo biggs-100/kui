@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	"github.com/biggs-100/kui/internal/tui/theme"
-	"github.com/biggs-100/kui/internal/tui/ui"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// previewLines caps collapsed tool output previews (REQ-TUI-TOOL-1).
+const previewLines = 10
 
 // ToolEvent represents a single tool invocation lifecycle: a call and
 // optionally its result (REQ-TUI-TOOL-1).
@@ -18,19 +20,22 @@ type ToolEvent struct {
 }
 
 // ToolModel renders the live tool-call/result list during multi-step
-// turns. With no events it renders "" so the layout budget reclaims the
-// slot (REQ-TUI-TOOL-2).
+// turns. Each call renders as a state-bg Box (pending/success/error) with
+// the call title + up to 10-line preview + expand hint; toggling expands to
+// full output with inline diffs. With no events it renders "" so the layout
+// budget reclaims the slot entirely (REQ-TUI-TOOL-1/2/3).
 type ToolModel struct {
 	events []ToolEvent
 	// index by callID for fast result lookup
 	byID        map[string]int
 	styles      *theme.Styles
-	collapse    bool // collapseToolOutput
+	collapse    bool // collapseToolOutput: preview + expand hint
 	showDetails bool
-	width       int // block width for large outputs; 0 = unbounded
+	width       int // block width for the conversation column; 0 = unbounded
+	expanded    map[string]bool
 }
 
-// SetWidth caps block-style outputs to the conversation column.
+// SetWidth caps blocks to the conversation column.
 func (m *ToolModel) SetWidth(w int) { m.width = w }
 
 // NewToolModel creates an empty ToolModel.
@@ -39,6 +44,7 @@ func NewToolModel(styles *theme.Styles) ToolModel {
 		byID:        make(map[string]int),
 		styles:      styles,
 		showDetails: true,
+		expanded:    make(map[string]bool),
 	}
 }
 
@@ -59,6 +65,17 @@ func (m *ToolModel) AppendResult(callID, result string) {
 		m.events[idx].Result = result
 	}
 }
+
+// Toggle expands or collapses the output of a recorded call.
+func (m *ToolModel) Toggle(callID string) {
+	if m.expanded == nil {
+		m.expanded = make(map[string]bool)
+	}
+	m.expanded[callID] = !m.expanded[callID]
+}
+
+// Expanded reports whether the call output is expanded.
+func (m ToolModel) Expanded(callID string) bool { return m.expanded[callID] }
 
 // SetCollapse sets collapseToolOutput mode.
 func (m *ToolModel) SetCollapse(v bool) { m.collapse = v }
@@ -83,27 +100,41 @@ func CollapseOutput(s string, maxLines int) string {
 	return preview + fmt.Sprintf("\n… %d lines", remaining)
 }
 
-// Render draws tool activity the upstream way: ONE INLINE ROW per call — a
-// two-column state icon, the tool name (text-colored while running, muted
-// once finished), and a muted one-line summary. Large/multi-line outputs
-// upgrade to an indented block: invisible left bar + backgroundPanel fill,
-// never a rounded box.
+// boxStyle selects the state background Box for a finished or pending call.
+func (m ToolModel) boxStyle(done, failed bool) lipgloss.Style {
+	var style lipgloss.Style
+	if m.styles != nil {
+		switch {
+		case !done:
+			style = m.styles.ToolPendingBox
+		case failed:
+			style = m.styles.ToolErrorBox
+		default:
+			style = m.styles.ToolSuccessBox
+		}
+		if m.width > 0 {
+			style = style.Width(m.width - 4)
+		}
+		return style
+	}
+	style = lipgloss.NewStyle().Padding(0, 1)
+	if m.width > 0 {
+		style = style.Width(m.width - 4)
+	}
+	return style
+}
+
+// Render draws one state-bg Box per tool call: title + preview(10) + expand
+// hint, or the full output with inline diff when expanded (REQ-TUI-TOOL-1/3).
 func (m ToolModel) Render() string {
 	if len(m.events) == 0 {
 		return ""
 	}
 
-	st := m.styles != nil
-	t := m.styles.Theme
-	if st && t == nil {
-		st = false
-	}
-
-	paint := func(fg, s string) string {
-		if !st || fg == "" {
-			return s
-		}
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(fg)).Render(s)
+	st := m.styles != nil && m.styles.Theme != nil
+	var t *theme.Theme
+	if st {
+		t = m.styles.Theme
 	}
 
 	var parts []string
@@ -111,90 +142,93 @@ func (m ToolModel) Render() string {
 		done := ev.Result != ""
 		failed := strings.HasPrefix(ev.Result, "error:")
 
-		icon, iconColor := "●", t.Warning
-		nameFg := t.Text
-		switch {
-		case failed:
-			icon, iconColor = "×", t.Error
-		case done:
-			icon, iconColor = "✓", t.Success
-			nameFg = "" // finished tools dim through the muted path below
+		title := ev.Name
+		if m.showDetails && ev.CallID != "" {
+			title += fmt.Sprintf(" (%s)", ev.CallID)
 		}
-		if !st {
-			iconColor, nameFg = "", ""
-		}
-
-		name := ev.Name
-		if done {
-			if st {
-				name = lipgloss.NewStyle().
-					Foreground(lipgloss.Color(t.TextMuted)).Render(ev.Name)
-			}
-		} else {
-			name = paint(nameFg, ev.Name)
-		}
-		head := paint(iconColor, icon) + " " + name
-		if m.showDetails && ev.CallID != "" && st {
-			head += m.styles.HomeMuted.Render(fmt.Sprintf(" (%s)", ev.CallID))
+		if !done {
+			title += " · running"
 		}
 
 		if !done {
-			parts = append(parts, head+" "+paint(t.Warning, "running"))
+			parts = append(parts, m.boxStyle(false, false).Render(title))
 			continue
 		}
 
 		body := strings.TrimPrefix(ev.Result, "error:")
-		lineCount := strings.Count(body, "\n") + 1
-		isDiff := strings.Contains(body, "diff --git")
-		forceInline := m.collapse && !isDiff
+		body = strings.Trim(body, "\n")
+		expanded := !m.collapse || m.expanded[ev.CallID]
 
-		summary := strings.SplitN(strings.TrimSpace(body), "\n", 2)[0]
-		if len(summary) > 60 {
-			summary = summary[:57] + "..."
-		}
-		summaryFg := t.TextMuted
-		if failed {
-			summaryFg = t.Error
-		}
-
-		isBlock := !forceInline && (lineCount >= 4 || isDiff)
-		if isBlock && m.width > 0 {
-			hint := fmt.Sprintf("%d lines", lineCount)
-			rows := []string{head + " " + paint(t.TextMuted, "· "+hint)}
-
-			content := body
-			if isDiff && st {
-				content = highlightDiffResult(content, t)
+		var content string
+		if st && strings.Contains(body, "diff --git") {
+			added, removed := countDiffLines(body)
+			header := fmt.Sprintf("+%d/-%d", added, removed)
+			if expanded {
+				content = title + " " + header + "\n" + highlightDiffResult(body, t)
 			} else {
-				content = CollapseOutput(content, 12)
-				if failed {
-					content = paint(t.Error, content)
-				} else {
-					content = paint(t.TextMuted, content)
+				preview := CollapseOutput(body, previewLines)
+				if st {
+					preview = highlightDiffResult(preview, t)
 				}
+				content = title + " " + header + "\n" + preview
 			}
-			bar := t.Background // invisible left bar: pure indentation device
-			blockStyle := lipgloss.NewStyle().
-				Border(ui.SplitBorder).
-				BorderForeground(lipgloss.Color(bar)).
-				BorderBottom(false).
-				Background(lipgloss.Color(t.BackgroundPanel)).
-				Padding(1, 0, 1, 2).
-				Width(m.width - 4)
-			rows = append(rows, blockStyle.Render(content))
-			parts = append(parts, strings.Join(rows, "\n"))
-			continue
+		} else if expanded {
+			content = title + "\n" + body
+		} else {
+			content = title + "\n" + CollapseOutput(body, previewLines)
 		}
 
-		if forceInline && lineCount > 1 {
-			summary = fmt.Sprintf("(%d lines)", lineCount)
-			summaryFg = t.TextMuted
+		if failed && st {
+			// Error state carries the error tint on the title line only;
+			// the bg already signals the state.
+			content = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(t.Error)).
+				Render(title) + strings.TrimPrefix(content, title)
 		}
-		parts = append(parts, head+" "+paint(summaryFg, "· "+summary))
+
+		if m.width > 0 {
+			content = truncateBlock(content, m.width-4)
+		}
+		parts = append(parts, m.boxStyle(true, failed).Render(content))
 	}
 
 	return strings.Join(parts, "\n")
 }
+
+// countDiffLines counts added/removed content lines for the +N/-N header.
+func countDiffLines(s string) (added, removed int) {
+	for _, l := range strings.Split(s, "\n") {
+		switch {
+		case strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
+			added++
+		case strings.HasPrefix(l, "-") && !strings.HasPrefix(l, "---"):
+			removed++
+		}
+	}
+	return added, removed
+}
+
+// truncateBlock truncates over-wide lines so narrow terminals never panic.
+func truncateBlock(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if lipgloss.Width(l) > max {
+			out := ""
+			for _, r := range l {
+				if lipgloss.Width(out+string(r)) > max {
+					break
+				}
+				out += string(r)
+			}
+			lines[i] = out
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func highlightDiffResult(s string, t *theme.Theme) string {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
@@ -214,6 +248,8 @@ func highlightDiffResult(s string, t *theme.Theme) string {
 			lines[i] = lipgloss.NewStyle().Background(lipgloss.Color(bg)).Foreground(lipgloss.Color(t.DiffRemoved)).Render(l)
 		case strings.HasPrefix(l, "@@"):
 			lines[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(t.DiffHunkHeader)).Bold(true).Render(l)
+		case strings.HasPrefix(l, "diff --git"):
+			lines[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(t.DiffHunkHeader)).Bold(true).Render(l)
 		default:
 			// Context with DiffContextBg
 			bg := t.DiffContextBg
@@ -222,6 +258,5 @@ func highlightDiffResult(s string, t *theme.Theme) string {
 			}
 		}
 	}
-	// If collapsed, truncate after highlight
 	return strings.Join(lines, "\n")
 }
