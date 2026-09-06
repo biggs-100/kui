@@ -55,6 +55,15 @@ type Styles struct {
 	Toast          lipgloss.Style
 	CodeBlock      lipgloss.Style
 	Thought        lipgloss.Style
+
+	// Message backgrounds (pi-dark, REQ-TUI-THEME-1): state boxes for the
+	// transcript rewrite (PR2). Additive only; no existing style changed.
+	UserMessage    lipgloss.Style
+	ToolPendingBox lipgloss.Style
+	ToolSuccessBox lipgloss.Style
+	ToolErrorBox   lipgloss.Style
+	CustomMessage  lipgloss.Style
+	Selected       lipgloss.Style
 }
 
 // NewStyles creates a Styles from a Theme.
@@ -216,5 +225,29 @@ func NewStyles(t *Theme) *Styles {
 		Thought: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Warning)).
 			Bold(true),
+
+		// Message backgrounds — Box fill for transcript blocks (PR2).
+		UserMessage: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.UserMessageBg)).
+			Padding(0, 1),
+
+		ToolPendingBox: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.ToolPendingBg)).
+			Padding(0, 1),
+
+		ToolSuccessBox: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.ToolSuccessBg)).
+			Padding(0, 1),
+
+		ToolErrorBox: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.ToolErrorBg)).
+			Padding(0, 1),
+
+		CustomMessage: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.CustomMessageBg)).
+			Padding(0, 1),
+
+		Selected: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.SelectedBg)),
 	}
 }
