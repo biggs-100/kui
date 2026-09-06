@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/biggs-100/kui/internal/tui/theme"
+	"github.com/biggs-100/kui/internal/tui/ui"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -63,6 +65,8 @@ func (d providerItemDelegate) Render(w io.Writer, m list.Model, index int, item 
 }
 
 // ProviderListModel wraps a list for interactive provider selection.
+// Selection/navigation logic is frozen; only the rendering is a CENTERED
+// modal overlay estilo pi (REQ-TUI-DLG-1/3), like the other selectors.
 type ProviderListModel struct {
 	list     list.Model
 	infos    []ProviderInfo
@@ -70,6 +74,7 @@ type ProviderListModel struct {
 	quitting bool
 	width    int
 	height   int
+	styles   *theme.Styles
 }
 
 // NewProviderListModel creates a ProviderListModel.
@@ -79,7 +84,7 @@ func NewProviderListModel(infos []ProviderInfo, width, height int) ProviderListM
 		items[i] = providerItem{info: info}
 	}
 	l := list.New(items, providerItemDelegate{}, width, height)
-	l.Title = "Providers"
+	l.Title = "" // title renders at the dialog level (centered overlay chrome)
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
 	l.Styles.Title = lipgloss.NewStyle().Bold(true)
@@ -89,6 +94,14 @@ func NewProviderListModel(infos []ProviderInfo, width, height int) ProviderListM
 		infos:  infos,
 		width:  width,
 		height: height,
+	}
+}
+
+// SetStyles sets theme styles for the overlay chrome (separator rule).
+// Selection rows keep the bubbles list rendering; logic is untouched.
+func (m *ProviderListModel) SetStyles(s *theme.Styles) {
+	if s != nil {
+		m.styles = s
 	}
 }
 
@@ -117,12 +130,24 @@ func (m ProviderListModel) Update(msg tea.Msg) (ProviderListModel, tea.Cmd) {
 	return m, cmd
 }
 
-// View renders the provider list.
+// View renders the provider list as a CENTERED modal overlay estilo pi:
+// title + full-width ─ separator + rows over the dim backdrop
+// (REQ-TUI-DLG-1/3). Previously this was a top-aligned fullscreen takeover.
 func (m ProviderListModel) View() string {
 	if m.quitting {
 		return ""
 	}
-	return "\n" + m.list.View()
+	size := ui.NarrowSize(60, m.width)
+	title := "Providers"
+	sep := ui.Rule(size - 2)
+	if m.styles != nil && m.styles.Theme != nil {
+		title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(m.styles.Theme.Primary)).Render(title)
+		if m.styles.Theme.BorderSubtle != "" {
+			sep = lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.BorderSubtle)).Render(sep)
+		}
+	}
+	content := title + "\n" + sep + "\n" + m.list.View()
+	return ui.NewDialog(size, content).View(m.width, m.height)
 }
 
 // Selected returns the provider ID the user selected.

@@ -32,6 +32,7 @@ type DialogSelect[T any] struct {
 	height    int
 	styles    *theme.Styles
 	flat      bool
+	title     string
 	emptyView string
 	quitting  bool
 	closed    bool
@@ -66,6 +67,10 @@ func (d *DialogSelect[T]) SetStyles(s *theme.Styles) {
 }
 
 func (d *DialogSelect[T]) SetFlat(v bool) { d.flat = v }
+
+// SetTitle sets an optional dialog title rendered above the filter line
+// (e.g. "Command Palette"). Empty renders no title (model/session lists).
+func (d *DialogSelect[T]) SetTitle(v string) { d.title = v }
 
 func (d *DialogSelect[T]) SetEmptyView(v string) { d.emptyView = v }
 
@@ -380,7 +385,42 @@ func (d *DialogSelect[T]) HandleEsc() bool {
 	return true
 }
 
-// View renders dialog with backdrop 60/88/116, centered, top padding height/4, backgroundMenu selection.
+// sizeForWidth picks the 60/88/116 dialog size for a terminal width (or an
+// explicit width when set), clamped via NarrowSize so narrow terminals fit.
+func sizeForWidth(width, explicit int) int {
+	size := 88
+	if width < 80 {
+		size = 60
+	} else if width > 130 {
+		size = 116
+	}
+	if explicit > 0 {
+		// if explicit width set, use it capped to size options
+		if explicit <= 60 {
+			size = 60
+		} else if explicit <= 88 {
+			size = 88
+		} else {
+			size = 116
+		}
+	}
+	return NarrowSize(size, width)
+}
+
+// separatorLine renders the full-width ─ rule for a dialog content area,
+// muted via BorderSubtle when styles are available.
+func separatorLine(size int, styles *theme.Styles) string {
+	rule := Rule(size - 2)
+	if styles != nil && styles.Theme != nil && styles.Theme.BorderSubtle != "" {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(styles.Theme.BorderSubtle)).Render(rule)
+	}
+	return rule
+}
+
+// View renders a CENTERED modal dialog estilo pi: optional title, filter
+// line, full-width ─ separator, list, hints — over the dim backdrop
+// (REQ-TUI-DLG-1). Narrow terminals clamp the box via NarrowSize so the
+// dialog fits without overflow or panic.
 func (d *DialogSelect[T]) View(width, height int) string {
 	if d.quitting {
 		return ""
@@ -399,6 +439,15 @@ func (d *DialogSelect[T]) View(width, height int) string {
 	}
 	// Build inner content
 	var b strings.Builder
+	// Optional title (palette) styled like the status dialog title
+	if d.title != "" {
+		title := d.title
+		if d.styles != nil && d.styles.Theme != nil {
+			title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(d.styles.Theme.Primary)).Render(title)
+		}
+		b.WriteString(title)
+		b.WriteString("\n")
+	}
 	// Filter line: InputRenderable focused
 	filterLine := d.filter
 	if filterLine == "" {
@@ -408,6 +457,9 @@ func (d *DialogSelect[T]) View(width, height int) string {
 	b.WriteString("  > ")
 	b.WriteString(filterLine)
 	b.WriteString("_\n")
+	// Full-width ─ separator between the filter line and the list (pi style)
+	b.WriteString(separatorLine(sizeForWidth(width, d.width), d.styles))
+	b.WriteString("\n")
 	// Empty case
 	if len(d.filtered) == 0 {
 		empty := d.emptyView
@@ -476,23 +528,8 @@ func (d *DialogSelect[T]) View(width, height int) string {
 	}
 	b.WriteString(hint)
 	content := strings.TrimSuffix(b.String(), "\n")
-	// Choose dialog size 60/88/116 based on width
-	size := 88
-	if width < 80 {
-		size = 60
-	} else if width > 130 {
-		size = 116
-	}
-	if d.width > 0 {
-		// if explicit width set, use it capped to size options
-		if d.width <= 60 {
-			size = 60
-		} else if d.width <= 88 {
-			size = 88
-		} else {
-			size = 116
-		}
-	}
+	// Narrow-fit dialog size 60/88/116 clamped to the terminal width
+	size := sizeForWidth(width, d.width)
 	dialog := NewDialog(size, content)
 	view := dialog.View(width, height)
 	return view
