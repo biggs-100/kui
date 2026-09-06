@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/biggs-100/kui/internal/adapters/store"
 	"github.com/biggs-100/kui/internal/core"
 )
 
@@ -68,7 +70,7 @@ type Controller struct {
 
 	// Token and cost tracking for the status footer.
 	totalTokens   int
-	contextWindow int // default 128000
+	contextWindow int // 0 = unknown until real model metadata provides a limit; UI omits percentages rather than inventing one
 	modelName     string
 	modelPricing  map[string]modelPrice
 
@@ -87,7 +89,45 @@ type Controller struct {
 	syncLSP      *int
 	kv           map[string]string
 
+	// Sidebar data sources (real state only; nil/empty → section omitted,
+	// never fabricated). subagentSource follows the same port pattern as
+	// Runner/ModelResolver so the controller does not import the subagent
+	// package.
+	subagentSource SubagentSource
+	mcpServers     []MCPServerState
+
 	mu sync.Mutex
+}
+
+// SubagentTask is one running background sub-agent row for status display.
+type SubagentTask struct {
+	ID        string
+	Title     string
+	StartedAt time.Time
+}
+
+// FinishedSubagent is one completed background sub-agent row.
+type FinishedSubagent struct {
+	ID         string
+	Title      string
+	FinishedAt time.Time
+	Failed     bool
+}
+
+// SubagentSnapshot is a point-in-time view of background sub-agent state.
+type SubagentSnapshot struct {
+	Running  []SubagentTask
+	Finished []FinishedSubagent // completion order, oldest first
+}
+
+// SubagentSource supplies live background sub-agent state for the sidebar.
+// It must be safe for concurrent use; nil source means the section is omitted.
+type SubagentSource func() SubagentSnapshot
+
+// MCPServerState is the runtime connection state of one MCP server.
+type MCPServerState struct {
+	Name      string
+	Connected bool
 }
 
 // modelPrice holds per-token pricing for a model.
@@ -121,7 +161,7 @@ func NewController(profiles []string, runner Runner, resolver ModelResolver) *Co
 		active:        0,
 		events:        make(chan any, 64),
 		eventsBuf:     64,
-		contextWindow: 128000,
+		contextWindow: 0,
 		modelPricing:  defaultModelPricing(),
 		kv:            make(map[string]string),
 	}
@@ -207,10 +247,13 @@ func (c *Controller) SubmitPrompt(text string) {
 	c.runDone = done
 	c.mu.Unlock()
 
+	// Snapshot BEFORE the turn mutates history so /undo can revert it.
+	c.PushUndo()
+
 	// D7: detect StreamingProvider for real-time token streaming.
 	if sp, ok := runner.Provider().(core.StreamingProvider); ok {
 		go func() {
-			c.runStreamingPrompt(sp, text, history)
+			c.runStreamingPrompt(sp, text, history, ctx)
 			c.finishRun(done)
 		}()
 		return
@@ -249,14 +292,18 @@ func (c *Controller) finishRun(done chan struct{}) {
 // runStreamingPrompt consumes a StreamChat channel and emits streamChunkMsg
 // for each TextDelta, then streamDoneMsg on completion or error. It runs in
 // a goroutine (D4). History is prepended before the user prompt for session
-// context.
-func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string, history []core.Message) {
+// context. The cancellable run context flows into the provider so Interrupt
+// actually reaches streaming calls.
+func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string, history []core.Message, ctx context.Context) {
 	msgs := make([]core.Message, 0, len(history)+1)
 	msgs = append(msgs, history...)
 	msgs = append(msgs, core.Message{Role: core.RoleUser, Content: text})
 
-	stream, err := sp.StreamChat(context.Background(), msgs, nil)
+	stream, err := sp.StreamChat(ctx, msgs, nil)
 	if err != nil {
+		if ctx.Err() != nil {
+			return // interrupted: suppress cancel error display
+		}
 		c.emit(streamDoneMsg{err: err})
 		return
 	}
@@ -264,6 +311,10 @@ func (c *Controller) runStreamingPrompt(sp core.StreamingProvider, text string, 
 	var answer string
 	var usage core.Usage
 	for chunk := range stream {
+		if ctx.Err() != nil {
+			c.emit(streamDoneMsg{err: errInterrupted})
+			return
+		}
 		if chunk.Error != nil {
 			c.emit(streamDoneMsg{err: chunk.Error})
 			return
@@ -360,6 +411,100 @@ type toolCallMsg struct {
 type toolResultMsg struct {
 	callID string
 	result string
+}
+
+// errInterrupted marks a run cancelled by the user (Esc pressed twice).
+var errInterrupted = errors.New("interrupted")
+
+// bgChangedMsg is emitted when background sub-agent state changes (launch or
+// completion). It carries no payload — the sidebar re-reads the snapshot on
+// render. Bubble Tea re-renders after every delivered message.
+type bgChangedMsg struct{}
+
+// NotifyToolCall emits a REAL tool-call-start event so the TUI can show live
+// tool activity while the agent works.
+func (c *Controller) NotifyToolCall(callID, name string) {
+	c.emit(toolCallMsg{callID: callID, name: name})
+}
+
+// NotifyToolResult emits a REAL tool-result event with a bounded summary.
+func (c *Controller) NotifyToolResult(callID, result string) {
+	c.emit(toolResultMsg{callID: callID, result: result})
+}
+
+// IsRunning reports whether an agent run is active.
+func (c *Controller) IsRunning() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.running
+}
+
+// Interrupt cancels the active run. Returns false when idle.
+func (c *Controller) Interrupt() bool {
+	c.mu.Lock()
+	cancel := c.cancel
+	running := c.running
+	c.mu.Unlock()
+	if !running || cancel == nil {
+		return false
+	}
+	cancel()
+	return true
+}
+
+// Messages returns a copy of the current conversation history.
+func (c *Controller) Messages() []core.Message {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]core.Message, len(c.messages))
+	copy(out, c.messages)
+	return out
+}
+
+// StartNewSession clears the conversation and rotates to a fresh session ID
+// so the next autosave persists a clean transcript. Usage counters reset
+// because they describe the session.
+func (c *Controller) StartNewSession() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.messages = nil
+	c.totalTokens = 0
+	c.undoStack = nil
+	c.redoStack = nil
+	if c.sessionStore != nil {
+		profile := c.profiles[c.active]
+		if id := store.GenerateSessionID(profile); id != "" {
+			c.sessionID = id
+		}
+	}
+}
+
+// CompactNow summarizes the conversation history through the provider and
+// replaces it with the compacted transcript. It blocks on the LLM call, so
+// callers should run it off the UI goroutine.
+func (c *Controller) CompactNow() error {
+	c.mu.Lock()
+	runner := c.runner
+	msgs := make([]core.Message, len(c.messages))
+	copy(msgs, c.messages)
+	c.mu.Unlock()
+
+	if runner == nil || runner.Provider() == nil {
+		return fmt.Errorf("runtime not configured")
+	}
+	if len(msgs) == 0 {
+		return fmt.Errorf("nothing to compact")
+	}
+
+	compacted, err := core.NewCompactor(runner.Provider()).Compact(context.Background(), msgs)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.messages = compacted
+	c.mu.Unlock()
+	c.autoSave()
+	return nil
 }
 
 // ── Token & Cost Tracking ────────────────────────────────────────────────
@@ -806,6 +951,46 @@ func (c *Controller) IsKV(key string) bool {
 	default:
 		return false
 	}
+}
+
+// SetSubagentSource attaches the live background sub-agent state source for
+// the sidebar. Nil disables the section (never fabricated). The controller
+// does not import the subagent package — callers adapt their manager to the
+// SubagentSource port.
+func (c *Controller) SetSubagentSource(src SubagentSource) {
+	c.mu.Lock()
+	c.subagentSource = src
+	c.mu.Unlock()
+}
+
+// SubagentSnapshot returns the current background sub-agent state via the
+// attached source. has=false when no source is set (section omitted).
+func (c *Controller) SubagentSnapshot() (snap SubagentSnapshot, has bool) {
+	c.mu.Lock()
+	src := c.subagentSource
+	c.mu.Unlock()
+	if src == nil {
+		return SubagentSnapshot{}, false
+	}
+	return src(), true
+}
+
+// SetMCPServers stores the real per-server MCP connection states snapshot.
+// Empty slice omits the section (no fabricated zero-state).
+func (c *Controller) SetMCPServers(servers []MCPServerState) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mcpServers = append([]MCPServerState(nil), servers...)
+}
+
+// MCPServers returns the stored MCP server states (nil when unset).
+func (c *Controller) MCPServers() []MCPServerState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.mcpServers) == 0 {
+		return nil
+	}
+	return append([]MCPServerState(nil), c.mcpServers...)
 }
 
 // Reload triggers a cancel-and-wait hot-reload (REQ-RELOAD-6/7/8). It

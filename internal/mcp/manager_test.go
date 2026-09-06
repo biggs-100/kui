@@ -315,3 +315,41 @@ func TestManagerToolsPrefixedWithServerName(t *testing.T) {
 
 // Verify core.Tool interface is satisfied at compile time
 var _ core.Tool = &MCPTool{}
+
+func TestServerStatuses(t *testing.T) {
+	cfg := &Config{Servers: map[string]ServerConfig{}}
+	manager := NewMCPManagerWithFactory(cfg, func(ctx context.Context, name string, cfg ServerConfig) (*Client, error) {
+		return nil, fmt.Errorf("no server in unit test")
+	})
+
+	if got := manager.ServerStatuses(); len(got) != 0 {
+		t.Errorf("ServerStatuses() on fresh manager = %d entries, want 0", len(got))
+	}
+
+	// Simulate post-ConnectAll state directly (ConnectAll coverage lives in
+	// TestMCPManagerStatus): two connected, one failed.
+	manager.clients["zeta"] = &Client{}
+	manager.clients["alpha"] = &Client{}
+	manager.failedCount = 1
+	manager.failedNames = append(manager.failedNames, "mid")
+
+	got := manager.ServerStatuses()
+	if len(got) != 3 {
+		t.Fatalf("ServerStatuses() = %d entries, want 3", len(got))
+	}
+	wantNames := []string{"alpha", "mid", "zeta"}
+	for i, s := range got {
+		if s.Name != wantNames[i] {
+			t.Errorf("ServerStatuses()[%d].Name = %q, want %q (sorted)", i, s.Name, wantNames[i])
+		}
+	}
+	if !got[0].Connected || got[1].Connected || !got[2].Connected {
+		t.Errorf("ServerStatuses() connected flags = %v/%v/%v, want true/false/true",
+			got[0].Connected, got[1].Connected, got[2].Connected)
+	}
+
+	manager.Shutdown()
+	if got := manager.ServerStatuses(); len(got) != 0 {
+		t.Errorf("ServerStatuses() after Shutdown = %d entries, want 0", len(got))
+	}
+}

@@ -1,20 +1,28 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/biggs-100/kui/internal/adapters/git"
 	"github.com/biggs-100/kui/internal/adapters/providers"
+	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/credentials"
 	"github.com/biggs-100/kui/internal/tui/keymap"
 	"github.com/biggs-100/kui/internal/tui/theme"
 	"github.com/biggs-100/kui/internal/tui/toast"
+	"github.com/biggs-100/kui/internal/tui/ui"
 	"github.com/biggs-100/kui/internal/tui/views"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+"github.com/muesli/termenv"
 )
 
 // App is the root Bubble Tea model that composes the header, chat, and tool
@@ -41,6 +49,15 @@ type App struct {
 
 	// Diff view toggle: when true, the diff panel is rendered instead of chat.
 	diffVisible bool
+
+	// scrollVP scrolls the conversation (chat or diff) inside its budgeted
+	// slot so long content never pushes the pinned input/footer around.
+	scrollVP viewport.Model
+
+	// vpContentHeight tracks the previous rendered content height so the
+	// viewport can stick to the bottom when new content arrives while it
+	// was already pinned there.
+	vpContentHeight int
 
 	// Session list mode: when non-nil, the session list view is active.
 	sessionList *views.SessionListModel
@@ -76,13 +93,26 @@ type App struct {
 	// currentTheme tracks the active theme name for cycling.
 	currentTheme string
 
-	// lspPendingG tracks whether 'g' was pressed and we're waiting for the
-	// second key in a gd/gr sequence. When true, the next key press is checked
-	// for 'd' or 'r' to complete the LSP keybinding.
-	lspPendingG bool
-
 	// keymap stack base→modal
 	km *keymap.Keymap
+
+	// lastEsc tracks the previous Esc press for the double-Esc interrupt.
+	lastEsc time.Time
+
+	// cachedDiffs holds the last known real working-tree changes for the
+	// rail Files section; refreshed on the periodic tick and after turns.
+	cachedDiffs []views.ModifiedFile
+
+	// In-app mouse selection (upstream copy-on-select): drag highlights
+	// cells over the last rendered frame; releasing copies the text.
+	selActive bool
+	selStartX int
+	selStartY int
+	selEndX   int
+	selEndY   int
+	lastRows  []string    // visible-text snapshot of the last painted frame
+	copySink  func(string) error // injectable clipboard writer (tests)
+
 
 	// status dialog
 	statusModel *views.DialogStatusModel
@@ -132,10 +162,17 @@ func (a *App) Registry() *CommandRegistry {
 	return a.registry
 }
 
-// Init returns the initial command. The controller's event pump is started
-// externally (by Run) so Init returns nil.
+// Init returns the initial command: the footer tick drives the welcome
+// status cycle. The controller's event pump is started externally (by Run).
 func (a *App) Init() tea.Cmd {
-	return nil
+	return scheduleFooterTick()
+}
+
+// footerTickMsg advances the footer welcome cycle periodically.
+type footerTickMsg struct{}
+
+func scheduleFooterTick() tea.Cmd {
+	return tea.Tick(10*time.Second, func(time.Time) tea.Msg { return footerTickMsg{} })
 }
 
 // Update handles incoming messages: key events, window resize, and controller
@@ -157,10 +194,42 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		if a.selActive {
+			// Any keypress dismisses a held selection (copied already on
+			// release, like the upstream copy-on-select flow).
+			a.selActive = false
+		}
 		return a.handleKey(msg)
+
+	case tea.MouseMsg:
+		return a.handleMouse(msg)
 
 	case streamChunkMsg:
 		a.chat.AppendChunk(msg.delta)
+		return a, nil
+
+	case shellDoneMsg:
+		a.chat.AppendShell(msg.script, msg.output, msg.err)
+		a.chat.SetStatus("shell: " + msg.script)
+		return a, nil
+
+	case compactDoneMsg:
+		a.chat.LoadHistory(a.ctrl.Messages())
+		a.vpContentHeight = 0
+		if msg.err != nil {
+			a.chat.SetStatus("compact failed: " + msg.err.Error())
+		} else {
+			a.chat.SetStatus("conversation compacted")
+		}
+		return a, nil
+
+	case copyDoneMsg:
+		if msg.err != nil {
+			a.chat.SetStatus("copy failed: " + msg.err.Error())
+		} else {
+			a.selActive = false // selection served; drop the highlight
+			a.chat.SetStatus("copied to clipboard")
+		}
 		return a, nil
 
 	case streamDoneMsg:
@@ -168,6 +237,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.chat.SetError(msg.err.Error())
 		}
 		a.ctrl.TrackUsage(msg.usage)
+		a.refreshDiffs()
 		a.rebuildViews()
 		return a, nil
 
@@ -178,6 +248,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toolResultMsg:
 		a.tool.AppendResult(msg.callID, msg.result)
 		return a, nil
+
+	case bgChangedMsg:
+		// Background subagent state changed; the sidebar re-reads the
+		// snapshot on the next View render — nothing else to do here.
+		return a, nil
+
+	case footerTickMsg:
+		a.footer.Tick()
+		a.refreshDiffs()
+		return a, scheduleFooterTick()
 
 	case reloadStartMsg:
 		a.chat.SetStatus("reloading…")
@@ -377,9 +457,21 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case tea.KeyEscape:
-		// base→modal Esc stack: if modal open, delegate to modal handler via HandleEsc
-		// No modal currently handled here; palette/model/session/status already handled above
-		// If no modal, Esc is no-op on base layer
+		// base→modal Esc stack: modals handle their own Esc earlier.
+		// On the base layer, double-Esc within 5s interrupts the running
+		// turn (upstream session.interrupt behavior).
+		now := time.Now()
+		if !a.lastEsc.IsZero() && now.Sub(a.lastEsc) <= 5*time.Second {
+			a.lastEsc = time.Time{}
+			if a.ctrl.Interrupt() {
+				a.chat.SetStatus("interrupted")
+			}
+			return a, nil
+		}
+		a.lastEsc = now
+		if a.ctrl.IsRunning() {
+			a.chat.SetStatus("esc again to interrupt")
+		}
 		return a, nil
 
 	case tea.KeyTab:
@@ -393,10 +485,41 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyCtrlC:
+		// Upstream behavior: Ctrl+C clears a NON-EMPTY input first (so a
+		// copy-shortcut reflex never kills the session); it exits only when
+		// the input is already empty.
+		if strings.TrimSpace(a.input.Value()) != "" {
+			a.input.SetValue("")
+			a.homeView.SetInput("")
+			a.autocomplete.Deactivate()
+			a.chat.SetStatus("input cleared · ctrl+c again to exit")
+			return a, nil
+		}
 		_ = a.ctrl.SaveSession()
 		a.quitting = true
 		return a, tea.Quit
+
+	case tea.KeyCtrlD:
+		a.diffVisible = !a.diffVisible
+		if a.diffVisible {
+			// Real working-tree diffs from the git adapter — the panel never
+			// opens empty on purpose.
+			wd, err := os.Getwd()
+			if err == nil {
+				diffs, derr := git.DiffCommand(wd)
+				if derr != nil {
+					a.chat.SetStatus("diff: " + derr.Error())
+				} else {
+					a.diff.SetDiffs(diffs)
+				}
+			}
+		}
+		return a, nil
 	}
+
+	// No bare-letter interceptions here on purpose: with the input focused,
+	// every rune belongs to the prompt. (The old empty-input d/g/K hooks made
+	// prompts starting with those letters impossible to type.)
 
 	// --- Autocomplete-aware keys ---
 	if a.autocomplete.IsActive() {
@@ -418,6 +541,9 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.homeView.SetInput("")
 				if strings.HasPrefix(submitted, "/") {
 					return a.handleCommand(submitted)
+				}
+				if strings.HasPrefix(submitted, "!") {
+					return a.submitShell(submitted)
 				}
 				if a.route == "home" {
 					a.route = "session"
@@ -451,6 +577,10 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(submitted, "/") {
 			return a.handleCommand(submitted)
 		}
+		// Shell mode: "!cmd" executes LOCALLY — it never reaches the LLM.
+		if strings.HasPrefix(submitted, "!") {
+			return a.submitShell(submitted)
+		}
 		if a.route == "home" {
 			a.route = "session"
 		}
@@ -459,41 +589,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	if msg.Type == tea.KeyRunes {
-		runes := msg.Runes
-
-		// --- LSP keybindings (only when input is empty) ---
-		// Must be checked BEFORE single-key handlers like 'd' to avoid conflicts.
-		if a.input.Value() == "" && len(runes) == 1 {
-			r := runes[0]
-			if a.lspPendingG {
-				// Complete the gd/gr sequence.
-				a.lspPendingG = false
-				switch r {
-				case 'd':
-					return a.dispatchLspTool("lsp_definition")
-				case 'r':
-					return a.dispatchLspTool("lsp_references")
-				default:
-					return a, nil
-				}
-			}
-			// Start of gd/gr sequence — intercept 'g' so it doesn't type into input.
-			if r == 'g' {
-				a.lspPendingG = true
-				return a, nil
-			}
-			// 'K' for hover — intercept so it doesn't type into input.
-			if r == 'K' {
-				return a.dispatchLspTool("lsp_hover")
-			}
-		}
-
-		// --- 'd' to toggle diff view (only when input is empty) ---
-		if len(runes) == 1 && runes[0] == 'd' && a.input.Value() == "" {
-			a.diffVisible = !a.diffVisible
-			return a, nil
-		}
+	// --- Scroll keys: page the conversation viewport (chat/diff slot) ---
+	if msg.Type == tea.KeyPgUp || msg.Type == tea.KeyPgDown {
+		var cmd tea.Cmd
+		a.scrollVP, cmd = a.scrollVP.Update(msg)
+		return a, cmd
 	}
 
 	// --- Delegate everything else to InputModel ---
@@ -563,8 +663,17 @@ func (a *App) executeCommandByName(name string) (tea.Model, tea.Cmd) {
 		a.handleStatusCommand()
 		return a, nil
 	case "/clear":
-		a.chat.SetStatus("chat cleared")
+		a.chat.Clear()
+		a.vpContentHeight = 0 // viewport re-sticks from empty content
+		a.chat.SetStatus("conversation view cleared")
 		return a, nil
+	case "/new":
+		a.handleNewCommand()
+		return a, nil
+	case "/compact":
+		return a, startCompact(a)
+	case "/copy":
+		return a.handleCopyCommand()
 	case "/undo":
 		a.handleUndoCommand()
 		return a, nil
@@ -614,11 +723,19 @@ func (a *App) handleCommand(text string) (tea.Model, tea.Cmd) {
 		a.quitting = true
 		return a, tea.Quit
 	case "/theme":
-		a.handleThemeCommand(parts)
+		return a, a.handleThemeCommand(parts)
 	case "/status":
 		a.handleStatusCommand()
 	case "/clear":
-		a.chat.SetStatus("chat cleared")
+		a.chat.Clear()
+		a.vpContentHeight = 0
+		a.chat.SetStatus("conversation view cleared")
+	case "/copy":
+		return a.handleCopyCommand()
+	case "/new":
+		a.handleNewCommand()
+	case "/compact":
+		return a, startCompact(a)
 	case "/rename":
 		a.handleRenameCommand(parts)
 	case "/undo":
@@ -745,28 +862,28 @@ func tuiValidateKey(key string) error {
 	return nil
 }
 
-// handleThemeCommand switches the active theme.
-func (a *App) handleThemeCommand(parts []string) {
+// handleThemeCommand switches the active theme and schedules its toast dismissal.
+func (a *App) handleThemeCommand(parts []string) tea.Cmd {
 	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
 		a.chat.SetStatus("usage: /theme <name|next|prev>")
-		return
+		return nil
 	}
 	sub := strings.TrimSpace(parts[1])
 
 	switch sub {
 	case "next", "prev":
-		a.cycleTheme(sub == "next")
+		return a.cycleTheme(sub == "next")
 	default:
-		a.switchTheme(sub)
+		return a.switchTheme(sub)
 	}
 }
 
 // cycleTheme moves to the next or previous theme in the list.
-func (a *App) cycleTheme(forward bool) {
+func (a *App) cycleTheme(forward bool) tea.Cmd {
 	names := theme.ThemeNames()
 	if len(names) == 0 {
 		a.chat.SetStatus("no themes found")
-		return
+		return nil
 	}
 
 	// Find current index
@@ -785,16 +902,17 @@ func (a *App) cycleTheme(forward bool) {
 		idx = (idx - 1 + len(names)) % len(names)
 	}
 
-	a.switchTheme(names[idx])
+	return a.switchTheme(names[idx])
 }
 
-// switchTheme loads a theme by name and updates all views.
-func (a *App) switchTheme(name string) {
+// switchTheme loads a theme by name, updates all views, and schedules the toast dismissal.
+func (a *App) switchTheme(name string) tea.Cmd {
 	t := theme.Load(name)
 	a.styles = theme.NewStyles(t)
 	a.currentTheme = name
-	a.toast.Push("theme: "+name, toast.LevelSuccess, 3*time.Second)
+	cmd := a.toast.Notify("theme: "+name, toast.LevelSuccess, 3*time.Second)
 	a.rebuildViews()
+	return cmd
 }
 
 // handleStatusCommand shows current app status via DialogStatus (MCP/LSP dots) and also chat status.
@@ -855,6 +973,10 @@ func (a *App) handleUndoCommand() {
 		a.chat.SetStatus("nothing to undo")
 		return
 	}
+	// The view must reflect the restored history — otherwise the panel keeps
+	// showing the turn that was just reverted.
+	a.chat.LoadHistory(a.ctrl.Messages())
+	a.vpContentHeight = 0
 	a.chat.SetStatus("undid last turn")
 }
 
@@ -864,7 +986,71 @@ func (a *App) handleRedoCommand() {
 		a.chat.SetStatus("nothing to redo")
 		return
 	}
+	a.chat.LoadHistory(a.ctrl.Messages())
+	a.vpContentHeight = 0
 	a.chat.SetStatus("redid last turn")
+}
+
+// handleNewCommand starts a fresh session: clears the conversation view and
+// rotates the controller to a new persisted session ID (upstream /new).
+func (a *App) handleNewCommand() {
+	a.ctrl.StartNewSession()
+	a.chat.Clear()
+	a.vpContentHeight = 0
+	a.route = "home"
+	a.chat.SetStatus("")
+}
+
+// compactDoneMsg carries the outcome of a manual /compact call.
+type compactDoneMsg struct{ err error }
+
+// copyDoneMsg carries the outcome of a /copy clipboard write.
+type copyDoneMsg struct{ err error }
+
+// handleCopyCommand copies the LAST assistant answer to the system
+// clipboard (upstream messages.copy parity).
+func (a *App) handleCopyCommand() (tea.Model, tea.Cmd) {
+	msgs := a.ctrl.Messages()
+	last := ""
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == core.RoleAssistant || msgs[i].Role == "assistant" {
+			last = msgs[i].Content
+			break
+		}
+	}
+	if strings.TrimSpace(last) == "" {
+		a.chat.SetStatus("nothing to copy yet")
+		return a, nil
+	}
+	text := last
+	return a, func() tea.Msg { return copyDoneMsg{err: copyToClipboard(text)} }
+}
+
+// copyToClipboard writes text to the system clipboard via the platform tool.
+func copyToClipboard(text string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/C", "clip")
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	default:
+		if _, err := exec.LookPath("wl-copy"); err == nil {
+			cmd = exec.Command("wl-copy")
+		} else if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		} else {
+			return fmt.Errorf("no clipboard tool found (install wl-copy or xclip)")
+		}
+	}
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
+
+// startCompact runs compaction off the UI goroutine — the LLM summarization
+// can take seconds.
+func startCompact(a *App) tea.Cmd {
+	return func() tea.Msg { return compactDoneMsg{err: a.ctrl.CompactNow()} }
 }
 
 // handleSessionsCommand lists all saved sessions. When sessions exist,
@@ -895,6 +1081,109 @@ func (a *App) handleSessionsCommand() {
 	if a.km != nil {
 		a.km.Push(keymap.ModalLayer)
 	}
+}
+
+// renderScrollbar draws the 1-column conversation scrollbar: an
+// element-fill track with a border-colored thumb, positioned by scroll
+// fraction (upstream scrollbox styling). Empty string when unusable.
+func (a *App) renderScrollbar(height, offset, contentH int) string {
+	if height < 1 || contentH <= 0 {
+		return ""
+	}
+	trackBg := a.styles.Theme.BackgroundElement
+	if trackBg == "" {
+		return ""
+	}
+	track := lipgloss.NewStyle().Background(lipgloss.Color(trackBg)).Render(" ")
+	thumb := track
+	if fg := a.styles.Theme.Border; fg != "" {
+		thumb = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(fg)).
+			Background(lipgloss.Color(trackBg)).
+			Render("▌")
+	}
+
+	maxOffset := contentH - height
+	thumbLen := max(1, height*height/contentH)
+	pos := 0
+	if maxOffset > 0 {
+		pos = int(float64(offset) / float64(maxOffset) * float64(height-thumbLen))
+	}
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > height-thumbLen {
+		pos = height - thumbLen
+	}
+
+	rows := make([]string, height)
+	for j := range rows {
+		rows[j] = track
+		if j >= pos && j < pos+thumbLen {
+			rows[j] = thumb
+		}
+	}
+	return strings.Join(rows, "\n")
+}
+
+// shellDoneMsg carries the result of a real local "!"-shell execution.
+type shellDoneMsg struct {
+	script string
+	output string
+	err    error
+}
+
+// submitShell routes a "!command" submission to real local execution.
+func (a *App) submitShell(submitted string) (tea.Model, tea.Cmd) {
+	script := strings.TrimSpace(strings.TrimPrefix(submitted, "!"))
+	if script == "" {
+		a.chat.SetStatus("usage: !<command>")
+		return a, nil
+	}
+	if a.route == "home" {
+		a.route = "session"
+	}
+	return a, a.execShell(script)
+}
+
+// execShell runs the script through the platform shell with a 30s cap and
+// returns the combined output as a message.
+func (a *App) execShell(script string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.CommandContext(ctx, "cmd", "/C", script)
+		} else {
+			cmd = exec.CommandContext(ctx, "sh", "-c", script)
+		}
+		out, err := cmd.CombinedOutput()
+		return shellDoneMsg{script: script, output: string(out), err: err}
+	}
+}
+
+// refreshDiffs re-reads the real working-tree changes for the rail Files
+// section. Errors clear the list — an unreadable repo shows no fabricated
+// rows.
+func (a *App) refreshDiffs() {
+	wd, err := os.Getwd()
+	if err != nil {
+		a.cachedDiffs = nil
+		return
+	}
+	fileDiffs, err := git.DiffCommand(wd)
+	if err != nil {
+		a.cachedDiffs = nil
+		return
+	}
+	files := make([]views.ModifiedFile, 0, len(fileDiffs))
+	for _, f := range fileDiffs {
+		files = append(files, views.ModifiedFile{
+			Name: f.Path, Added: f.Additions, Removed: f.Deletions,
+		})
+	}
+	a.cachedDiffs = files
 }
 
 // handleResumeCommand loads a session and injects its history into the controller.
@@ -962,116 +1251,365 @@ func (a *App) View() string {
 	// Rebuild views with current state
 	a.rebuildViews()
 
-	// Header: minimal with subtle full-width bottom border (opencode style)
-	header := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(a.styles.HomeBorder.GetBorderTopForeground()).
-		Width(a.width).
-		Render(a.header.Render())
+	// Explicit region widths: in wide mode every main-column region renders
+	// at ContentWidth so no post-hoc truncation is needed; narrow mode keeps
+	// full-width regions and overlays the rail on top. There is no header —
+	// the upstream design keeps session identity inside the rail.
+	mainWidth := a.width
+	if a.IsWide() {
+		mainWidth = a.ContentWidth()
+	}
 
 	// Tool view: per-entry bordered panels already; no extra outer wrap needed
-	toolStr := a.tool.Render()
+	toolStr := trimToWidth(a.tool.Render(), mainWidth)
 
-	// Chat or Diff view: fills remaining space
+	// Chat or Diff view: fills its budgeted slot (see height budget below)
 	var mainStr string
 	if a.diffVisible {
-		mainStr = a.diff.View()
+		mainStr = trimToWidth(a.diff.View(), mainWidth)
 	} else {
 		mainStr = a.chat.Render()
 	}
 
-	// Input: full-width bar with backgroundElement and primary accent
-	inputInner := a.input.View()
-	inputBar := a.styles.InputBarAccent.Copy().Width(a.width - 2).Render(inputInner)
-	inputLine := inputBar
+	// Input area: OpenCode-style raised field — a left ┃ bar tinted toward
+	// the primary accent over an element-fill panel, a meta row (profile ·
+	// model) inside the same fill, and a half-block fade-out row beneath so
+	// the field reads as fading into the background instead of ending.
+	// Trailing bare spaces are trimmed from the textarea render: bubbles
+	// pads to its own internal width with UNSTYLED spaces, which would punch
+	// a transparent hole through the element fill.
+	inputInner := strings.TrimRight(a.input.View(), " ")
+	barColor := a.styles.Theme.Border
+	if barColor != "" && a.styles.Theme.Primary != "" {
+		barColor = theme.Tint(a.styles.Theme.Border, a.styles.Theme.Primary, 0.55)
+	}
+	fieldStyle := lipgloss.NewStyle().
+		Border(ui.SplitBorder).
+		BorderForeground(lipgloss.Color(barColor)).
+		BorderBottom(false).
+		Background(lipgloss.Color(a.styles.Theme.BackgroundElement)).
+		Padding(1, 2, 0, 2).
+		Width(mainWidth - 4)
+	field := fieldStyle.Render(inputInner)
 
-	// Autocomplete popup above input, left-aligned to input bar (not centered)
+	var metaLine string
+	if profile := a.ctrl.ActiveProfile(); profile != "" {
+		// Every segment carries the field background explicitly: inner SGR
+		// resets kill the wrapper's bg for the rest of the row.
+		metaBg := lipgloss.NewStyle().Background(lipgloss.Color(a.styles.Theme.BackgroundElement))
+		name := metaBg.Copy().Bold(true).
+			Foreground(lipgloss.Color(a.styles.Theme.Primary)).Render(profile)
+		model := a.ctrl.ModelName()
+		dot := metaBg.Copy().
+			Foreground(lipgloss.Color(a.styles.Theme.TextMuted)).Render(" · ")
+		var modelName string
+		if model != "" {
+			modelName = metaBg.Copy().
+				Foreground(lipgloss.Color(a.styles.Theme.Text)).Render(model)
+		}
+		metaLine = name + dot + modelName
+	}
+	metaRow := ""
+	if metaLine != "" {
+		metaRow = lipgloss.NewStyle().
+			Background(lipgloss.Color(a.styles.Theme.BackgroundElement)).
+			Padding(0, 2).
+			Width(mainWidth - 4).
+			Render(metaLine)
+	}
+	fade := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)).Render("╹") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color(a.styles.Theme.BackgroundElement)).
+			Render(strings.Repeat("▀", max(0, mainWidth-2)))
+
+	inputLine := field
+	if metaRow != "" {
+		inputLine += "\n" + metaRow
+	}
+	inputLine += "\n" + fade
+
+	// Autocomplete popup: floats OVER the conversation just above the
+	// prompt box instead of occupying its own budget slot.
 	var popupStr string
 	if a.autocomplete.IsActive() {
 		popup := a.autocomplete.View()
 		if popup != "" {
 			popupStyled := a.styles.Popup.Copy().
-				Width(a.width - 4).
+				Width(mainWidth - 4).
 				Render(popup)
-			popupStr = popupStyled
+			popupStr = trimToWidth(popupStyled, mainWidth)
 		}
 	}
 
-	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
-	if a.IsWide() {
-		mainWidth := a.ContentWidth()
-		sidebarStr := a.newSidebarView()
+	// Toast: floating notification chip pasted over the conversation
+	// (bottom-right) instead of occupying its own budget slot.
+	toastStr := ""
+	if raw := a.toast.View(); raw != "" {
+		toastStr = trimToWidth(a.styles.Toast.Render(raw), mainWidth)
+	}
 
-		// Build main panel string at mainWidth
+	// Footer composes inside its VISIBLE column: wide mode renders it
+	// inside the main column (mainWidth); narrow mode keeps it within the
+	// strip left of the overlaid rail or the status cluster would hide
+	// underneath.
+	footerW := mainWidth
+	if !a.IsWide() {
+		footerW = a.width - 42
+	}
+	a.footer.SetWidth(footerW)
+	footerStr := a.footer.Render()
+
+	// --- Height budget (REQ-TUI-APP-2): assign every terminal row to ---
+	// --- exactly one slot so the frame fills a.height and the input ---
+	// --- box plus footer stay pinned at the bottom edge.               ---
+	inputH := lipgloss.Height(inputLine)
+	footerH := lipgloss.Height(footerStr)
+	toolH := 0
+	if toolStr != "" {
+		toolH = lipgloss.Height(toolStr)
+	}
+	fixed := inputH + footerH + toolH
+	chatH := a.height - fixed
+	if chatH < 1 {
+		chatH = 1
+	}
+	// The conversation slot is a real viewport: long content scrolls inside
+	// its budget instead of pushing pinned regions around. When the viewport
+	// was already at the bottom (or this is the first frame) it sticks to
+	// the bottom as content grows; a scrolled-up position is preserved.
+	wasAtBottom := a.vpContentHeight == 0 ||
+		a.scrollVP.YOffset+a.scrollVP.Height >= a.vpContentHeight
+	// Scrollbar: shown only when the conversation overflows its slot, like
+	// the upstream scrollbox (1 track col + 1 gap col reserved while on).
+	contentLines := lipgloss.Height(mainStr)
+	showScroll := contentLines > chatH && chatH > 1
+	vpW := mainWidth
+	if showScroll {
+		vpW = mainWidth - 2
+	}
+	a.scrollVP.Width = vpW
+	a.scrollVP.Height = chatH
+	a.scrollVP.SetContent(mainStr)
+	a.vpContentHeight = contentLines
+	if wasAtBottom {
+		a.scrollVP.GotoBottom()
+	}
+	mainStr = a.scrollVP.View()
+	if showScroll {
+		sb := a.renderScrollbar(chatH, a.scrollVP.YOffset, contentLines)
+		if sb != "" {
+			// Side-by-side join: the scrollbar is a COLUMN, never stacked.
+			mainStr = lipgloss.JoinHorizontal(lipgloss.Top, mainStr, sb)
+		}
+	}
+
+	buildPanel := func() string {
 		var mb strings.Builder
-		mb.WriteString(header)
-		mb.WriteString("\n")
 		mb.WriteString(mainStr)
-		mb.WriteString("\n")
-		if toolStr != "" {
+		if toolH > 0 {
+			mb.WriteString("\n")
 			mb.WriteString(toolStr)
-			mb.WriteString("\n")
 		}
-		toastStr := a.toast.View()
-		if toastStr != "" {
-			mb.WriteString(toastStr)
-			mb.WriteString("\n")
-		}
-		if popupStr != "" {
-			mb.WriteString(popupStr)
-			mb.WriteString("\n")
-		}
+		mb.WriteString("\n")
 		mb.WriteString(inputLine)
 		mb.WriteString("\n")
-		mb.WriteString(a.footer.Render())
-		mainPanel := mb.String()
-
-		// Trim main panel to mainWidth columns per line for clean join
-		mainPanel = trimToWidth(mainPanel, mainWidth)
-		// Title sequence for session (OC | {title}) vs home (OpenCode) — emitted as escape, not counted in width
-		titleSeq := "\x1b]0;" + a.Title() + "\x07"
-		return titleSeq + lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, " ", sidebarStr)
-	}
-	// Compose regions with newlines between them (narrow terminal, overlay sidebar)
-	var b strings.Builder
-	b.WriteString(header)
-	b.WriteString("\n")
-	b.WriteString(mainStr)
-	b.WriteString("\n")
-	if toolStr != "" {
-		b.WriteString(toolStr)
-		b.WriteString("\n")
+		mb.WriteString(footerStr)
+		return mb.String()
 	}
 
-	// Toast overlay: rendered between tool view and input (session scroll area per REQ-TUI-APP-8)
-	toastStr := a.toast.View()
+	// Floating overlay heights (computed after the budget: they never own
+	// slots — they paste over the conversation above the prompt box).
+	toastH, popupH := 0, 0
 	if toastStr != "" {
-		b.WriteString(toastStr)
-		b.WriteString("\n")
+		toastH = lipgloss.Height(toastStr)
 	}
-
 	if popupStr != "" {
-		b.WriteString(popupStr)
-		b.WriteString("\n")
+		popupH = lipgloss.Height(popupStr)
 	}
-	b.WriteString(inputLine)
-	b.WriteString("\n")
-	b.WriteString(a.footer.Render())
 
-	out := b.String()
-	// Narrow (!wide): sidebar overlays the rightmost 42 columns over an
-	// RGBA(0,0,0,70) backdrop strip per REQ-TUI-APP-2 (session route only).
-	if !a.IsWide() && a.route != "home" {
-		out = a.applySidebarOverlay(out)
+	frame := buildPanel()
+
+	// Sidebar (opencode right panel) — wide>120 shows 42 inline, !wide overlays with backdrop RGBA(0,0,0,70)
+	var titleSeq string
+	if a.IsWide() {
+		// Sidebar rail stretches to the FULL terminal height so it spans
+		// top to bottom with its footer pinned at the bottom edge
+		// (REQ-TUI-APP-2).
+		sidebarStr := a.newSidebarViewFullHeight(a.height)
+		titleSeq = "\x1b]0;" + a.Title() + "\x07"
+		frame = lipgloss.JoinHorizontal(lipgloss.Top, frame, " ", sidebarStr)
+	} else {
+		// Narrow: sidebar overlays the rightmost 42 columns over an
+		// RGBA(0,0,0,70) backdrop strip per REQ-TUI-APP-2.
+		if a.route != "home" {
+			frame = a.applySidebarOverlay(frame)
+		}
+		titleSeq = "\x1b]0;" + a.Title() + "\x07"
 	}
-	// Title sequence emitted outside width math (zero-width escape).
-	titleSeq := "\x1b]0;" + a.Title() + "\x07"
-	return titleSeq + out
+
+	// Floating overlays are composited as the last pass so they hover over
+	// the final frame: popup left-aligned above the prompt box, toast
+	// stacked above it (right-aligned to the conversation column in wide
+	// mode so it never covers the rail footer).
+	if popupH > 0 || toastH > 0 {
+		rows := strings.Split(frame, "\n")
+		inputStart := len(rows) - footerH - inputH
+		toastAlignW := a.width
+		if a.IsWide() {
+			toastAlignW = mainWidth
+		}
+		if popupH > 0 {
+			rows = pasteBlockLeft(rows, strings.Split(popupStr, "\n"), inputStart, a.width)
+		}
+		if toastH > 0 {
+			rows = pasteBlockRight(rows, strings.Split(toastStr, "\n"), inputStart-popupH, toastAlignW)
+		}
+		frame = strings.Join(rows, "\n")
+	}
+
+	return titleSeq + a.finalizeFrame(frame)
 }
 
-// newSidebarView builds the opencode-style 42-col sidebar from live controller
-// state (shared by wide inline layout and narrow overlay).
-func (a *App) newSidebarView() string {
+// finalizeFrame applies the root canvas and the live selection highlight,
+// caching each row's plain visible text for mouse-selection extraction.
+func (a *App) finalizeFrame(frame string) string {
+	painted := strings.Split(a.paintCanvas(fitFrame(frame, a.height)), "\n")
+	a.lastRows = make([]string, len(painted))
+	for i, r := range painted {
+		a.lastRows[i] = stripVisibleANSI(r)
+	}
+	if a.selActive && !a.modalOverlayOpen() {
+		painted = applySelectionHighlight(painted, a.selStartX, a.selStartY, a.selEndX, a.selEndY)
+	}
+	return strings.Join(painted, "\n")
+}
+
+// paintCanvas gives the frame a full-terminal painted surface, mirroring the
+// upstream root <box width={terminal} height={terminal}
+// backgroundColor={theme.background}> that wraps everything: one big painted
+// canvas containing nested fills. Two passes per row: (1) every run of bare
+// spaces left transparent by joiners/centering/padders gets wrapped in the
+// background sequence — internal SGR resets would otherwise let the terminal
+// default show through mid-row; (2) short rows are extended to full width.
+func (a *App) paintCanvas(frame string) string {
+	t := a.styles.Theme
+	if t == nil {
+		return frame
+	}
+	bg := t.Background
+	if bg == "" {
+		bg = t.BG
+	}
+	seq := theme.BackgroundSequence(bg)
+	if seq == "" || lipgloss.ColorProfile() != termenv.TrueColor {
+		// Degraded color profiles: hand-injected truecolor sequences would
+		// bypass termenv downgrading. Fall back to a plain tail fill.
+		fill := lipgloss.NewStyle().Background(lipgloss.Color(bg))
+		rows := strings.Split(frame, "\n")
+		for i, r := range rows {
+			if gap := a.width - lipgloss.Width(r); gap > 0 {
+				rows[i] = r + fill.Render(strings.Repeat(" ", gap))
+			}
+		}
+		return strings.Join(rows, "\n")
+	}
+	rows := strings.Split(frame, "\n")
+	for i, r := range rows {
+		r = paintRowCanvas(r, seq)
+		if gap := a.width - lipgloss.Width(r); gap > 0 {
+			r += seq + strings.Repeat(" ", gap) + "\x1b[0m"
+		}
+		rows[i] = r
+	}
+	return strings.Join(rows, "\n")
+}
+
+// paintRowCanvas walks an ANSI row and wraps EVERY maximal run of bytes that
+// sits outside an active background — bare spaces AND foreground-only
+// glyphs — in its own background run. After this pass every visible cell of
+// the row is explicitly painted, matching the upstream root-box guarantee
+// that no terminal-default cell ever shows through.
+func paintRowCanvas(row, seq string) string {
+	var b strings.Builder
+	i := 0
+	bgActive := false
+	runStart := -1
+
+	flush := func(end int) {
+		if runStart < 0 {
+			return
+		}
+		b.WriteString(seq)
+		b.WriteString(row[runStart:end])
+		b.WriteString("\x1b[0m")
+		runStart = -1
+	}
+
+	for i < len(row) {
+		if row[i] == 0x1b {
+			flush(i)
+			end := strings.IndexByte(row[i:], 'm')
+			if end < 0 {
+				b.WriteString(row[i:])
+				return b.String()
+			}
+			seqText := row[i : i+end+1]
+			b.WriteString(seqText)
+			bgActive = sgrSetsOrKeepsBG(seqText, bgActive)
+			i += end + 1
+			continue
+		}
+		if bgActive {
+			size := runeSize(row, i)
+			b.WriteString(row[i : i+size])
+			i += size
+			continue
+		}
+		if runStart < 0 {
+			runStart = i
+		}
+		i++
+	}
+	flush(len(row))
+	return b.String()
+}
+
+func runeSize(s string, i int) int {
+	size := 1
+	for i+size < len(s) && s[i+size]&0xC0 == 0x80 {
+		size++
+	}
+	return size
+}
+
+// sgrSetsOrKeepsBG parses an SGR sequence and reports the resulting
+// background-active state given the previous one.
+func sgrSetsOrKeepsBG(seqText string, cur bool) bool {
+	params := strings.Split(strings.TrimSuffix(strings.TrimPrefix(seqText, "\x1b["), "m"), ";")
+	hasReset := false
+	bgSet := false
+	for _, p := range params {
+		switch p {
+		case "0", "":
+			hasReset = true
+		case "49":
+			bgSet = false
+			hasReset = false
+		case "48", "7":
+			bgSet = true
+		}
+	}
+	if len(params) == 1 && hasReset {
+		return false
+	}
+	if bgSet {
+		return true
+	}
+	return cur && !hasReset
+}
+
+// newSidebarModel builds the sidebar model from live controller state (shared
+// by wide inline layout and narrow overlay).
+func (a *App) newSidebarModel() views.SidebarModel {
 	sb := views.NewSidebarModel(a.styles)
 	sb.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
 	sb.SetCost(a.ctrl.Cost())
@@ -1083,24 +1621,107 @@ func (a *App) newSidebarView() string {
 		sb.SetTitle(a.ctrl.ActiveProfile())
 	}
 	sb.SetSessionID(a.ctrl.SessionID())
-	if ws, ok := a.ctrl.GetKV("workspace"); ok {
+	if ws, ok := a.ctrl.GetKV("workspace"); ok && ws != "" {
 		sb.SetWorkspace(ws)
+	} else if wd, err := os.Getwd(); err == nil {
+		// Workspace is always real: fall back to the process working
+		// directory (home prefix shortened to ~). Never fabricate beyond it.
+		sb.SetWorkspace(shortenHome(wd))
 	}
-	return sb.View(42)
+	// Subagents: real background task state only. Section renders only when
+	// a source is attached AND at least one task exists (nil→omit, PR3 rule).
+	if snap, has := a.ctrl.SubagentSnapshot(); has {
+		var tasks []views.SubTask
+		for _, t := range snap.Running {
+			tasks = append(tasks, views.SubTask{
+				Title: t.Title, Running: true, At: t.StartedAt.Format("15:04"),
+			})
+		}
+		// Most recent finished first, capped for display.
+		for i := len(snap.Finished) - 1; i >= 0 && len(tasks) < maxSidebarSubTasks; i-- {
+			f := snap.Finished[i]
+			tasks = append(tasks, views.SubTask{
+				Title: f.Title, Err: f.Failed, At: f.FinishedAt.Format("15:04"),
+			})
+		}
+		done, failed := 0, 0
+		for _, f := range snap.Finished {
+			if f.Failed {
+				failed++
+			} else {
+				done++
+			}
+		}
+		if len(snap.Running)+len(snap.Finished) > 0 {
+			sb.SetSubagents(len(snap.Running), done, failed, tasks)
+		}
+	}
+	// MCP: real per-server connection states; empty → section omitted.
+	if servers := a.ctrl.MCPServers(); len(servers) > 0 {
+		rows := make([]views.MCPServerState, len(servers))
+		for i, s := range servers {
+			rows[i] = views.MCPServerState{Name: s.Name, Connected: s.Connected}
+		}
+		sb.SetMCPServers(rows)
+	}
+	sb.SetModifiedFiles(a.cachedDiffs)
+	return sb
+}
+
+// maxSidebarSubTasks caps visible subagent rows in the sidebar.
+const maxSidebarSubTasks = 6
+
+// shortenHome replaces the user home prefix with ~ for compact display.
+// Paths outside home are returned unchanged.
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	return path
+}
+
+// newSidebarViewFullHeight builds the 42-col sidebar stretched to exactly
+// height rows: sections on top, footer (workspace path above version line)
+// pinned at the bottom. Shared by the wide inline layout and the narrow
+// overlay (REQ-TUI-APP-2).
+func (a *App) newSidebarViewFullHeight(height int) string {
+	return a.newSidebarModel().ViewFullHeight(42, height)
 }
 
 // applySidebarOverlay composes body with the sidebar drawn over the rightmost
 // 42 visible columns, keeping total visible width == a.width. The strip behind
-// the sidebar uses the RGBA(0,0,0,70) backdrop per REQ-TUI-APP-2.
+// the sidebar uses the RGBA(0,0,0,70) backdrop per REQ-TUI-APP-2. The sidebar
+// rail stretches to the body's exact line count so its footer stays pinned at
+// the bottom; when the rail's own content is taller than the body, the body
+// is padded so the rail (including its footer) is never truncated.
 func (a *App) applySidebarOverlay(body string) string {
 	const sidebarWidth = 42
-	overlay := trimToWidth(a.newSidebarView(), sidebarWidth)
+	bodyLines := strings.Split(body, "\n")
+	// The rail stretches to the FULL terminal height (not the body's line
+	// count) so its footer stays pinned at the bottom edge even when the
+	// base frame is short; the max() below pads the shorter side.
+	overlay := trimToWidth(a.newSidebarViewFullHeight(a.height), sidebarWidth)
 	baseMax := a.width - sidebarWidth
 	backdropPad := lipgloss.NewStyle().Background(lipgloss.Color("rgba(0,0,0,70)"))
-	bodyLines := strings.Split(body, "\n")
 	overlayLines := strings.Split(overlay, "\n")
-	for i := range bodyLines {
-		left := trimToWidth(bodyLines[i], baseMax)
+
+	n := len(bodyLines)
+	if len(overlayLines) > n {
+		n = len(overlayLines)
+	}
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		left := ""
+		if i < len(bodyLines) {
+			left = trimToWidth(bodyLines[i], baseMax)
+		}
 		if gap := baseMax - lipgloss.Width(left); gap > 0 {
 			left += strings.Repeat(" ", gap)
 		}
@@ -1111,41 +1732,48 @@ func (a *App) applySidebarOverlay(body string) string {
 		if gap := sidebarWidth - lipgloss.Width(right); gap > 0 {
 			right += backdropPad.Render(strings.Repeat(" ", gap))
 		}
-		bodyLines[i] = left + right
+		out[i] = left + right
 	}
-	return strings.Join(bodyLines, "\n")
+	return strings.Join(out, "\n")
 }
 
 func (a *App) renderHome() string {
+	// Autocomplete popup height is reserved BEFORE sizing so the centered
+	// base shrinks instead of pushing the footer off the fixed frame.
+	popupStr := ""
+	if a.autocomplete.IsActive() {
+		popup := a.autocomplete.View()
+		if popup != "" {
+			popupStr = lipgloss.PlaceHorizontal(a.width, lipgloss.Center, popup)
+		}
+	}
+
 	// Sync home view state before render — toast inside centered column per REQ-TUI-APP-8.
-	a.homeView.SetSize(a.width, a.height)
+	// The last terminal row is reserved for the home footer; the popup slot
+	// (if any) is reserved above that.
+	a.homeView.SetSize(a.width, a.height-1-lipgloss.Height(popupStr))
 	a.homeView.SetStyles(a.styles)
 	a.homeView.SetInput(a.input.Value())
 	a.homeView.SetToast(a.toast.View())
 
 	base := a.homeView.View()
 
-	// Autocomplete popup centered
-	if a.autocomplete.IsActive() {
-		popup := a.autocomplete.View()
-		if popup != "" {
-			centered := lipgloss.PlaceHorizontal(a.width, lipgloss.Center, popup)
-			base = base + "\n" + centered
-		}
+	if popupStr != "" {
+		base = base + "\n" + popupStr
 	}
 
 	// Home footer at bottom (empty plus plugin slot, muted NotAvailable when absent)
 	homeFooterStr := a.homeFooter.Render()
 
 	var b strings.Builder
-	// Title sequence for home: OpenCode
+	// Title sequence for home: kui
 	titleSeq := "\x1b]0;" + a.Title() + "\x07"
 	b.WriteString(titleSeq)
 	b.WriteString(base)
 	b.WriteString("\n")
 	b.WriteString(homeFooterStr)
 
-	return b.String()
+	return a.finalizeFrame(b.String())
 }
 
 // rebuildViews synchronizes the view models with the controller state.
@@ -1165,6 +1793,27 @@ func (a *App) rebuildViews() {
 	a.footer.SetModel(a.ctrl.ModelName())
 	a.footer.SetTokens(a.ctrl.TotalTokens(), a.ctrl.ContextWindow())
 	a.footer.SetCost(a.ctrl.Cost())
+	// Space-between row: real working directory on the left (workspace KV
+	// first, process cwd as honest fallback), full terminal width.
+	if ws, ok := a.ctrl.GetKV("workspace"); ok && ws != "" {
+		a.footer.SetDir(ws)
+	} else if wd, err := os.Getwd(); err == nil {
+		a.footer.SetDir(shortenHome(wd))
+	}
+	a.footer.SetWidth(a.width)
+	a.homeFooter.SetWidth(a.width)
+
+	// Prompt field colors: override bubbles' ANSI-black textarea defaults so
+	// the cursor line and placeholder blend with the element fill instead of
+	// painting dark boxes through it. Every state carries the field bg —
+	// foreground-only styles would render over transparency after resets.
+	if t := a.styles.Theme; t != nil {
+		fieldBg := lipgloss.NewStyle().Background(lipgloss.Color(t.BackgroundElement))
+		ph := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.TextMuted)).
+			Background(lipgloss.Color(t.BackgroundElement))
+		a.input.SetFieldColors(fieldBg, ph)
+	}
 	// Wire sync.data.provider/mcp/lsp with nil→muted NotAvailable (PR3)
 	if lsp, ok := a.ctrl.SyncLSP(); ok {
 		a.footer.SetLSP(lsp)
@@ -1204,8 +1853,15 @@ func (a *App) rebuildViews() {
 	if v, ok := a.ctrl.GetKV("diff_wrap_mode"); ok {
 		a.diff.SetWrapMode(v)
 	}
-	a.diff.SetWidth(a.width)
-	a.chat.SetWidth(a.width)
+	// Region widths are explicit: in wide mode the chat/diff column equals
+	// the main panel width so nothing is truncated after rendering.
+	regionW := a.width
+	if a.IsWide() {
+		regionW = a.ContentWidth()
+	}
+	a.diff.SetWidth(regionW)
+	a.chat.SetWidth(regionW)
+	a.tool.SetWidth(regionW)
 
 	// Update home view in-place
 	if a.homeView.IsZero() {
@@ -1222,57 +1878,30 @@ func (a *App) chatView() *views.ChatModel {
 	return &a.chat
 }
 
-// dispatchLspTool dispatches an LSP tool call via the controller and shows
-// the result in the chat. When the dispatcher is not configured, it shows
-// an error status. The file URI and cursor position are extracted from the
-// last user message context (line 0, character 0 defaults).
-func (a *App) dispatchLspTool(toolName string) (tea.Model, tea.Cmd) {
-	// Default to a placeholder URI — real implementation would extract
-	// from the editor context or last file read.
-	uri := "file:///."
-	line := 0
-	character := 0
-
-	args := map[string]interface{}{
-		"uri":       uri,
-		"line":      line,
-		"character": character,
-	}
-
-	result, err := a.ctrl.DispatchLsp(toolName, args)
-	if err != nil {
-		a.chat.SetStatus(toolName + ": " + err.Error())
-		return a, nil
-	}
-
-	a.chat.AppendMessage("assistant", result, a.ctrl.ActiveProfile(), "")
-	return a, nil
-}
-
 // IsWide reports whether the terminal is wide (>120 cols) per REQ-TUI-APP-2.
 func (a *App) IsWide() bool {
 	return a.width > 120
 }
 
-// ContentWidth returns width - (sidebarVisible?42:0) -4 per REQ-TUI-APP-2.
-// When wide, sidebar 42 is visible inline; when narrow, sidebar overlays.
+// ContentWidth returns the main-column width: terminal width minus the
+// inline rail (42) and one gutter column when wide; width-4 when narrow.
 func (a *App) ContentWidth() int {
 	if a.IsWide() {
-		return a.width - 42 - 4
+		return a.width - 42 - 1
 	}
 	return a.width - 4
 }
 
-// Title returns terminal title: OpenCode on home, OC | {title} on session per REQ-TUI-APP-8.
+// Title returns terminal title: kui on home, kui | {title} on session per REQ-TUI-APP-8.
 func (a *App) Title() string {
 	if a.route == "home" {
-		return "OpenCode"
+		return "kui"
 	}
 	t := a.ctrl.ActiveProfile()
 	if t == "" {
 		t = "session"
 	}
-	return "OC | " + t
+	return "kui | " + t
 }
 
 // trimToWidth truncates each line of s to maxWidth columns so it can be
@@ -1300,4 +1929,67 @@ func trimToWidth(s string, maxWidth int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// fitFrame clamps or pads s to exactly height rows so alt-screen frames are
+// stable frame to frame and never exceed the terminal height (overflow is
+// clipped from the bottom — a degenerate case only on tiny terminals).
+func fitFrame(s string, height int) string {
+	if height < 1 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// padToWidth pads s with trailing spaces to exactly w visible columns.
+func padToWidth(s string, w int) string {
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		return s + strings.Repeat(" ", gap)
+	}
+	return s
+}
+
+// pasteBlockLeft replaces the rows [endRow-len(lines), endRow) with lines,
+// padding each to width w so frame row widths stay stable. endRow is
+// exclusive; rows outside the frame are skipped.
+func pasteBlockLeft(rows []string, lines []string, endRow, w int) []string {
+	start := endRow - len(lines)
+	for i, ln := range lines {
+		row := start + i
+		if row < 0 || row >= len(rows) {
+			continue
+		}
+		rows[row] = padToWidth(trimToWidth(ln, w), w)
+	}
+	return rows
+}
+
+// pasteBlockRight right-aligns lines into rows [endRow-len(lines), endRow),
+// preserving each covered row's left content up to the block column and
+// re-padding the tail to w. endRow is exclusive.
+func pasteBlockRight(rows []string, lines []string, endRow, w int) []string {
+	for i, ln := range lines {
+		row := endRow - len(lines) + i
+		if row < 0 || row >= len(rows) {
+			continue
+		}
+		lw := lipgloss.Width(ln)
+		col := w - lw
+		if col < 0 {
+			col = 0
+		}
+		left := trimToWidth(rows[row], col)
+		if gap := col - lipgloss.Width(left); gap > 0 {
+			left += strings.Repeat(" ", gap)
+		}
+		rows[row] = padToWidth(left+ln, w)
+	}
+	return rows
 }

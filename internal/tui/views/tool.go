@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/biggs-100/kui/internal/tui/theme"
+	"github.com/biggs-100/kui/internal/tui/ui"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -17,8 +18,8 @@ type ToolEvent struct {
 }
 
 // ToolModel renders the live tool-call/result list during multi-step
-// turns. When no events exist (nil observer or no tool calls), it shows
-// an empty-state hint (REQ-TUI-TOOL-2).
+// turns. With no events it renders "" so the layout budget reclaims the
+// slot (REQ-TUI-TOOL-2).
 type ToolModel struct {
 	events []ToolEvent
 	// index by callID for fast result lookup
@@ -26,7 +27,11 @@ type ToolModel struct {
 	styles      *theme.Styles
 	collapse    bool // collapseToolOutput
 	showDetails bool
+	width       int // block width for large outputs; 0 = unbounded
 }
+
+// SetWidth caps block-style outputs to the conversation column.
+func (m *ToolModel) SetWidth(w int) { m.width = w }
 
 // NewToolModel creates an empty ToolModel.
 func NewToolModel(styles *theme.Styles) ToolModel {
@@ -78,103 +83,118 @@ func CollapseOutput(s string, maxLines int) string {
 	return preview + fmt.Sprintf("\n… %d lines", remaining)
 }
 
-// Render produces the full tool view string (REQ-TUI-TOOL-1/2).
-// Supports collapseToolOutput and showDetails toggles, and diff highlight
-// backgrounds via theme Diff*Bg tokens.
+// Render draws tool activity the upstream way: ONE INLINE ROW per call — a
+// two-column state icon, the tool name (text-colored while running, muted
+// once finished), and a muted one-line summary. Large/multi-line outputs
+// upgrade to an indented block: invisible left bar + backgroundPanel fill,
+// never a rounded box.
 func (m ToolModel) Render() string {
 	if len(m.events) == 0 {
-		if m.styles != nil {
-			return m.styles.HomeMuted.Render("no tool calls")
+		return ""
+	}
+
+	st := m.styles != nil
+	t := m.styles.Theme
+	if st && t == nil {
+		st = false
+	}
+
+	paint := func(fg, s string) string {
+		if !st || fg == "" {
+			return s
 		}
-		return "no tool calls"
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(fg)).Render(s)
 	}
 
 	var parts []string
 	for _, ev := range m.events {
-		var line strings.Builder
-		// Per-tool metadata: show Name and CallID when showDetails true
-		nameStr := ev.Name
-		if m.styles != nil {
-			nameStr = m.styles.ToolName.Render(ev.Name)
+		done := ev.Result != ""
+		failed := strings.HasPrefix(ev.Result, "error:")
+
+		icon, iconColor := "●", t.Warning
+		nameFg := t.Text
+		switch {
+		case failed:
+			icon, iconColor = "×", t.Error
+		case done:
+			icon, iconColor = "✓", t.Success
+			nameFg = "" // finished tools dim through the muted path below
 		}
-		line.WriteString(nameStr)
-		if m.showDetails && ev.CallID != "" {
-			meta := fmt.Sprintf(" (%s)", ev.CallID)
-			if m.styles != nil {
-				meta = m.styles.HomeMuted.Render(meta)
-			}
-			line.WriteString(meta)
+		if !st {
+			iconColor, nameFg = "", ""
 		}
 
-		if ev.Result != "" {
-			if !m.showDetails {
-				// detail rows hidden when showDetails=false
-				line.WriteString(" ")
-				hidden := "— details hidden"
-				if m.styles != nil {
-					hidden = m.styles.HomeMuted.Render(hidden)
-				}
-				line.WriteString(hidden)
+		name := ev.Name
+		if done {
+			if st {
+				name = lipgloss.NewStyle().
+					Foreground(lipgloss.Color(t.TextMuted)).Render(ev.Name)
+			}
+		} else {
+			name = paint(nameFg, ev.Name)
+		}
+		head := paint(iconColor, icon) + " " + name
+		if m.showDetails && ev.CallID != "" && st {
+			head += m.styles.HomeMuted.Render(fmt.Sprintf(" (%s)", ev.CallID))
+		}
+
+		if !done {
+			parts = append(parts, head+" "+paint(t.Warning, "running"))
+			continue
+		}
+
+		body := strings.TrimPrefix(ev.Result, "error:")
+		lineCount := strings.Count(body, "\n") + 1
+		isDiff := strings.Contains(body, "diff --git")
+		forceInline := m.collapse && !isDiff
+
+		summary := strings.SplitN(strings.TrimSpace(body), "\n", 2)[0]
+		if len(summary) > 60 {
+			summary = summary[:57] + "..."
+		}
+		summaryFg := t.TextMuted
+		if failed {
+			summaryFg = t.Error
+		}
+
+		isBlock := !forceInline && (lineCount >= 4 || isDiff)
+		if isBlock && m.width > 0 {
+			hint := fmt.Sprintf("%d lines", lineCount)
+			rows := []string{head + " " + paint(t.TextMuted, "· "+hint)}
+
+			content := body
+			if isDiff && st {
+				content = highlightDiffResult(content, t)
 			} else {
-				result := ev.Result
-				// Diff highlight detection: if result looks like diff, use Diff*Bg
-				isDiff := strings.Contains(result, "diff --git") || strings.Contains(ev.Name, "diff") || (strings.Contains(result, "\n+") || strings.Contains(result, "\n-"))
-				if isDiff && m.styles != nil && m.styles.Theme != nil {
-					// Apply diff highlight backgrounds per-line token colors
-					result = highlightDiffResult(result, m.styles.Theme)
+				content = CollapseOutput(content, 12)
+				if failed {
+					content = paint(t.Error, content)
 				} else {
-					// Normal result handling
-					if m.collapse {
-						result = CollapseOutput(result, 10)
-					} else {
-						if len(result) > 200 {
-							result = result[:200] + "…"
-						}
-						result = strings.ReplaceAll(result, "\n", " ")
-					}
-				}
-				// When collapsed diff, still need hint; CollapseOutput already adds hint
-				// Ensure collapsed output truncates correctly for long outputs (500 lines case)
-				if m.collapse && !isDiff {
-					// Already handled via CollapseOutput above
-				}
-				// For non-diff collapsed, CollapseOutput replaced newlines; for expanded, replace newlines with spaces
-				if !m.collapse && !isDiff {
-					result = strings.ReplaceAll(result, "\n", " ")
-				}
-				line.WriteString(" → ")
-				if m.styles != nil {
-					line.WriteString(m.styles.ToolResult.Render(result))
-				} else {
-					line.WriteString(result)
-				}
-				// When collapsed and diff, ensure hint present if truncated
-				if m.collapse && isDiff && strings.Count(ev.Result, "\n") > 10 && !strings.Contains(result, "…") {
-					line.WriteString(fmt.Sprintf(" … %d lines", strings.Count(ev.Result, "\n")-10))
+					content = paint(t.TextMuted, content)
 				}
 			}
-		} else {
-			line.WriteString(" ")
-			pending := "○ pending"
-			if m.styles != nil {
-				pending = m.styles.ToolPending.Render(pending)
-			}
-			line.WriteString(pending)
+			bar := t.Background // invisible left bar: pure indentation device
+			blockStyle := lipgloss.NewStyle().
+				Border(ui.SplitBorder).
+				BorderForeground(lipgloss.Color(bar)).
+				BorderBottom(false).
+				Background(lipgloss.Color(t.BackgroundPanel)).
+				Padding(1, 0, 1, 2).
+				Width(m.width - 4)
+			rows = append(rows, blockStyle.Render(content))
+			parts = append(parts, strings.Join(rows, "\n"))
+			continue
 		}
 
-		inner := line.String()
-		// Wrap each entry in bordered panel using backgroundPanel token
-		if m.styles != nil {
-			panel := m.styles.Panel.Render(inner)
-			parts = append(parts, panel)
-		} else {
-			parts = append(parts, inner)
+		if forceInline && lineCount > 1 {
+			summary = fmt.Sprintf("(%d lines)", lineCount)
+			summaryFg = t.TextMuted
 		}
+		parts = append(parts, head+" "+paint(summaryFg, "· "+summary))
 	}
 
 	return strings.Join(parts, "\n")
 }
-
 func highlightDiffResult(s string, t *theme.Theme) string {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {

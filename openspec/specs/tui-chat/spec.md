@@ -32,14 +32,15 @@ The user MUST be able to type a prompt in the input and submit it with Enter. Th
 
 ### Requirement: REQ-TUI-CHAT-2 — Streaming Answer Rendering
 
-While provider streams, chat MUST render answer incrementally per-part (`text/reasoning/tool/file/compaction`) via `PART_MAPPING`. Each part MUST render with left `SplitBorder` (`┃` vertical, `╹` bottom) colored by agent, hover uses `backgroundElement`, `QUEUED` badge, compaction divider, `stickyScroll` with acceleration. Inline diagnostics MUST stay below affected lines without interrupting flow.
+While provider streams, chat MUST render answer incrementally per-part (`text/reasoning/tool/file/compaction`) via `PART_MAPPING`. Each part MUST render with left `SplitBorder` (`┃` vertical) colored by agent and a single `╹` end-cap row below the part — the `╹` terminates the vertical divider at the left edge and MUST NOT repeat as a full-width band. Hover uses `backgroundElement`, `QUEUED` badge, compaction divider, `stickyScroll` with acceleration. Inline diagnostics MUST stay below affected lines without interrupting flow.
 (Previously: regex markdown only, `(profile/model)` faint, `HomeMuted` status)
 
 #### Scenario: Per-part split border
 
 - GIVEN assistant answer with two parts
 - WHEN dumped
-- THEN each part has `┃` left border and `╹` terminator
+- THEN each part has `┃` left border and a single `╹` terminator at the left edge
+- AND no full-width repeated `╹` band spans the chat width
 
 #### Scenario: Queued badge shows
 
@@ -103,19 +104,20 @@ System MUST show timestamps via `Locale.todayTimeOrDateTime` (today → time, ol
 
 ### Requirement: REQ-TUI-CHAT-6 — NotAvailable vs Fabrication
 
-System MUST render `workspace`/`permission`/`editor` as muted `NotAvailable` placeholder when backing stores absent. It MUST never fabricate literals `mimo/319k/context7`. `InstallationVersion` only shows `• Open Code <ver>` when `debug.ReadBuildInfo` present else omitted.
+System MUST render `workspace`/`permission`/`editor` as muted `NotAvailable` placeholder when backing stores absent. It MUST never fabricate literals `mimo/319k/context7`. `InstallationVersion` only shows `• kui <ver>` when `debug.ReadBuildInfo` present else omitted.
 
-#### Scenario: Missing workspace shows muted
+#### Scenario: Workspace falls back to real working directory
 
-- GIVEN no workspace store
-- WHEN session sidebar/header renders
-- THEN dump shows `NotAvailable` muted not fabricated path
+- GIVEN no workspace KV store entry
+- WHEN session sidebar renders
+- THEN the footer shows the process working directory with the user home prefix shortened to `~`
+- AND no fabricated path literal appears (Getwd failure renders muted `NotAvailable`)
 
 #### Scenario: Version omitted when empty
 
 - GIVEN `ReadBuildInfo` Main.Version == ""
 - WHEN footer renders
-- THEN no `• Open Code` version line appears
+- THEN no `• kui` version line appears
 
 #### Scenario: Goldens lock chat
 

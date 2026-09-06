@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/biggs-100/kui/internal/tui/ui"
 	"github.com/biggs-100/kui/internal/tui/util"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // ChatNow is used for timestamps; override in tests for determinism.
@@ -25,6 +25,7 @@ const (
 	PartKindTool       PartKind = "tool"
 	PartKindFile       PartKind = "file"
 	PartKindCompaction PartKind = "compaction"
+	PartKindShell      PartKind = "shell" // real local shell execution + output
 )
 
 // Message represents a single conversation entry: user prompt or assistant
@@ -45,20 +46,18 @@ type Message struct {
 // streaming answer chunks, error state, and a status line for reload feedback
 // (REQ-TUI-CHAT-1/2, REQ-RELOAD-12). PR3 adds per-part SplitBorder rendering.
 type ChatModel struct {
-	messages     []Message
-	lastError    string
-	status       string   // REQ-RELOAD-12: neutral status line
-	diagnostics  []string // inline diagnostic annotations
-	styles       *theme.Styles
-	stickyScroll bool
-	width        int
+	messages    []Message
+	lastError   string
+	status      string   // REQ-RELOAD-12: neutral status line
+	diagnostics []string // inline diagnostic annotations
+	styles      *theme.Styles
+	width       int
 }
 
 // NewChatModel creates an empty ChatModel.
 func NewChatModel(styles *theme.Styles) ChatModel {
 	return ChatModel{
-		styles:       styles,
-		stickyScroll: true,
+		styles: styles,
 	}
 }
 
@@ -91,6 +90,40 @@ func (m *ChatModel) AppendPart(kind PartKind, content, profile, model string) {
 		Kind:      kind,
 		Timestamp: ChatNow(),
 	})
+}
+
+// AppendShell records a REAL local shell execution and its combined output.
+// The entry renders as a plain muted block — it is not a conversation turn
+// and carries no agent identity.
+func (m *ChatModel) AppendShell(script, output string, execErr error) {
+	var b strings.Builder
+	b.WriteString("$ ")
+	b.WriteString(script)
+	if execErr != nil {
+		b.WriteString("\n(error: ")
+		b.WriteString(execErr.Error())
+		b.WriteString(")")
+	}
+	if output != "" {
+		b.WriteString("\n")
+		b.WriteString(output)
+	}
+	m.messages = append(m.messages, Message{
+		Role:      "system",
+		Kind:      PartKindShell,
+		Content:   b.String(),
+		Timestamp: ChatNow(),
+	})
+}
+
+// Clear removes all rendered conversation state: messages, error, status and
+// diagnostics. It clears the display only — persisted session history is
+// untouched.
+func (m *ChatModel) Clear() {
+	m.messages = nil
+	m.lastError = ""
+	m.status = ""
+	m.diagnostics = nil
 }
 
 // AppendQueuedMessage adds a queued prompt part with QUEUED badge.
@@ -126,14 +159,6 @@ func (m *ChatModel) SetQueued(idx int, queued bool) {
 		m.messages[idx].Queued = queued
 	}
 }
-
-// SetStickyScroll sets sticky scroll (auto-follow) state.
-func (m *ChatModel) SetStickyScroll(v bool) {
-	m.stickyScroll = v
-}
-
-// StickyScroll returns whether sticky scroll is enabled.
-func (m ChatModel) StickyScroll() bool { return m.stickyScroll }
 
 // SetWidth sets viewport width for word-wrap calculations.
 func (m *ChatModel) SetWidth(w int) { m.width = w }
@@ -237,14 +262,28 @@ func (m ChatModel) agentColor(role string) string {
 	return theme.DefaultTheme().Primary
 }
 
-// View renders the chat at given width with per-part SplitBorder (┃╹), hover,
-// QUEUED badge, compaction divider, and locale timestamps.
+// View renders the chat following the upstream message language: user
+// prompts are panel blocks behind a left ┃ bar in the agent color, assistant
+// answers are naked indented text closed by an ▣ end-cap carrying identity
+// (profile · model · locale timestamp). QUEUED badges, hover fills, the
+// compaction divider and diagnostics are preserved.
 func (m ChatModel) View(width int) string {
 	if len(m.messages) == 0 {
 		return m.styles.EmptyHint.Render("start a conversation...")
 	}
 	var parts []string
 	for _, msg := range m.messages {
+		// Real local shell execution: plain muted block, no border and no
+		// agent identity — it is utility output, not a conversation turn.
+		if msg.Kind == PartKindShell {
+			text := msg.Content
+			if m.styles != nil {
+				text = m.styles.HomeMuted.Render(text)
+			}
+			parts = append(parts, text)
+			continue
+		}
+
 		// Compaction divider
 		if msg.Kind == PartKindCompaction {
 			div := "── compaction ──"
@@ -256,39 +295,8 @@ func (m ChatModel) View(width int) string {
 			continue
 		}
 
-		var inner strings.Builder
-
-		// QUEUED badge
-		if msg.Queued {
-			badge := "QUEUED"
-			if m.styles != nil && m.styles.Theme != nil && m.styles.Theme.Warning != "" {
-				badge = lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Warning)).Bold(true).Render("QUEUED")
-			}
-			inner.WriteString(badge)
-			inner.WriteString(" ")
-		}
-
-		// Profile/model context (preserve for per-prompt stability)
-		if msg.Profile != "" {
-			prof := fmt.Sprintf("(%s/%s)", msg.Profile, msg.Model)
-			if m.styles != nil {
-				prof = m.styles.Profile.Render(prof)
-			}
-			inner.WriteString(prof)
-			inner.WriteString(" ")
-		}
-
-		// Timestamp via locale: today → time, older → date
-		if !msg.Timestamp.IsZero() {
-			ts := util.TodayTimeOrDateTime(msg.Timestamp, ChatNow())
-			if m.styles != nil {
-				ts = m.styles.HomeMuted.Render(ts)
-			}
-			inner.WriteString(ts)
-			inner.WriteString(" ")
-		}
-
-		// Hover marker: when Hover true, background = BackgroundElement and add "hover" fallback
+		// Hover marker: when Hover true, background lifts to BackgroundElement
+		// and a "hover" fallback marker is appended.
 		hoverExtra := ""
 		if msg.Hover {
 			hoverExtra = " hover"
@@ -298,59 +306,76 @@ func (m ChatModel) View(width int) string {
 			}
 		}
 
-		inner.WriteString("\n")
-
-		// Content: assistant via markdown tokens, user plain
+		// Content: assistant via markdown tokens, everything else plain.
 		var content string
 		if msg.Role == "assistant" {
 			content = markdown.Render(msg.Content, m.styles)
 		} else {
 			content = msg.Content
 		}
-		// Width-aware truncation/wrap when width provided
-		if width > 0 && lipgloss.Width(content) > width-6 {
-			// simple wrap: truncate with width handling; real word wrap is handled by lipgloss Width
-			content = truncateToWidth(content, width-6)
-		}
-		inner.WriteString(content)
-		if hoverExtra != "" {
-			inner.WriteString(hoverExtra)
-		}
 
-		innerStr := strings.TrimSpace(inner.String())
-		// If inner only had header newline, ensure content still present
-		if innerStr == "" {
-			innerStr = msg.Content
-		}
-
-		// Per-part SplitBorder: left ┃ via ui.SplitBorder, bottom ╹ terminator
-		var rendered string
-		if m.styles != nil && m.styles.Theme != nil {
-			agentColor := m.agentColor(msg.Role)
-			style := lipgloss.NewStyle().
-				Border(ui.SplitBorder).
-				BorderForeground(lipgloss.Color(agentColor)).
-				Padding(0, 1)
-			if msg.Hover && m.styles.Theme.BackgroundElement != "" {
-				style = style.Background(lipgloss.Color(m.styles.Theme.BackgroundElement))
+		switch msg.Role {
+		case "user":
+			// User prompt: left bar over a panel fill; inline identity is
+			// gone — only the QUEUED badge may precede the content.
+			var head strings.Builder
+			if msg.Queued {
+				badge := "QUEUED"
+				if m.styles != nil && m.styles.Theme != nil && m.styles.Theme.Warning != "" {
+					badge = lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Warning)).Bold(true).Render("QUEUED")
+				}
+				head.WriteString(badge)
+				head.WriteString("\n")
 			}
+			head.WriteString(content)
+			head.WriteString(hoverExtra)
+
+			var rendered string
+			if m.styles != nil && m.styles.Theme != nil {
+				agentColor := m.agentColor(msg.Role)
+				style := lipgloss.NewStyle().
+					Border(ui.SplitBorder).
+					BorderForeground(lipgloss.Color(agentColor)).
+					BorderBottom(false).
+					Padding(1, 0, 1, 2)
+				if !msg.Hover && m.styles.Theme.BackgroundPanel != "" {
+					style = style.Background(lipgloss.Color(m.styles.Theme.BackgroundPanel))
+				}
+				if msg.Hover && m.styles.Theme.BackgroundElement != "" {
+					style = style.Background(lipgloss.Color(m.styles.Theme.BackgroundElement))
+				}
+				if width > 0 {
+					style = style.Width(width - 2)
+				}
+				rendered = style.Render(head.String())
+				rendered += "\n" + lipgloss.NewStyle().
+					Foreground(lipgloss.Color(agentColor)).
+					Render("╹")
+			} else {
+				lines := strings.Split(head.String(), "\n")
+				for i, l := range lines {
+					lines[i] = "┃ " + l
+				}
+				rendered = strings.Join(lines, "\n") + "\n╹"
+			}
+			parts = append(parts, rendered)
+
+		default:
+			// Assistant answer: naked indented text (no border, no fill),
+			// closed by an ▣ end-cap with profile · model · timestamp.
+			body := content + hoverExtra
 			if width > 0 {
-				style = style.Width(width - 2)
+				if wrapped := wordwrap.String(body, width-5); wrapped != "" || body == "" {
+					body = wrapped
+				}
 			}
-			rendered = style.Render(innerStr)
-			// Ensure terminator ╹ is present even if lipgloss border bottom collapses on single line
-			if !strings.Contains(rendered, "╹") {
-				rendered += "\n╹"
+			rendered := indentLines(body, 3)
+			capLine := endCap(m, msg)
+			if capLine != "" {
+				rendered += "\n" + capLine
 			}
-		} else {
-			// Fallback plain with explicit border chars
-			lines := strings.Split(innerStr, "\n")
-			for i, l := range lines {
-				lines[i] = "┃ " + l
-			}
-			rendered = strings.Join(lines, "\n") + "\n╹"
+			parts = append(parts, "\n"+rendered)
 		}
-		parts = append(parts, rendered)
 	}
 
 	if m.lastError != "" {
@@ -382,21 +407,44 @@ func (m ChatModel) Render() string {
 	return m.View(w)
 }
 
-func truncateToWidth(s string, max int) string {
-	if max <= 0 {
-		return s
+// endCap renders the ▣ identity line closing an assistant turn: mark in the
+// agent color, name in text, model and locale timestamp in muted.
+func endCap(m ChatModel, msg Message) string {
+	name := msg.Role
+	if msg.Profile != "" {
+		name = msg.Profile
 	}
-	if lipgloss.Width(s) <= max {
-		return s
-	}
-	// Truncate by runes keeping width
-	runes := []rune(s)
-	out := ""
-	for _, r := range runes {
-		if lipgloss.Width(out+string(r)) > max {
-			break
+	if m.styles == nil || m.styles.Theme == nil {
+		segs := []string{name}
+		if msg.Model != "" {
+			segs = append(segs, msg.Model)
 		}
-		out += string(r)
+		if !msg.Timestamp.IsZero() {
+			segs = append(segs, util.TodayTimeOrDateTime(msg.Timestamp, ChatNow()))
+		}
+		return "▣ " + strings.Join(segs, " · ")
 	}
-	return out + "…"
+	mark := lipgloss.NewStyle().Foreground(lipgloss.Color(m.agentColor(msg.Role))).Render("▣")
+	nameSeg := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.Text)).Render(name)
+	dot := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.TextMuted)).Render(" · ")
+	out := mark + " " + nameSeg
+	if msg.Model != "" {
+		out += dot + lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.Theme.TextMuted)).Render(msg.Model)
+	}
+	if !msg.Timestamp.IsZero() {
+		out += dot + m.styles.HomeMuted.Render(util.TodayTimeOrDateTime(msg.Timestamp, ChatNow()))
+	}
+	return out
+}
+
+// indentLines prefixes every non-empty line of s with n spaces.
+func indentLines(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if l != "" {
+			lines[i] = pad + l
+		}
+	}
+	return strings.Join(lines, "\n")
 }

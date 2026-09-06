@@ -24,10 +24,10 @@ func TestToolCallsRender(t *testing.T) {
 func TestToolNilObserverEmptyList(t *testing.T) {
 	m := NewToolModel(testStyles())
 	got := m.Render()
-	// When no tool events are present, render should not be empty —
-	// it should show an empty state hint
-	if strings.TrimSpace(got) == "" {
-		t.Error("tool view should show empty state, not empty string")
+	// With no tool events the render MUST be empty: the app height budget
+	// reclaims the slot entirely instead of showing a placeholder hint.
+	if got != "" {
+		t.Errorf("tool view with no events should render empty string, got %q", got)
 	}
 }
 
@@ -54,30 +54,6 @@ func TestToolGoldenCallAndResult(t *testing.T) {
 
 	if got != string(want) {
 		t.Errorf("tool golden mismatch\ngot:\n%s\nwant:\n%s", got, string(want))
-	}
-}
-
-func TestToolGoldenEmpty(t *testing.T) {
-	m := NewToolModel(testStyles())
-	got := m.Render()
-
-	golden := filepath.Join("testdata", "tool_empty.txt")
-	if *update {
-		if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("golden file not found (run with -update): %v", err)
-	}
-
-	if got != string(want) {
-		t.Errorf("tool empty golden mismatch\ngot:\n%s\nwant:\n%s", got, string(want))
 	}
 }
 

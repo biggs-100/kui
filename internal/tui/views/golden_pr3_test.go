@@ -230,8 +230,10 @@ func TestDiffLineNumbersStyled(t *testing.T) {
 
 func TestChatPerPartSplitBorder(t *testing.T) {
 	m := NewChatModel(testStyles())
-	m.AppendMessage("assistant", "part one", "", "")
-	m.AppendMessage("assistant", "part two", "", "")
+	// The left ┃ bar belongs to user prompt blocks; assistant answers are
+	// naked indented text closed by an ▣ end-cap (upstream message language).
+	m.AppendMessage("user", "part one", "coder", "gpt-4")
+	m.AppendMessage("user", "part two", "coder", "gpt-4")
 	got := m.View(80)
 	if !strings.Contains(got, "┃") {
 		t.Error("chat per-part should contain ┃ left border")
@@ -242,6 +244,22 @@ func TestChatPerPartSplitBorder(t *testing.T) {
 	// Ensure not using plain you: label
 	if strings.Contains(got, "you:") {
 		t.Error("chat should use border not you: label")
+	}
+}
+
+// TestChatNoFullWidthDottedBand proves the ╹ end-cap never repeats as a
+// full-width band (regression: lipgloss Border bottom rendered ╹ across the
+// whole block width after every part).
+func TestChatNoFullWidthDottedBand(t *testing.T) {
+	m := NewChatModel(testStyles())
+	m.AppendMessage("assistant", "part one", "", "")
+	m.AppendMessage("user", "part two", "coder", "gpt-4")
+	got := m.View(80)
+	for i, line := range strings.Split(got, "\n") {
+		trimmed := strings.Trim(line, " ")
+		if len(trimmed) > 3 && strings.Trim(trimmed, "╹") == "" {
+			t.Errorf("line %d is a full-width ╹ band, want single end-cap char:\n%q", i, line)
+		}
 	}
 }
 
@@ -282,12 +300,12 @@ func TestToolCollapse(t *testing.T) {
 	m.AppendResult("c1", long)
 	m.SetCollapse(true)
 	got := m.Render()
-	if !strings.Contains(got, "…") || !strings.Contains(got, "lines") {
-		t.Errorf("collapsed output should truncate with hint, got: %q", got)
+	if !strings.Contains(got, "(501 lines)") {
+		t.Errorf("collapsed output should render an inline line-count hint, got: %q", got)
 	}
 	m.SetCollapse(false)
 	got2 := m.Render()
-	// When not collapsed, should still contain content but maybe truncated differently
+	// Expanded large outputs upgrade to the indented panel block with its own hint.
 	if got == got2 {
 		t.Error("collapsed vs not collapsed should differ")
 	}
@@ -297,14 +315,19 @@ func TestToolShowDetails(t *testing.T) {
 	m := NewToolModel(testStyles())
 	m.AppendCall("c1", "read_file")
 	m.AppendResult("c1", "secret details")
+	// showDetails toggles the call-id META only: result activity is the
+	// point of this view and stays visible either way.
 	m.SetShowDetails(false)
 	got := m.Render()
-	if strings.Contains(got, "secret details") {
-		t.Error("showDetails=false should hide details")
+	if strings.Contains(got, "(c1)") {
+		t.Error("showDetails=false should hide the call-id meta")
+	}
+	if !strings.Contains(got, "secret details") {
+		t.Error("result activity must stay visible regardless of showDetails")
 	}
 	m.SetShowDetails(true)
 	got2 := m.Render()
-	if !strings.Contains(got2, "secret details") {
-		t.Error("showDetails=true should show details")
+	if !strings.Contains(got2, "(c1)") {
+		t.Error("showDetails=true should show the call-id meta")
 	}
 }

@@ -10,6 +10,10 @@ import (
 const (
 	// MaxConcurrentBackground is the maximum number of concurrent background tasks.
 	MaxConcurrentBackground = 2
+
+	// maxFinishedHistory caps how many finished tasks are retained for
+	// status display (oldest dropped first).
+	maxFinishedHistory = 50
 )
 
 // BackgroundTask represents a running background sub-agent.
@@ -23,10 +27,21 @@ type BackgroundTask struct {
 	Error     error
 }
 
+// FinishedTask records a completed background sub-agent for status display.
+// It is an immutable snapshot: the manager appends one when a task finishes.
+type FinishedTask struct {
+	ID         string
+	Task       string
+	StartedAt  time.Time
+	FinishedAt time.Time
+	Error      error
+}
+
 // BackgroundManager manages concurrent background sub-agent executions.
 type BackgroundManager struct {
 	mu       sync.Mutex
 	tasks    map[string]*BackgroundTask
+	finished []FinishedTask // capped ring of completed tasks (status ledger)
 	maxConc  int
 	onChange func() // called when task count changes
 }
@@ -91,6 +106,16 @@ func (m *BackgroundManager) Launch(id string, task string, fn func(ctx context.C
 		defer func() {
 			m.mu.Lock()
 			delete(m.tasks, id)
+			m.finished = append(m.finished, FinishedTask{
+				ID:         t.ID,
+				Task:       t.Task,
+				StartedAt:  t.StartedAt,
+				FinishedAt: time.Now(),
+				Error:      t.Error,
+			})
+			if len(m.finished) > maxFinishedHistory {
+				m.finished = m.finished[len(m.finished)-maxFinishedHistory:]
+			}
 			m.mu.Unlock()
 			if m.onChange != nil {
 				m.onChange()
@@ -135,6 +160,18 @@ func (m *BackgroundManager) List() []BackgroundTask {
 		tasks = append(tasks, *t)
 	}
 	return tasks
+}
+
+// Recent returns the retained finished background tasks in completion order
+// (oldest first). The ledger is capped at maxFinishedHistory entries; it
+// exists so status surfaces can report real done/error outcomes instead of
+// fabricating them.
+func (m *BackgroundManager) Recent() []FinishedTask {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]FinishedTask, len(m.finished))
+	copy(out, m.finished)
+	return out
 }
 
 // Wait blocks until all background tasks complete or the context is cancelled.

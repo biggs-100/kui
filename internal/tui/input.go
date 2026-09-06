@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // InputModel wraps textarea.Model with history and undo/redo support.
@@ -170,4 +173,26 @@ func (m InputModel) redo() (InputModel, tea.Cmd) {
 	m.redoStack = m.redoStack[:n-1]
 	m.textarea.SetValue(next)
 	return m, nil
+}
+
+// SetFieldColors overrides bubbles' default textarea styling, whose focused
+// styles carry an ANSI-black background that punches ugly dark boxes through
+// the prompt field's own fill. Both styles should carry the field background:
+// foreground-only runs render over transparency after internal resets.
+func (m *InputModel) SetFieldColors(base lipgloss.Style, placeholder lipgloss.Style) {
+	text := base.Copy()
+	ta := &m.textarea
+	ta.FocusedStyle.CursorLine = base
+	ta.FocusedStyle.Text = text
+	ta.FocusedStyle.Placeholder = placeholder
+	ta.FocusedStyle.EndOfBuffer = base
+	ta.BlurredStyle.CursorLine = base
+	ta.BlurredStyle.Text = text
+	ta.BlurredStyle.Placeholder = placeholder
+	ta.BlurredStyle.EndOfBuffer = base
+}
+
+// ViewWidth returns the visible width of the rendered input line.
+func (m InputModel) ViewWidth() int {
+	return lipgloss.Width(strings.TrimRight(m.textarea.View(), " "))
 }

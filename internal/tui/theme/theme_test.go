@@ -166,3 +166,158 @@ func TestSolarizedOsakaColors(t *testing.T) {
 		})
 	}
 }
+
+// TestPiDarkHexes guards the pi-dark port (REQ-TUI-THEME-1): every field
+// MUST equal the design color mapping resolved from pi dark.json exactly.
+// Hex comparison is case-insensitive (lipgloss treats hex case-insensitively).
+func TestPiDarkHexes(t *testing.T) {
+	th := Load("pi-dark")
+	if th == nil {
+		t.Fatal("Load(pi-dark) returned nil")
+	}
+	if th.Name != "pi-dark" {
+		t.Errorf("Name = %q, want %q", th.Name, "pi-dark")
+	}
+	tests := []struct {
+		name     string
+		got      string
+		expected string
+	}{
+		{"BG", th.BG, "#18181e"},
+		{"Background", th.Background, "#18181e"},
+		{"BGStatusline", th.BGStatusline, "#18181e"},
+		{"BGSidebar", th.BGSidebar, "#18181e"},
+		{"BGHighlight", th.BGHighlight, "#1e1e24"},
+		{"BackgroundPanel", th.BackgroundPanel, "#1e1e24"},
+		{"BackgroundElement", th.BackgroundElement, "#1e1e24"},
+		{"BackgroundMenu", th.BackgroundMenu, "#1e1e24"},
+		{"BGPopup", th.BGPopup, "#1e1e24"},
+		{"BGFloat", th.BGFloat, "#1e1e24"},
+		{"Border", th.Border, "#5f87ff"},
+		{"BorderActive", th.BorderActive, "#00d7ff"},
+		{"BorderSubtle", th.BorderSubtle, "#505050"},
+		{"Primary", th.Primary, "#00d7ff"},
+		{"Secondary", th.Secondary, "#81a2be"},
+		{"Info", th.Info, "#81a2be"},
+		{"Accent", th.Accent, "#8abeb7"},
+		{"Success", th.Success, "#b5bd68"},
+		{"StatusOK", th.StatusOK, "#b5bd68"},
+		{"Error", th.Error, "#cc6666"},
+		{"StatusError", th.StatusError, "#cc6666"},
+		{"Warning", th.Warning, "#ffff00"},
+		{"StatusWarn", th.StatusWarn, "#ffff00"},
+		{"ToolPending", th.ToolPending, "#ffff00"},
+		{"Hint", th.Hint, "#666666"},
+		{"Text", th.Text, "#d4d4d4"},
+		{"FG", th.FG, "#d4d4d4"},
+		{"FGFloat", th.FGFloat, "#d4d4d4"},
+		{"SelectedListItemText", th.SelectedListItemText, "#d4d4d4"},
+		{"UserLabel", th.UserLabel, "#d4d4d4"},
+		{"ToolName", th.ToolName, "#d4d4d4"},
+		{"TextMuted", th.TextMuted, "#808080"},
+		{"AssistantLabel", th.AssistantLabel, "#808080"},
+		{"ProfileText", th.ProfileText, "#808080"},
+		{"ToolResult", th.ToolResult, "#808080"},
+		{"TextFaint", th.TextFaint, "#666666"},
+		{"TabInactive", th.TabInactive, "#666666"},
+		{"TabActive", th.TabActive, "#808080"},
+		{"TabActiveBG", th.TabActiveBG, "#1e1e24"},
+		{"DiffAdded", th.DiffAdded, "#b5bd68"},
+		{"DiffRemoved", th.DiffRemoved, "#cc6666"},
+		{"DiffContext", th.DiffContext, "#808080"},
+		{"DiffHunkHeader", th.DiffHunkHeader, "#8abeb7"},
+		{"DiffHighlight", th.DiffHighlight, "#f0c674"},
+		{"DiffAddedBg", th.DiffAddedBg, "#283228"},
+		{"DiffRemovedBg", th.DiffRemovedBg, "#3c2828"},
+		{"DiffContextBg", th.DiffContextBg, "#282832"},
+		{"DiffLineNumber", th.DiffLineNumber, "#666666"},
+		{"DiffLineNumberBg", th.DiffLineNumberBg, "#18181e"},
+		{"MarkdownText", th.MarkdownText, "#d4d4d4"},
+		{"MarkdownHeading", th.MarkdownHeading, "#f0c674"},
+		{"MarkdownLink", th.MarkdownLink, "#81a2be"},
+		{"MarkdownLinkText", th.MarkdownLinkText, "#666666"},
+		{"MarkdownCode", th.MarkdownCode, "#8abeb7"},
+		{"MarkdownBlockQuote", th.MarkdownBlockQuote, "#808080"},
+		{"MarkdownHRule", th.MarkdownHRule, "#808080"},
+		{"MarkdownListItem", th.MarkdownListItem, "#8abeb7"},
+		{"MarkdownEmph", th.MarkdownEmph, "#d4d4d4"},
+		{"MarkdownStrong", th.MarkdownStrong, "#d4d4d4"},
+		{"SyntaxComment", th.SyntaxComment, "#6a9955"},
+		{"SyntaxKeyword", th.SyntaxKeyword, "#569cd6"},
+		{"SyntaxFunction", th.SyntaxFunction, "#dcdcaa"},
+		{"SyntaxVariable", th.SyntaxVariable, "#9cdcfe"},
+		{"SyntaxString", th.SyntaxString, "#ce9178"},
+		{"SyntaxNumber", th.SyntaxNumber, "#b5cea8"},
+		{"SyntaxType", th.SyntaxType, "#4ec9b0"},
+		{"SyntaxOperator", th.SyntaxOperator, "#d4d4d4"},
+		{"SyntaxPunctuation", th.SyntaxPunctuation, "#d4d4d4"},
+		{"UserMessageBg", th.UserMessageBg, "#343541"},
+		{"ToolPendingBg", th.ToolPendingBg, "#282832"},
+		{"ToolSuccessBg", th.ToolSuccessBg, "#283228"},
+		{"ToolErrorBg", th.ToolErrorBg, "#3c2828"},
+		{"CustomMessageBg", th.CustomMessageBg, "#2d2838"},
+		{"SelectedBg", th.SelectedBg, "#3a3a4a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !equalHex(tt.got, tt.expected) {
+				t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.expected)
+			}
+		})
+	}
+	if th.ThinkingOpacity != 0.6 {
+		t.Errorf("ThinkingOpacity = %v, want 0.6", th.ThinkingOpacity)
+	}
+}
+
+func equalHex(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'F' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'F' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
+
+// TestPiDarkIsDefault guards REQ-TUI-THEME-1: no override means pi-dark.
+func TestPiDarkIsDefault(t *testing.T) {
+	th := Load("")
+	if th == nil {
+		t.Fatal("Load empty returned nil")
+	}
+	if th.Name != "pi-dark" {
+		t.Errorf("default theme Name = %q, want %q", th.Name, "pi-dark")
+	}
+}
+
+// TestThemeSwitchKeepsWorking guards REQ-TUI-THEME-6: pi-dark plus another
+// theme load and apply without panic.
+func TestThemeSwitchKeepsWorking(t *testing.T) {
+	pi := Load("pi-dark")
+	other := Load("opencode")
+	if pi == nil || other == nil {
+		t.Fatal("pi-dark and opencode themes must both load")
+	}
+	for _, th := range []*Theme{pi, other} {
+		s := NewStyles(th)
+		if s.Theme != th {
+			t.Error("NewStyles did not keep theme reference")
+		}
+		if s.StatusLine.Render("x") == "" {
+			t.Errorf("theme %q StatusLine rendered empty", th.Name)
+		}
+	}
+	if Load("nonexistent-theme-xyz").Name == "nonexistent-theme-xyz" {
+		t.Error("unknown theme name must not become active; want fallback")
+	}
+}

@@ -39,8 +39,8 @@
 
 ### Requirement: REQ-TUI-APP-2 — Layout & Resize
 
-The app MUST support two layouts: home (flex-spacer centered logo + prompt + footer) and session (header + chat + tool view + footer with sidebar). `wide` MUST be `width > 120` (Previously: `width >= 110`). Sidebar width MUST be `42` (Previously: `30`). Session `contentWidth` MUST be `width - (sidebarVisible?42:0) - 4`. When `!wide` sidebar MUST render as overlay with backdrop `RGBA(0,0,0,70)`. A window resize MUST reflow current layout and MUST NOT crash.
-(Previously: sidebar 30@110, no contentWidth calc)
+The app MUST support two layouts: home (flex-spacer centered logo + prompt + footer) and session (header + chat + tool view + footer with sidebar). `wide` MUST be `width > 120` (Previously: `width >= 110`). Sidebar width MUST be `42` (Previously: `30`). Session `contentWidth` MUST be `width - (sidebarVisible?42:0) - 4`. The sidebar rail MUST span the full terminal height in both modes: sections pinned at top, background-styled filler in between, footer (workspace path above version line) pinned at the very bottom — inline when wide, drawn over the backdrop when narrow overlay. A window resize MUST reflow current layout and MUST NOT crash.
+(Previously: sidebar 30@110, no contentWidth calc; sidebar floated at content height)
 
 #### Scenario: Wide shows sidebar inline
 
@@ -48,11 +48,34 @@ The app MUST support two layouts: home (flex-spacer centered logo + prompt + foo
 - WHEN session renders
 - THEN sidebar 42 cols is visible inline and contentWidth is 84
 
+#### Scenario: Wide sidebar spans full height with pinned footer
+
+- GIVEN width 130 session view
+- WHEN View renders
+- THEN the sidebar block has exactly as many rows as the main panel
+- AND its bottom rows are the workspace path directly above the version line
+- AND every sidebar row carries the Sidebar background (no unstyled gaps)
+
 #### Scenario: Narrow overlays sidebar
 
 - GIVEN width 100
 - WHEN session renders
 - THEN contentWidth is 96 and sidebar renders as overlay with backdrop
+
+#### Scenario: Sidebar sections render only real state
+
+- GIVEN the session sidebar renders sections for Subagents, MCP, and LSP
+- WHEN no subagent source is attached or no MCP servers were attempted
+- THEN the Subagents/MCP sections are omitted entirely (never a fabricated zero-state or invented server names)
+- AND the LSP section shows its truthful state ("LSPs are disabled" while no LSP management is wired)
+- AND when sources ARE attached, stats (run/done/err/Σ) and per-server states render from live data only
+
+#### Scenario: Background subagent changes refresh the rail
+
+- GIVEN a background subagent launches or finishes
+- WHEN the change fires
+- THEN the controller emits a change message through the event pump
+- AND the next View renders updated subagent stats without polling
 
 #### Scenario: Resize reflows
 
@@ -140,7 +163,7 @@ The app MUST include theme "opencode" with 40+ fields matching `assets/opencode.
 
 ### Requirement: REQ-TUI-APP-8 — Border Primitives and Toast/Title
 
-System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` (`┃ left, ╹ bottom` vs `│/└` drift must be exact) and decorative bottom `▀` for prompt. It MUST set terminal title to `OpenCode` on home and `OC | {title}` on session. Toast MUST live inside home centered column and session scroll area.
+System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` (`┃ left, ╹ bottom` vs `│/└` drift must be exact) and decorative bottom `▀` for prompt. It MUST set terminal title to `kui` on home and `kui | {title}` on session. Toast MUST live inside home centered column and session scroll area.
 
 #### Scenario: Chat uses ┃ not │
 
@@ -152,7 +175,7 @@ System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` (`┃ left,
 
 - GIVEN route home
 - WHEN title sequence emitted
-- THEN title is `OpenCode`
+- THEN title is `kui`
 
 ### Requirement: REQ-TUI-APP-9 — Locale and Formatting Invariants
 

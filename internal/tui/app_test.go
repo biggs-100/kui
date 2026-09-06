@@ -799,20 +799,20 @@ func TestAppDiffToggle(t *testing.T) {
 		t.Error("diff should not be visible initially")
 	}
 
-	// Press 'd' to toggle diff view
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	// Press ctrl+d to toggle diff view (bare letters always type now)
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	a := msg.(*App)
 
 	if !a.diffVisible {
-		t.Error("diff should be visible after pressing 'd'")
+		t.Error("diff should be visible after pressing ctrl+d")
 	}
 
-	// Press 'd' again to hide
-	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	// Press ctrl+d again to hide
+	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	a = msg.(*App)
 
 	if a.diffVisible {
-		t.Error("diff should be hidden after pressing 'd' again")
+		t.Error("diff should be hidden after pressing ctrl+d again")
 	}
 }
 
@@ -845,143 +845,13 @@ func TestAppDiffViewRendered(t *testing.T) {
 	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Toggle diff view
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	a := msg.(*App)
 
 	// View should render without panic
 	view := a.View()
 	if view == "" {
 		t.Error("expected non-empty view with diff visible")
-	}
-}
-
-// --- LSP Keybinding Tests (Fix #6) ---
-
-func TestAppLspKeybindingGdWithoutDispatcher(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Press 'g' then 'd' - should not panic even without dispatcher
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	a := msg.(*App)
-	if !a.lspPendingG {
-		t.Error("pressing 'g' should set lspPendingG")
-	}
-
-	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	_ = msg
-
-	// lspPendingG should be cleared
-	a2 := msg.(*App)
-	if a2.lspPendingG {
-		t.Error("lspPendingG should be false after 'gd' sequence")
-	}
-
-	// Status should show an error (no dispatcher configured)
-	if a2.chat.Status() == "" {
-		t.Error("gd without dispatcher should set error status")
-	}
-}
-
-func TestAppLspKeybindingGrWithoutDispatcher(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Press 'g' then 'r'
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	a := msg.(*App)
-	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
-	a = msg.(*App)
-
-	if a.chat.Status() == "" {
-		t.Error("gr without dispatcher should set error status")
-	}
-}
-
-func TestAppLspKeybindingKWithoutDispatcher(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Press 'K' (uppercase)
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
-	a := msg.(*App)
-
-	if a.chat.Status() == "" {
-		t.Error("K without dispatcher should set error status")
-	}
-}
-
-func TestAppLspKeybindingWithDispatcher(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	c.SetLspDispatcher(func(toolName string, args map[string]interface{}) (string, error) {
-		return `{"locations":[{"uri":"file:///main.go","range":{"start":{"line":10,"character":0}}}]}`, nil
-	})
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Press 'g' then 'd' - should dispatch and add result to chat
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	a := msg.(*App)
-	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	a = msg.(*App)
-
-	// Chat should have an assistant message with the result
-	if len(a.chat.Messages()) == 0 {
-		t.Fatal("gd with dispatcher should add result to chat")
-	}
-	last := a.chat.Messages()[len(a.chat.Messages())-1]
-	if last.Role != "assistant" {
-		t.Errorf("expected assistant message, got role %q", last.Role)
-	}
-}
-
-func TestAppLspKeybindingCancelled(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Press 'g' then something other than 'd' or 'r' - should cancel
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	a := msg.(*App)
-	if !a.lspPendingG {
-		t.Error("pressing 'g' should set lspPendingG")
-	}
-
-	// Press 'x' - should cancel the gd/gr sequence
-	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	a = msg.(*App)
-	if a.lspPendingG {
-		t.Error("lspPendingG should be false after cancelled sequence")
-	}
-}
-
-func TestAppLspKeybindingIgnoredWithInput(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Type some text first
-	for _, r := range "hello" {
-		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		app = msg.(*App)
-	}
-
-	// Now press 'g' - should NOT trigger lspPendingG because input is non-empty
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
-	a := msg.(*App)
-	if a.lspPendingG {
-		t.Error("lspPendingG should not be set when input is non-empty")
-	}
-
-	// 'K' should also be ignored when input is non-empty
-	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
-	a = msg.(*App)
-	// Should have typed 'K' into input, not dispatched LSP
-	if a.input.Value() != "hellogK" {
-		t.Errorf("K with non-empty input should type into input, got %q", a.input.Value())
 	}
 }
 
@@ -1242,8 +1112,10 @@ func TestAppContentWidth(t *testing.T) {
 	c := NewController([]string{"coder"}, nil, nil)
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 130, Height: 24})
-	if got := app.ContentWidth(); got != 84 {
-		t.Errorf("ContentWidth at 130 wide should be 84, got %d", got)
+	// Wide: rail 42 + one gutter column → main column = width-43 so the
+	// joined frame is flush with the terminal's right edge.
+	if got := app.ContentWidth(); got != 87 {
+		t.Errorf("ContentWidth at 130 wide should be 87, got %d", got)
 	}
 	app.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	if got := app.ContentWidth(); got != 96 {
@@ -1255,9 +1127,9 @@ func TestAppTitle(t *testing.T) {
 	c := NewController([]string{"coder"}, nil, nil)
 	app := NewApp(c)
 	app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	// Home route title is OpenCode
-	if got := app.Title(); got != "OpenCode" {
-		t.Errorf("Title on home should be 'OpenCode', got %q", got)
+	// Home route title is kui
+	if got := app.Title(); got != "kui" {
+		t.Errorf("Title on home should be 'kui', got %q", got)
 	}
 	// Switch to session
 	for _, r := range "hello" {
@@ -1266,8 +1138,8 @@ func TestAppTitle(t *testing.T) {
 	}
 	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	app = msg.(*App)
-	if got := app.Title(); got != "OC | coder" {
-		t.Errorf("Title on session should be 'OC | coder', got %q", got)
+	if got := app.Title(); got != "kui | coder" {
+		t.Errorf("Title on session should be 'kui | coder', got %q", got)
 	}
 }
 

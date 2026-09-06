@@ -51,8 +51,19 @@ type Styles struct {
 	Sidebar        lipgloss.Style
 	InputBar       lipgloss.Style
 	InputBarAccent lipgloss.Style
+	PromptBox      lipgloss.Style
+	Toast          lipgloss.Style
 	CodeBlock      lipgloss.Style
 	Thought        lipgloss.Style
+
+	// Message backgrounds (pi-dark, REQ-TUI-THEME-1): state boxes for the
+	// transcript rewrite (PR2). Additive only; no existing style changed.
+	UserMessage    lipgloss.Style
+	ToolPendingBox lipgloss.Style
+	ToolSuccessBox lipgloss.Style
+	ToolErrorBox   lipgloss.Style
+	CustomMessage  lipgloss.Style
+	Selected       lipgloss.Style
 }
 
 // NewStyles creates a Styles from a Theme.
@@ -134,9 +145,10 @@ func NewStyles(t *Theme) *Styles {
 		HomeBorder: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Border)),
 
+		// Two-level text discipline: muted is quiet enough on its own —
+		// never stack opacity on top of an already-muted color.
 		HomeMuted: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(t.TextMuted)).
-			Faint(true),
+			Foreground(lipgloss.Color(t.TextMuted)),
 
 		// Diff
 		FileDiff: lipgloss.NewStyle().
@@ -187,6 +199,22 @@ func NewStyles(t *Theme) *Styles {
 			Background(lipgloss.Color(t.BackgroundElement)).
 			Padding(0, 1),
 
+		// PromptBox — full bordered prompt container pinned above the
+		// footer: rounded border, primary accent, backgroundElement fill.
+		PromptBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.Primary)).
+			Background(lipgloss.Color(t.BackgroundElement)).
+			Padding(0, 1),
+
+		// Toast — floating notification chip pasted over the conversation
+		// (bottom-right): rounded subtle border on backgroundPanel.
+		Toast: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(t.BorderSubtle)).
+			Background(lipgloss.Color(t.BackgroundPanel)).
+			Padding(0, 1),
+
 		// CodeBlock — backgroundElement for fenced code
 		CodeBlock: lipgloss.NewStyle().
 			Background(lipgloss.Color(t.BackgroundElement)).
@@ -197,5 +225,29 @@ func NewStyles(t *Theme) *Styles {
 		Thought: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(t.Warning)).
 			Bold(true),
+
+		// Message backgrounds — Box fill for transcript blocks (PR2).
+		UserMessage: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.UserMessageBg)).
+			Padding(0, 1),
+
+		ToolPendingBox: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.ToolPendingBg)).
+			Padding(0, 1),
+
+		ToolSuccessBox: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.ToolSuccessBg)).
+			Padding(0, 1),
+
+		ToolErrorBox: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.ToolErrorBg)).
+			Padding(0, 1),
+
+		CustomMessage: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.CustomMessageBg)).
+			Padding(0, 1),
+
+		Selected: lipgloss.NewStyle().
+			Background(lipgloss.Color(t.SelectedBg)),
 	}
 }

@@ -107,6 +107,14 @@ type Theme struct {
 
 	// Thinking
 	ThinkingOpacity float64 `json:"thinking_opacity"`
+
+	// Message backgrounds (pi-dark, REQ-TUI-THEME-1)
+	UserMessageBg   string `json:"user_message_bg"`
+	ToolPendingBg   string `json:"tool_pending_bg"`
+	ToolSuccessBg   string `json:"tool_success_bg"`
+	ToolErrorBg     string `json:"tool_error_bg"`
+	CustomMessageBg string `json:"custom_message_bg"`
+	SelectedBg      string `json:"selected_bg"`
 }
 
 // StyleFG returns a lipgloss.Style with the given foreground color.
@@ -139,6 +147,7 @@ func ParseFile(path string) (*Theme, error) {
 var builtinThemes = map[string]*Theme{
 	"kui-default": DefaultTheme(),
 	"opencode":    OpenCodeTheme,
+	"pi-dark":     PiDarkTheme,
 }
 
 // DefaultTheme returns the built-in default theme (matches original hardcoded colors).
@@ -158,7 +167,7 @@ func DefaultTheme() *Theme {
 		BackgroundElement:    "#24283b",
 		BackgroundMenu:       "#24283b",
 		Border:               "#24283b",
-		BorderActive:         "#7aa2f7",
+		BorderActive:         "#565f89",
 		BorderSubtle:         "#24283b",
 		Primary:              "#7aa2f7",
 		Secondary:            "#9ece6a",
@@ -218,8 +227,7 @@ func DefaultTheme() *Theme {
 }
 
 // ParseBytes parses a theme from JSON bytes.
-func ParseBytes(data []byte) (*Theme, error) {
-	var t Theme
+func ParseBytes(data []byte) (*Theme, error) {	var t Theme
 	if err := json.Unmarshal(data, &t); err != nil {
 		return nil, fmt.Errorf("parse theme JSON: %w", err)
 	}
@@ -305,6 +313,26 @@ func ParseBytes(data []byte) (*Theme, error) {
 	if t.ThinkingOpacity == 0 {
 		t.ThinkingOpacity = 0.6
 	}
+	// Backward compat: fill pi-dark message backgrounds for legacy JSON
+	// files that predate the six new fields.
+	if t.UserMessageBg == "" {
+		t.UserMessageBg = t.BackgroundElement
+	}
+	if t.ToolPendingBg == "" {
+		t.ToolPendingBg = t.DiffContextBg
+	}
+	if t.ToolSuccessBg == "" {
+		t.ToolSuccessBg = t.DiffAddedBg
+	}
+	if t.ToolErrorBg == "" {
+		t.ToolErrorBg = t.DiffRemovedBg
+	}
+	if t.CustomMessageBg == "" {
+		t.CustomMessageBg = t.BackgroundElement
+	}
+	if t.SelectedBg == "" {
+		t.SelectedBg = t.BGHighlight
+	}
 	return &t, nil
 }
 
@@ -330,8 +358,8 @@ func DefaultDirs() []string {
 // Returns the default theme if name is empty or not found.
 func Load(name string) *Theme {
 	if name == "" {
-		// Default to the OpenCode-style gray theme so the TUI matches OpenCode out of the box.
-		return OpenCodeTheme
+		// Default to pi-dark so the TUI matches pi out of the box (REQ-TUI-THEME-1).
+		return PiDarkTheme
 	}
 
 	// Check built-in themes first

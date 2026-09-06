@@ -48,10 +48,10 @@ func FormatKeyBindings(keys []string) string {
 }
 
 func AllBindings() []Binding {
+	// Only bindings with a live handler are declared here. Session list/new
+	// return when they have real key wiring (they exist today as commands).
 	return []Binding{
 		{BaseLayer, "command.palette.show", []string{"ctrl+p"}, "Show palette"},
-		{BaseLayer, "session.list", []string{"ctrl+s"}, "List sessions"},
-		{BaseLayer, "session.new", []string{"ctrl+n"}, "New session"},
 		{ModalLayer, "dialog.close", []string{"esc"}, "Close"},
 		{ModalLayer, "dialog.close.ctrlc", []string{"ctrl+c"}, "Close"},
 		{ModalLayer, "dialog.select.up", []string{"up", "k"}, "Move up"},

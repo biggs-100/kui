@@ -173,3 +173,60 @@ func TestBackgroundManagerWait(t *testing.T) {
 		t.Errorf("ActiveCount() = %d after Wait, want 0", m.ActiveCount())
 	}
 }
+
+func TestBackgroundManagerRecentLedger(t *testing.T) {
+	m := NewBackgroundManager(2)
+
+	if got := m.Recent(); len(got) != 0 {
+		t.Errorf("Recent() = %d entries on fresh manager, want 0", len(got))
+	}
+
+	m.Launch("ok", "good task", func(ctx context.Context) (string, error) {
+		return "done", nil
+	})
+	m.Launch("bad", "bad task", func(ctx context.Context) (string, error) {
+		return "", context.DeadlineExceeded
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if err := m.Wait(ctx); err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+
+	got := m.Recent()
+	if len(got) != 2 {
+		t.Fatalf("Recent() = %d entries, want 2", len(got))
+	}
+	// Completion order between two instant tasks is nondeterministic —
+	// assert by ID, never by position.
+	byID := map[string]FinishedTask{}
+	for _, f := range got {
+		if prev, dup := byID[f.ID]; dup {
+			t.Errorf("Recent() contains duplicate ID %q (%q and %q)", f.ID, prev.Task, f.Task)
+		}
+		byID[f.ID] = f
+	}
+	okT, found := byID["ok"]
+	if !found {
+		t.Fatal("Recent() missing entry for task ok")
+	}
+	if okT.Error != nil {
+		t.Errorf("ok.Error = %v, want nil", okT.Error)
+	}
+	badT, found := byID["bad"]
+	if !found {
+		t.Fatal("Recent() missing entry for task bad")
+	}
+	if badT.Error == nil {
+		t.Error("bad.Error = nil, want non-nil (failed task)")
+	}
+	for _, f := range got {
+		if f.Task == "" {
+			t.Errorf("Recent()[%s].Task empty, want title", f.ID)
+		}
+		if f.FinishedAt.Before(f.StartedAt) {
+			t.Errorf("Recent()[%s] FinishedAt before StartedAt", f.ID)
+		}
+	}
+}
