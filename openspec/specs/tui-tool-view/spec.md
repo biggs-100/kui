@@ -8,26 +8,20 @@ The tool view renders live tool calls and results during multi-step turns, drive
 
 ### Requirement: REQ-TUI-TOOL-1 — Live Tool Events
 
-The tool view MUST render each tool call and result as events arrive. It MUST support `collapseToolOutput` and `genericToolOutput` toggle via kv signals `showDetails/showGenericToolOutput`. Collapsed output MUST truncate with expand hint. Each entry MUST show per-tool metadata, not just `Name → Result` in rounded panel.
-(Previously: per-entry `Panel` rounded `#252525/#333`, `○ pending` only)
+Each tool call MUST render as a `Box` with state bg: pending `#282832` / success `#283228` / error `#3c2828`. Each block MUST show the call title + up to 10-line preview + expand hint (`… N lines`). Toggling expands to full output. Events MUST render as they arrive.
+(Previously: rounded Panel `#252525/#333`, kv `showDetails`/`showGenericToolOutput`, `○ pending`)
 
-#### Scenario: Pending then result
+#### Scenario: Pending then success
 
-- GIVEN `read_file` pending then result `ok`
-- WHEN tool View dumps
-- THEN first shows `○ pending`, then `Result: ok`
+- GIVEN `read_file` pending then result ok
+- WHEN dumped at each stage
+- THEN bg is `#282832` then `#283228` with title + preview
 
-#### Scenario: Collapse truncates
+#### Scenario: Long output collapses
 
-- GIVEN long output 500 lines with `collapseToolOutput=true`
+- GIVEN 500-line output collapsed
 - WHEN rendered
-- THEN dump shows truncated preview + `… N lines` hint
-
-#### Scenario: Toggle details
-
-- GIVEN `showDetails=false` then `true`
-- WHEN re-rendered
-- THEN detail rows appear only in second dump
+- THEN dump shows 10 lines + `… 490 lines` hint
 
 ### Requirement: REQ-TUI-TOOL-2 — Graceful Degradation
 
@@ -47,27 +41,22 @@ When the observer is nil or unavailable, the tool view MUST stay empty/disabled,
 - THEN the tool view degrades without crashing
 - AND the loop's termination and output are unaffected
 
-### Requirement: REQ-TUI-TOOL-3 — Diff Rendering and File Tree
+### Requirement: REQ-TUI-TOOL-3 — Diff Rendering Inside Block
 
-System MUST render diff via file-tree utils with `CHANGED FILES` + `▶` cursor + `+N/-N`, line numbers with `diffLineNumber*Bg`, `EmptyBorder/SplitBorder` chars, hunk header `diffHunkHeader`, highlight `diffHighlight`/`diff*Bg`, `diffWrapMode` word/none from kv store.
+Diffs MUST render INSIDE the tool `Box` (file header + hunks with line numbers + `+N/-N` counts). A standalone diff panel/overlay MUST NOT exist (`Ctrl+D` panel removed).
+(Previously: standalone file-tree view with CHANGED FILES + `▶` cursor + `diffWrapMode` kv)
 
-#### Scenario: Diff tree shows counts
+#### Scenario: Diff inside block
 
-- GIVEN diff with 2 files (+10/-2)
+- GIVEN edit diff over 2 files (+10/-2)
 - WHEN dumped
-- THEN lines contain `▶` and `+10`/`-2`
+- THEN counts appear inside the tool Box, no separate panel
 
-#### Scenario: Line numbers styled
+#### Scenario: Narrow diff truncates
 
-- GIVEN hunk with line numbers
-- WHEN dumped as text
-- THEN number column is present and wraps via word mode when enabled
-
-#### Scenario: Wrap mode none truncates
-
-- GIVEN `diff_wrap_mode=none` and long line 200 cols at width 80
+- GIVEN width 60 and a 200-col line
 - WHEN dumped
-- THEN line is truncated not wrapped
+- THEN line truncates without panic
 
 ### Requirement: REQ-TUI-TOOL-4 — Verification Goldens
 

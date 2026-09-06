@@ -1,13 +1,4 @@
-start a conversation...                                                                                                 
-                                                                                Session                                 
-                                                                                coder                                   
-                                                                                profile  coder                          
-                                                                                                                        
-                                                                                Context                                 
-                                                                                0 tokens 0% $0.00                       
-                                                                                                                        
-                                                                                LSP                                     
-                                                                                LSPs are disabled                       
+kui | coder   ^P palette · TAB profile · /help
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -23,8 +14,16 @@ start a conversation...
                                                                                                                         
                                                                                                                         
                                                                                                                         
-┃                                                                                                                       
-┃  Ask kui...                                                                                                           
-  coder ·                                                                                                               
-╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  ~/dev-biggz/kui                         
-~/dev-biggz/kui                                                    Get started                                          
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+
+
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Ask kui...                                                                                                           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+~/dev-biggz/kui

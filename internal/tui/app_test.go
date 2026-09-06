@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/biggs-100/kui/internal/core"
 	"github.com/biggs-100/kui/internal/tui/theme"
-	"github.com/biggs-100/kui/internal/tui/toast"
 )
 
 // --- fakeAppRunner implements Runner for app-level tests ---
@@ -550,9 +548,18 @@ func TestAppViewIncludesFooter(t *testing.T) {
 		t.Fatal("expected non-empty view")
 	}
 
-	// Session footer in welcome state (no sync.data) should show Get started /connect tick, not fabricated tokens
-	if !strings.Contains(view, "Get started") && !strings.Contains(view, "/connect") && !strings.Contains(view, "/status") && !strings.Contains(view, "•") {
-		t.Errorf("view should contain welcome footer 'Get started'/'/connect' or connected dots, got:\n%s", view)
+	// Pi footer contract (REQ-TUI-APP-6): 2 dim lines, unknowns omitted.
+	// The editor + header render; legacy welcome tick / dots are gone.
+	if !strings.Contains(view, "Ask kui...") {
+		t.Errorf("view should contain the bordered editor, got:\n%s", view)
+	}
+	if !strings.Contains(view, "kui | coder") {
+		t.Errorf("view should contain the minimal header, got:\n%s", view)
+	}
+	for _, old := range []string{"Get started", "/connect", "QUEUED", "┃"} {
+		if strings.Contains(view, old) {
+			t.Errorf("view must not contain removed marker %q, got:\n%s", old, view)
+		}
 	}
 	// Chat should contain the user message
 	if !strings.Contains(view, "hello") {
@@ -577,10 +584,16 @@ func TestAppFooterUpdatesOnStreamDone(t *testing.T) {
 	// Simulate stream done
 	app.Update(streamDoneMsg{})
 
-	// Footer should still render (welcome tick or connected dots) after stream done
+	// Footer + editor still render after stream done; legacy welcome tick
+	// / dots markers stay gone (REQ-TUI-APP-6).
 	view := app.View()
-	if !strings.Contains(view, "Get started") && !strings.Contains(view, "/connect") && !strings.Contains(view, "/status") && !strings.Contains(view, "•") {
-		t.Errorf("view should contain footer after stream done, got:\n%s", view)
+	if !strings.Contains(view, "Ask kui...") {
+		t.Errorf("view should contain the editor after stream done, got:\n%s", view)
+	}
+	for _, old := range []string{"Get started", "/connect", "QUEUED"} {
+		if strings.Contains(view, old) {
+			t.Errorf("view must not contain removed marker %q, got:\n%s", old, view)
+		}
 	}
 }
 
@@ -789,71 +802,8 @@ func TestStreamDoneMsgWiresUsageToController(t *testing.T) {
 
 // --- Diff View Toggle Tests ---
 
-func TestAppDiffToggle(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Initially diff should not be visible
-	if app.diffVisible {
-		t.Error("diff should not be visible initially")
-	}
 
-	// Press ctrl+d to toggle diff view (bare letters always type now)
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	a := msg.(*App)
-
-	if !a.diffVisible {
-		t.Error("diff should be visible after pressing ctrl+d")
-	}
-
-	// Press ctrl+d again to hide
-	msg, _ = a.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	a = msg.(*App)
-
-	if a.diffVisible {
-		t.Error("diff should be hidden after pressing ctrl+d again")
-	}
-}
-
-func TestAppDiffViewDoesNotAffectInput(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Type some text, then 'd' should not toggle diff when input has content
-	for _, r := range "hello" {
-		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		app = msg.(*App)
-	}
-
-	// Press 'd' - should be typed into input, not toggle diff
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	a := msg.(*App)
-
-	if a.diffVisible {
-		t.Error("diff should not toggle when input has content")
-	}
-	if a.input.Value() != "hellod" {
-		t.Errorf("input should contain 'hellod', got %q", a.input.Value())
-	}
-}
-
-func TestAppDiffViewRendered(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Toggle diff view
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
-	a := msg.(*App)
-
-	// View should render without panic
-	view := a.View()
-	if view == "" {
-		t.Error("expected non-empty view with diff visible")
-	}
-}
 
 // --- Command Palette Tests (Phase 5) ---
 
@@ -959,38 +909,7 @@ func TestAppPaletteDoesNotInterfereWithInput(t *testing.T) {
 
 // --- Toast Integration Tests (Phase 2) ---
 
-func TestAppToast(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	// Push a toast via the app
-	app.toast.Push("config reloaded", toast.LevelInfo, 3*time.Second)
-
-	// View should contain the toast text
-	view := app.View()
-	if !strings.Contains(view, "config reloaded") {
-		t.Errorf("View() should contain toast text, got:\n%s", view)
-	}
-}
-
-func TestAppToastDismissOnTick(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-
-	// Push a toast with zero duration
-	app.toast.Push("expired", toast.LevelInfo, 0)
-
-	// Tick to dismiss
-	app.Update(toast.TickMsg{})
-
-	// View should NOT contain the expired toast
-	view := app.View()
-	if strings.Contains(view, "expired") {
-		t.Errorf("View() should not contain expired toast, got:\n%s", view)
-	}
-}
 
 // --- Theme Cycling Tests (Phase 5) ---
 
@@ -1085,78 +1004,6 @@ func TestThemeCyclingWraps(t *testing.T) {
 	}
 }
 
-func TestAppIsWide(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	tests := []struct {
-		width int
-		want  bool
-	}{
-		{100, false},
-		{120, false},
-		{121, true},
-		{130, true},
-		{160, true},
-	}
-	for _, tt := range tests {
-		t.Run("", func(t *testing.T) {
-			app.Update(tea.WindowSizeMsg{Width: tt.width, Height: 24})
-			if got := app.IsWide(); got != tt.want {
-				t.Errorf("IsWide at %d = %v, want %v", tt.width, got, tt.want)
-			}
-		})
-	}
-}
 
-func TestAppContentWidth(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 130, Height: 24})
-	// Wide: rail 42 + one gutter column → main column = width-43 so the
-	// joined frame is flush with the terminal's right edge.
-	if got := app.ContentWidth(); got != 87 {
-		t.Errorf("ContentWidth at 130 wide should be 87, got %d", got)
-	}
-	app.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
-	if got := app.ContentWidth(); got != 96 {
-		t.Errorf("ContentWidth at 100 narrow should be 96, got %d", got)
-	}
-}
 
-func TestAppTitle(t *testing.T) {
-	c := NewController([]string{"coder"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	// Home route title is kui
-	if got := app.Title(); got != "kui" {
-		t.Errorf("Title on home should be 'kui', got %q", got)
-	}
-	// Switch to session
-	for _, r := range "hello" {
-		msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		app = msg.(*App)
-	}
-	msg, _ := app.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	app = msg.(*App)
-	if got := app.Title(); got != "kui | coder" {
-		t.Errorf("Title on session should be 'kui | coder', got %q", got)
-	}
-}
 
-func TestAppHomeHasNoHeader(t *testing.T) {
-	c := NewController([]string{"coder", "writer"}, nil, nil)
-	app := NewApp(c)
-	app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	view := app.View()
-	// Home route must not render header tabs
-	if strings.Contains(view, "coder") && strings.Contains(view, "writer") && strings.Contains(view, "tab") {
-		// header contains profile tabs; home should not
-		t.Errorf("home view should not contain header tabs, got:\n%s", view)
-	}
-	// More precise: header would contain profile names as tabs with ActiveTab styling
-	// But in test env without ANSI, they appear as plain names; ensure home view does not contain both profiles as header
-	// For now, check that home view does not contain the header's hint or tab pattern
-	if strings.Contains(view, "no profiles") {
-		t.Errorf("home view should not contain header hint")
-	}
-}

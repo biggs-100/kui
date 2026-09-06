@@ -2,20 +2,26 @@
 
 ## Purpose
 
-The header renders one tab per discoverable profile and lets the user cycle the session-active profile with TAB / shift+TAB. Switches are queued to the steering queue and apply between turns.
+The session-active profile is cycled with TAB / shift+TAB (no tabs UI) and indicated in the footer. Switches are queued to the steering queue and apply between turns.
 
 ## Requirements
 
-### Requirement: REQ-TUI-PROF-1 — Profile Tabs
+### Requirement: REQ-TUI-PROF-1 — Profile Indicator (No Tabs UI)
 
-The header MUST render one tab per discoverable profile (from the profile loader) and MUST visually mark the active profile.
+The system MUST NOT render profile tabs. TAB advance / Shift-TAB back with wrap MUST remain exactly as specified in REQ-TUI-PROF-2. The active profile MUST appear in footer line 2 right side as `(provider) model` + thinking indicator.
+(Previously: header rendered one tab per profile with active mark)
 
-#### Scenario: Tabs render
+#### Scenario: TAB switches, footer reflects
 
-- GIVEN two discoverable profiles "coder" and "writer"
-- WHEN the header renders
-- THEN two tabs appear
-- AND the active one is visually marked
+- GIVEN profiles coder/writer with coder active
+- WHEN TAB pressed
+- THEN writer becomes active and footer L2 right shows `(provider) model`
+
+#### Scenario: Single profile
+
+- GIVEN one discoverable profile
+- WHEN footer renders
+- THEN it shows that profile; TAB is a no-op without crash
 
 ### Requirement: REQ-TUI-PROF-2 — TAB Cycle with Wrap
 
@@ -65,11 +71,17 @@ A TAB switch MUST be enqueued via the steering queue (REQ-PROFILE-3) and MUST ap
 
 ### Requirement: REQ-TUI-PROF-4 — No Profiles Fallback
 
-When no profiles are discoverable, the header MUST render a hint that no profiles are available, MUST NOT crash, and the session MUST fall back to the default profile.
+With no discoverable profiles the footer/status MUST render a muted no-profiles hint, MUST NOT crash, and the session MUST fall back to the default profile. No header hint MUST exist.
+(Previously: header rendered the hint)
 
-#### Scenario: Empty profile set
+#### Scenario: Empty set
 
 - GIVEN no discoverable profiles
-- WHEN the header renders
-- THEN a no-profiles hint renders
-- AND the app keeps running with the default profile
+- WHEN footer renders
+- THEN muted hint appears and session uses default profile
+
+#### Scenario: Narrow footer truncates
+
+- GIVEN width 60 with long `provider/model`
+- WHEN footer renders
+- THEN text truncates muted, never fabricated

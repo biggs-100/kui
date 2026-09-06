@@ -24,7 +24,7 @@ func testCommands() []views.Command {
 		{Name: "/exit", Description: "Save and exit", Category: "System"},
 		{Name: "/help", Description: "Show this help", Category: "System"},
 		{Name: "Tab", Description: "Switch profile", Category: "Navigation", Shortcut: "Tab"},
-		{Name: "d", Description: "Toggle diff view", Category: "Navigation", Shortcut: "d"},
+		{Name: "d", Description: "Show diff summary", Category: "Navigation", Shortcut: "d"},
 		{Name: "Ctrl+P", Description: "Command palette", Category: "Navigation", Shortcut: "Ctrl+P"},
 	}
 }
