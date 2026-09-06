@@ -1,22 +1,27 @@
-# Delta for tui-theme-system
+# tui-theme-system Specification
 
-## ADDED Requirements
+## Purpose
 
-### Requirement: REQ-TUI-THEME-1 — Theme 40+ Fields Parity
+The theme system ports pi's `dark.json` as the `pi-dark` default theme, loads themes from JSON, and bans hard-coded hex literals outside `internal/tui/theme/`.
 
-System MUST define `Theme` with 40+ fields matching `packages/tui/src/theme/assets/opencode.json`: `primary/secondary/accent/error/warning/success/info/text/textMuted/selectedListItemText/background/backgroundPanel/backgroundElement/backgroundMenu/border/borderActive/borderSubtle/diffAdded/diffRemoved/diffContext/diffHunkHeader/diffHighlight/diffAddedBg/diffRemovedBg/diffContextBg/diffLineNumber*/markdown*(text/heading/link/linkText/code/blockQuote/emph/strong/hRule/listItem) /syntax*(comment/keyword/function/variable/string/number/type/operator/punctuation)/thinkingOpacity` plus base `BG/FG/Border` family.
+## Requirements
 
-#### Scenario: Theme has all OpenCode fields
+### Requirement: REQ-TUI-THEME-1 — pi-dark Default Theme
 
-- GIVEN `theme.OpenCode()` or JSON-loaded theme
-- WHEN fields are inspected
-- THEN all 40+ fields are non-empty and JSON round-trips
+The default theme MUST be `pi-dark`, ported exactly from pi `dark.json`: EVERY `vars` + `colors` entry MUST map to a `theme.go` field (mapping table in design); unmapped entries MUST be listed explicitly, never silently dropped. `Theme` keeps 40+ fields.
+(Previously: theme "opencode" matching `assets/opencode.json`)
 
-#### Scenario: OpenCode JSON matches struct
+#### Scenario: Default is pi-dark
 
-- GIVEN `packages/tui/src/theme/assets/opencode.json`
-- WHEN `theme.ParseBytes` loads it
-- THEN no field is lost and hex values equal asset exactly
+- GIVEN no theme override
+- WHEN `Load("pi-dark")` is inspected
+- THEN all mapped fields equal `dark.json` hexes exactly
+
+#### Scenario: Unknown tokens omitted
+
+- GIVEN a markdown/syntax token with no mapping
+- WHEN rendered
+- THEN output falls back muted, never invents a color
 
 ### Requirement: REQ-TUI-THEME-2 — Tint and Derived Colors
 
@@ -81,3 +86,19 @@ Styles MUST distinguish `backgroundPanel` (sidebar/panel), `backgroundElement` (
 - GIVEN DialogSelect with selection
 - WHEN dumped
 - THEN selected row uses `backgroundMenu` token
+
+### Requirement: REQ-TUI-THEME-6 — Theme Switching Keeps Working
+
+Runtime theme switching MUST keep working; after the port at least `pi-dark` plus one other theme MUST load and apply without restart artifacts.
+
+#### Scenario: Switch applies
+
+- GIVEN running session on pi-dark
+- WHEN user switches theme
+- THEN editor border + transcript colors update without panic
+
+#### Scenario: Missing theme file
+
+- GIVEN `Load("nonexistent")`
+- WHEN called
+- THEN it returns an error and current theme stays active

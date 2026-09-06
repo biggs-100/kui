@@ -2,86 +2,43 @@
 
 ## Purpose
 
-`kui tui` is the interactive primary workflow: a Bubble Tea application that composes the profile-tab header, the chat message view, and the live tool view. It owns the UI dependencies and never runs UI work on the agent loop's goroutine.
+`kui tui` is the interactive primary workflow: a Bubble Tea application that renders a single-column transcript (chat + tool view) with a bordered editor and a 2-line dim footer, pi-style. It owns the UI dependencies and never runs UI work on the agent loop's goroutine.
 
 ## Requirements
 
 ### Requirement: REQ-TUI-APP-1 — Entrypoint & Lifecycle
 
-`kui tui` MUST start the Bubble Tea program. On first launch, it MUST render the home screen (centered logo + prompt). After prompt submission, it MUST render the session view (chat + tool view). The app MUST quit on `q` or `ctrl+c`. If startup fails, the app MUST NOT render; the CLI MUST exit non-zero with an actionable stderr message.
+`kui tui` MUST start the Bubble Tea program and MUST ALWAYS render the transcript view (transcript scroll + bordered editor + 2-line footer). There MUST be NO home route. On fresh start (empty history) it MUST render only the vacant transcript view (bordered editor + 2-line footer); it MUST NOT render an inline changelog (no honest data source exists; fabricating one would violate honesty rules). The app MUST quit on `q` or `ctrl+c`. Startup failure MUST NOT render; the CLI MUST exit non-zero with actionable stderr.
+(Previously: first launch rendered home screen, session after submit; then: fresh start rendered inline changelog)
 
-(Previously: Always renders header, chat, and tool views directly)
+#### Scenario: Fresh start shows vacant transcript only (no changelog)
 
-#### Scenario: First launch shows home
-
-- GIVEN a valid provider configuration
+- GIVEN empty history at 120 cols
 - WHEN `kui tui` starts
-- THEN the home screen renders with centered logo and prompt
-
-#### Scenario: After prompt, shows chat
-
-- GIVEN the home screen is visible
-- WHEN the user submits a prompt
-- THEN the session view renders with chat and tool views
-
-#### Scenario: Quit on ctrl+c
-
-- GIVEN a running TUI (home or session)
-- WHEN the user presses `ctrl+c`
-- THEN the app exits cleanly with status zero
+- THEN transcript, bordered editor and 2-line footer render with no inline changelog
 
 #### Scenario: Startup failure
 
 - GIVEN invalid provider configuration
 - WHEN `kui tui` starts
-- THEN no TUI renders
-- AND the exit status is non-zero with an actionable stderr message
+- THEN nothing renders and exit is non-zero with stderr
 
 ### Requirement: REQ-TUI-APP-2 — Layout & Resize
 
-The app MUST support two layouts: home (flex-spacer centered logo + prompt + footer) and session (header + chat + tool view + footer with sidebar). `wide` MUST be `width > 120` (Previously: `width >= 110`). Sidebar width MUST be `42` (Previously: `30`). Session `contentWidth` MUST be `width - (sidebarVisible?42:0) - 4`. The sidebar rail MUST span the full terminal height in both modes: sections pinned at top, background-styled filler in between, footer (workspace path above version line) pinned at the very bottom — inline when wide, drawn over the backdrop when narrow overlay. A window resize MUST reflow current layout and MUST NOT crash.
-(Previously: sidebar 30@110, no contentWidth calc; sidebar floated at content height)
+The app MUST render a single column: minimal header + transcript scroll + bordered editor + 2-line dim footer. It MUST NOT render a sidebar (inline nor overlay/backdrop), canvas cell painting, viewport height budget, or input `┃` bar/meta-row/fade. Resize MUST reflow without crash; narrow terminals MUST only shrink transcript/editor.
+(Previously: home/session layouts, sidebar 42 inline/overlay, contentWidth calc, canvas + viewport budget)
 
-#### Scenario: Wide shows sidebar inline
+#### Scenario: No sidebar at any width
 
-- GIVEN width 130
-- WHEN session renders
-- THEN sidebar 42 cols is visible inline and contentWidth is 84
-
-#### Scenario: Wide sidebar spans full height with pinned footer
-
-- GIVEN width 130 session view
+- GIVEN width 130 with session state
 - WHEN View renders
-- THEN the sidebar block has exactly as many rows as the main panel
-- AND its bottom rows are the workspace path directly above the version line
-- AND every sidebar row carries the Sidebar background (no unstyled gaps)
+- THEN no 42-col sidebar or backdrop appears
 
-#### Scenario: Narrow overlays sidebar
+#### Scenario: Narrow survives
 
-- GIVEN width 100
-- WHEN session renders
-- THEN contentWidth is 96 and sidebar renders as overlay with backdrop
-
-#### Scenario: Sidebar sections render only real state
-
-- GIVEN the session sidebar renders sections for Subagents, MCP, and LSP
-- WHEN no subagent source is attached or no MCP servers were attempted
-- THEN the Subagents/MCP sections are omitted entirely (never a fabricated zero-state or invented server names)
-- AND the LSP section shows its truthful state ("LSPs are disabled" while no LSP management is wired)
-- AND when sources ARE attached, stats (run/done/err/Σ) and per-server states render from live data only
-
-#### Scenario: Background subagent changes refresh the rail
-
-- GIVEN a background subagent launches or finishes
-- WHEN the change fires
-- THEN the controller emits a change message through the event pump
-- AND the next View renders updated subagent stats without polling
-
-#### Scenario: Resize reflows
-
-- GIVEN running TUI width 120
-- WHEN resized to 160
-- THEN layout reflows without panic
+- GIVEN width 60
+- WHEN View renders
+- THEN layout shrinks without panic; footer truncates, never fabricates
 
 ### Requirement: REQ-TUI-APP-3 — Concurrency Boundary
 
@@ -111,44 +68,22 @@ Bubble Tea and lipgloss imports MUST exist only under `internal/tui`. The core p
 - WHEN the guard test runs
 - THEN the guard test fails, blocking the change
 
-### Requirement: REQ-TUI-APP-5 — Route System
-
-The app MUST maintain a route state: `home` or `session`. The route MUST switch from `home` to `session` when a prompt is submitted. The route MUST switch from `session` to `home` when the user requests a new session (future: Ctrl+N).
-
-#### Scenario: Initial route is home
-
-- GIVEN `kui tui` starts
-- WHEN the app renders for the first time
-- THEN the route is `home`
-
-#### Scenario: Prompt submission switches to session
-
-- GIVEN the route is `home`
-- WHEN the user submits a prompt
-- THEN the route changes to `session`
-
 ### Requirement: REQ-TUI-APP-6 — Footer Variants
 
-The app MUST render distinct footers: Home footer is empty/plugin slot (no fabricated `dir • LSP • MCP`). Session footer MUST mirror `routes/session/footer.tsx`: when connected shows `• N LSP` + `⊙ N MCP` + permission `△ N` + `/status`; when welcome (not connected) cycles `Get started /connect` via tick. Counts MUST come from real `sync.data.*` or be omitted as muted, never fabricated.
-(Previously: Home `directory • LSP • MCP • /status` minimal, Session `tokens (percent%) • $cost • MCP: N connected • LSP: status`)
+The footer MUST be exactly 2 dim lines: L1 `cwd (branch) session`; L2 left stats, right `(provider) model` + thinking. Unknown branch/tokens/session MUST be omitted (never fabricated). A spinner accent line MAY appear above the editor while busy; `IdleStatus` MUST reserve 2 lines so the layout never jumps.
+(Previously: Home empty/plugin slot; Session `• N LSP + ⊙ N MCP + △ N + /status` with welcome tick)
 
-#### Scenario: Session connected footer shows dots
+#### Scenario: Footer contract exact
 
-- GIVEN LSP 2 connected and MCP 1 failed
+- GIVEN cwd `/repo`, branch `main`, session `dev`, provider `openai`
 - WHEN footer renders
-- THEN dump contains `• 2` and `⊙ 1` with status hint `/status`
+- THEN L1 shows path + `(main)` and L2 right shows `(openai) model`
 
-#### Scenario: Welcome tick cycles
+#### Scenario: Unknowns omitted
 
-- GIVEN no sync data (not connected)
-- WHEN 10s tick fires
-- THEN footer cycles `Get started → /connect`
-
-#### Scenario: No fabrication when absent
-
-- GIVEN `sync.data.lsp/mcp` absent
+- GIVEN unknown branch and no token stats
 - WHEN footer renders
-- THEN counts are omitted as muted, not `0` faked as connected
+- THEN branch/stats are omitted muted, never `0` or invented names
 
 ### Requirement: REQ-TUI-APP-7 — Theme "opencode"
 
@@ -163,19 +98,14 @@ The app MUST include theme "opencode" with 40+ fields matching `assets/opencode.
 
 ### Requirement: REQ-TUI-APP-8 — Border Primitives and Toast/Title
 
-System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` (`┃ left, ╹ bottom` vs `│/└` drift must be exact) and decorative bottom `▀` for prompt. It MUST set terminal title to `kui` on home and `kui | {title}` on session. Toast MUST live inside home centered column and session scroll area.
+System MUST provide `ui/border` with `EmptyBorder` and `SplitBorder` and MUST set terminal title to `kui` on start and `kui | {title}` with session. Toasts MUST NOT render anywhere (see REQ-TUI-DLG-5).
+(Previously: Toast lived inside home centered column and session scroll area)
 
-#### Scenario: Chat uses ┃ not │
+#### Scenario: No toast renders
 
-- GIVEN user message part rendered
-- WHEN dump compared at 120 cols
-- THEN left border char is `┃` not `│`
-
-#### Scenario: Title reflects route
-
-- GIVEN route home
-- WHEN title sequence emitted
-- THEN title is `kui`
+- GIVEN any error/status event
+- WHEN View dumps
+- THEN no floating toast appears; status shows in the transient line
 
 ### Requirement: REQ-TUI-APP-9 — Locale and Formatting Invariants
 

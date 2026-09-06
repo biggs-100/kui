@@ -1,18 +1,7 @@
-                                                                                                                        
-┃                                                                                                                       
-┃  hello                                                                                                                
-┃                                                                                                                       
-╹
+ hello                                                                                                              
+Title
 
-   Title
+Some bold text with  code . plus streamed
 
-   Some bold text with  code . plus streamed
-▣ assistant · 14:05
-                                                                                                                        
-┃                                                                                                                       
-┃  QUEUED                                                                                                               
-┃  queued prompt                                                                                                        
-┃                                                                                                                       
-╹
-── compaction ──
-╹
+ queued prompt                                                                                                      
+── compaction ── ───────────────────────────────────────────────────────────────────────────────────────────────

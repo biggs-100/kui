@@ -8,51 +8,37 @@ The chat view shows the conversation: user prompts, streaming assistant answers,
 
 ### Requirement: REQ-TUI-CHAT-1 — Prompt Submission
 
-The user MUST be able to type a prompt in the input and submit it with Enter. The submitted prompt MUST be sent to the agent loop carrying the session's active `{profile, model}` and MUST appear in the message view. Submission display MUST use left-border `SplitBorder` with agent color (not plain `you` label).
+The user MUST submit with Enter carrying session `{profile, model}`; empty input MUST be ignored. Submitted user messages MUST render as a `Box` with bg `#343541`, full-width, with padding — NO `┃` SplitBorder, NO `you:` label.
+(Previously: left-border SplitBorder with agent color)
 
-#### Scenario: Submit a prompt
+#### Scenario: User box renders
 
-- GIVEN the TUI running with active profile "coder"
-- WHEN the user types a prompt and presses Enter
-- THEN the prompt appears in the message view
-- AND it is sent carrying `{profile: "coder", model: <resolved>}`
-
-#### Scenario: Empty input ignored
-
-- GIVEN an empty or whitespace-only input
-- WHEN the user presses Enter
-- THEN no prompt is submitted
-- AND the message view is unchanged
-
-#### Scenario: Submitted prompt shows with border
-
-- GIVEN prompt "hello" submitted under profile coder
+- GIVEN prompt "hello" under profile coder
 - WHEN chat dumps
-- THEN user part shows `┃` border not `you:` label
+- THEN message appears in `#343541` Box without `┃` or `you:`
+
+#### Scenario: Empty ignored
+
+- GIVEN whitespace-only input
+- WHEN Enter pressed
+- THEN nothing submits and view is unchanged
 
 ### Requirement: REQ-TUI-CHAT-2 — Streaming Answer Rendering
 
-While provider streams, chat MUST render answer incrementally per-part (`text/reasoning/tool/file/compaction`) via `PART_MAPPING`. Each part MUST render with left `SplitBorder` (`┃` vertical) colored by agent and a single `╹` end-cap row below the part — the `╹` terminates the vertical divider at the left edge and MUST NOT repeat as a full-width band. Hover uses `backgroundElement`, `QUEUED` badge, compaction divider, `stickyScroll` with acceleration. Inline diagnostics MUST stay below affected lines without interrupting flow.
-(Previously: regex markdown only, `(profile/model)` faint, `HomeMuted` status)
+Assistant messages MUST render as plain markdown with NO background and NO border, followed by `Spacer(1)`. Streaming chunks MUST append incrementally to the same block. `┃`/`╹` end-caps, hover background, `QUEUED` badge and stickyScroll acceleration are REMOVED.
+(Previously: per-part SplitBorder `┃` + `╹` terminator, hover backgroundElement, QUEUED badge)
 
-#### Scenario: Per-part split border
+#### Scenario: Plain assistant + spacer
 
 - GIVEN assistant answer with two parts
 - WHEN dumped
-- THEN each part has `┃` left border and a single `╹` terminator at the left edge
-- AND no full-width repeated `╹` band spans the chat width
+- THEN text has no `┃`/`╹` and blocks are separated by one blank line
 
-#### Scenario: Queued badge shows
+#### Scenario: Streaming appends
 
-- GIVEN queued prompt part
-- WHEN rendered
-- THEN dump contains `QUEUED` badge
-
-#### Scenario: Hover background
-
-- GIVEN hover over user part
-- WHEN rendered state with hover=true
-- THEN dump marker indicates `backgroundElement` path (verified via style token presence in code, text fallback `hover`)
+- GIVEN partial stream `hel` then `lo`
+- WHEN dumped after each chunk
+- THEN second dump shows `hello` in the same block
 
 ### Requirement: REQ-TUI-CHAT-3 — Per-Prompt Context Stability
 
@@ -124,3 +110,19 @@ System MUST render `workspace`/`permission`/`editor` as muted `NotAvailable` pla
 - GIVEN chat with user+assistant+tool parts at 120 cols
 - WHEN dumped
 - THEN `testdata/chat_*.txt` golden passes
+
+### Requirement: REQ-TUI-CHAT-7 — Shell, Compaction, Thinking, Error Lines
+
+Shell output MUST render as a muted block; compaction as a full-width divider line; thinking as dim italic; errors/status as plain muted transcript lines (never toasts). Unknown tokens MUST be omitted, never fabricated.
+
+#### Scenario: Thinking + compaction
+
+- GIVEN thinking text and a compaction event
+- WHEN dumped
+- THEN thinking is dim italic and a divider separates pre/post compaction
+
+#### Scenario: Narrow + empty
+
+- GIVEN width 60 and empty transcript
+- WHEN dumped
+- THEN blocks wrap without panic; empty shows only editor + footer

@@ -1,6 +1,2 @@
-                                                                                                                        
-┃                                                                                                                       
-┃  Hello                                                                                                                
-┃                                                                                                                       
-╹
+ Hello                                                                                                              
 error: stream failed

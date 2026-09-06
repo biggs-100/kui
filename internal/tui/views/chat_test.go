@@ -142,19 +142,25 @@ func TestChatMultipleChunksGrowMessage(t *testing.T) {
 
 func TestChatPerPromptContextStability(t *testing.T) {
 	m := NewChatModel(testStyles())
-	// Identity moved from inline user headers to the assistant end-cap:
-	// ▣ {profile} · {model} closes each turn.
+	// Pi contract (REQ-TUI-CHAT-1/2, REQ-TUI-APP-6): the transcript
+	// carries no per-message identity — no headers, no ▣ end-caps.
+	// Profile/model identity lives in the footer, not the chat.
 	m.AppendMessage("user", "First", "coder", "gpt-4")
 	m.AppendMessage("assistant", "Answer 1", "coder", "gpt-4")
 	m.AppendMessage("user", "Second", "writer", "gpt-3.5")
 	m.AppendMessage("assistant", "Answer 2", "writer", "gpt-3.5")
 	got := m.Render()
 
-	if !strings.Contains(got, "coder") {
-		t.Error("assistant end-cap should show coder profile")
+	for _, f := range []string{"coder", "writer", "gpt-4", "gpt-3.5", "┃", "╹", "▣", "QUEUED"} {
+		if strings.Contains(got, f) {
+			t.Errorf("transcript must not carry per-message identity %q, got:\n%s", f, got)
+		}
 	}
-	if !strings.Contains(got, "writer") {
-		t.Error("assistant end-cap should show writer profile")
+	if !strings.Contains(got, "First") || !strings.Contains(got, "Answer 1") {
+		t.Errorf("transcript should contain first turn, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Second") || !strings.Contains(got, "Answer 2") {
+		t.Errorf("transcript should contain second turn, got:\n%s", got)
 	}
 }
 

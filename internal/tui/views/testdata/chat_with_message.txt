@@ -1,8 +1,2 @@
-                                                                                                                        
-┃                                                                                                                       
-┃  What is 2+2?                                                                                                         
-┃                                                                                                                       
-╹
-
-   4
-▣ assistant · 14:05
+ What is 2+2?                                                                                                       
+4

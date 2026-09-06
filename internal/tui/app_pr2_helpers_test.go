@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +15,15 @@ import (
 // covered by footer/app tests.
 func newSessionApp(t *testing.T, width, height int) *App {
 	t.Helper()
+	// Hermetic git: footer renders live `gitBranch()` at View() time
+	// (rebuildViews refreshes it on every render), which would lock the
+	// current branch name into goldens (REQ-TUI-APP-10 locks layout, not
+	// dynamic git state). Ceiling discovery above the package dir (the
+	// ceiling itself must be a parent: git never excludes the cwd) so
+	// `git rev-parse` fails and the branch is omitted (never fabricated).
+	if wd, err := os.Getwd(); err == nil {
+		t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(wd))
+	}
 	c := NewController([]string{"coder"}, nil, nil)
 	c.SetKV("workspace", "~/dev-biggz/kui")
 	app := NewApp(c)
