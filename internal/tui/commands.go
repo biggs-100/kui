@@ -123,12 +123,6 @@ func NewCommandRegistry() *CommandRegistry {
 		Shortcut:    "Tab",
 	}, nil)
 	r.registerWithHandler(views.Command{
-		Name:        "Ctrl+D",
-		Description: "Toggle diff view",
-		Category:    "Navigation",
-		Shortcut:    "Ctrl+D",
-	}, nil)
-	r.registerWithHandler(views.Command{
 		Name:        "Esc ×2",
 		Description: "Interrupt the running turn",
 		Category:    "Navigation",
